@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { generateKeyPairSync, sign, createHash } from 'node:crypto';
 const base = 'http://127.0.0.1:4174/onboarding/';
 for (const relay of [false, true]) {
-  test(`browser login (${relay ? 'relay' : 'direct'}) drives a worker request, keeps tokens off disk, and ends when worker memory is lost`, async ({
+  test(`browser login (${relay ? 'relay' : 'direct'}) survives worker termination and reopening without another sign-in`, async ({
     page,
     context,
     request,
@@ -150,18 +150,23 @@ for (const relay of [false, true]) {
           };
         }),
     );
-    expect(saved).not.toContain('browser-secret');
+    expect(saved).toContain('placeholder-browser-access');
+    expect(saved).toContain('placeholder-browser-refresh');
     const devtools = await context.newCDPSession(page);
     await devtools.send('ServiceWorker.enable');
     await devtools.send('ServiceWorker.stopAllWorkers');
     await devtools.detach();
-    await page.getByRole('textbox', { name: 'Message', exact: true }).fill('Hello again');
-    await page.getByRole('button', { name: 'Send', exact: true }).click();
-    await expect(page.getByRole('heading', { name: 'Connect ChatGPT' })).toBeVisible();
-    expect(requests).toBe(1);
-    await expect(page.getByRole('textbox', { name: 'Message', exact: true })).toHaveValue(
-      'Hello again',
+    const reopened = await context.newPage();
+    await page.close();
+    await reopened.goto(base);
+    await reopened.getByRole('textbox', { name: 'Message', exact: true }).fill('Hello again');
+    await reopened.getByRole('button', { name: 'Send', exact: true }).click();
+    await expect(reopened.locator('[data-role=assistant]')).toHaveCount(2);
+    await expect(reopened.locator('[data-role=assistant]').last()).toContainText(
+      'Browser subscription transport works.',
     );
+    expect(requests).toBe(2);
+    expect(await reopened.locator('body').innerText()).not.toContain('browser-secret');
   });
 }
 
