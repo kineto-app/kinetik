@@ -561,7 +561,7 @@ const connectionSetup = setupConnections((value) => {
       : 'Connect ChatGPT to chat';
     byId('model-settings-title').textContent = 'ChatGPT subscription';
     byId('model-settings-description').textContent = value.chatgpt.browser
-      ? 'Connected for this browser session. If the session ends, sign in again.'
+      ? 'Sign-in lasts for this browser session. If it ends, sign in again.'
       : 'Your account connection is managed by this host’s credential helper. Your agent and tools run in this browser.';
   }
   if (!current()?.messages.length) lastMessages = '';
