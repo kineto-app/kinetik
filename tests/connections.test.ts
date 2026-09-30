@@ -185,7 +185,18 @@ test('a failed skill sync blocks new credentials until retry and old jobs cannot
   await expect(connectionToken(f.store, 'charms', revision)).rejects.toThrow('Finish connecting');
   await expect(connectionToken(f.store, 'charms', oldRevision)).rejects.toThrow('Reconnect');
   sync.mockRestore();
+  // Simulate an older installed adapter after the app has been updated.
+  await f.store.put(
+    'plugins',
+    (await f.plugins.list()).map((plugin) => ({
+      ...plugin,
+      code: 'throw new Error("outdated adapter")',
+      digest: 'old-adapter',
+    })),
+  );
   await f.connections.activate();
+  expect((await f.plugins.list())[0].digest).not.toBe('old-adapter');
+  expect(f.calls.filter((call) => call.url.endsWith('/token'))).toHaveLength(2);
   expect((await f.connections.state()).charms.status).toBe('connected');
   expect(await connectionToken(f.store, 'charms', revision)).toBe('test-secret');
   await expect(connectionToken(f.store, 'charms', oldRevision)).rejects.toThrow('Reconnect');

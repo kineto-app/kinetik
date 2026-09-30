@@ -141,7 +141,15 @@ export function setupConnections(changed: (state: SetupState) => void) {
     $('callback').hidden = !signingIn;
     $('resume-chatgpt').hidden = signingIn || !state.chatgpt.available || state.chatgpt.connected;
     $('authorize').hidden = !$('authorize').hasAttribute('href');
-    $('charms-return-option').hidden = !installation.standalone;
+    const charmsAuthorized = ['connected', 'disabled'].includes(state.charms.status);
+    $('charms-return-option').hidden = !installation.standalone || charmsAuthorized;
+    if (charmsAuthorized) {
+      // The OAuth code has already been consumed. Retry activation using the saved credential.
+      $<HTMLInputElement>('charms-link').value = '';
+      $('charms-authorize').removeAttribute('href');
+      $('charms-authorize').hidden = true;
+      $<HTMLDetailsElement>('charms-return-option').open = false;
+    }
     $('connect-charms').innerHTML =
       (state.charms.status === 'connected'
         ? 'Continue'
@@ -149,9 +157,11 @@ export function setupConnections(changed: (state: SetupState) => void) {
           ? 'Enable Charms'
           : state.charms.status === 'reconnect'
             ? 'Reconnect Charms'
-            : 'Connect Charms') + icon('external');
+            : 'Connect Charms') + icon(charmsAuthorized ? 'chevron' : 'external');
     $('charms-hint').textContent = state.charms.available
-      ? 'Sign in with Kineto.'
+      ? charmsAuthorized
+        ? 'Signed in to Kineto.'
+        : 'Sign in with Kineto.'
       : 'Charms is not configured on this host.';
     $<HTMLButtonElement>('connect-charms').disabled = !state.charms.available;
     if (focus && dialog.open) {
@@ -444,7 +454,9 @@ export function setupConnections(changed: (state: SetupState) => void) {
   async function initialize() {
     try {
       await refresh();
-      if (callback?.state.startsWith('app.') && !installation.standalone) {
+      // Installed-app sign-in is completed by pasting into the initiating window.
+      // A callback can itself open as a standalone window; it must not consume the code.
+      if (callback?.state.startsWith('app.')) {
         open();
         go('handoff');
         return;

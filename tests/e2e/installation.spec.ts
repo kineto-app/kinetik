@@ -136,3 +136,68 @@ test('Safari on Mac explains Add to Dock', async ({ page }) => {
   await expect(page.locator('#setup-install-instructions')).toContainText('Add to Dock');
   await expect(page.getByRole('button', { name: 'Install Kinetik', exact: true })).toBeHidden();
 });
+
+test('retries Charms activation without offering an already-consumed return link', async ({
+  page,
+  context,
+  request,
+}) => {
+  await request.post(base + 'connections/chatgpt/callback', { data: {} });
+  await page.addInitScript(() => Object.defineProperty(navigator, 'standalone', { value: true }));
+  let failActivation = true;
+  let tokenExchanges = 0;
+  context.on('request', (request) => {
+    if (request.url() === base + 'connections/charms/token') tokenExchanges++;
+  });
+  await context.route(base + 'connections/charms/mcp', async (route) => {
+    if (route.request().postDataJSON()?.method === 'tools/list' && failActivation) {
+      failActivation = false;
+      await route.fulfill({ status: 503, json: { error: 'Temporary activation failure' } });
+    } else await route.continue();
+  });
+  await page.goto(base);
+  const popup = page.waitForEvent('popup');
+  await page.getByRole('button', { name: 'Connect Charms', exact: true }).click();
+  const consent = await popup;
+  await consent.getByRole('link', { name: 'Allow Charms' }).click();
+  await expect(consent.getByRole('heading', { name: 'Return to Kinetik' })).toBeVisible();
+  const callback = await consent.getByLabel('Return link for Kinetik').inputValue();
+  await consent.close();
+  await page.getByLabel('Return link from Kineto').fill(callback);
+  await page.getByRole('button', { name: 'Finish connecting Charms' }).click();
+  await expect(page.getByRole('button', { name: 'Enable Charms', exact: true })).toBeVisible();
+  await expect(page.locator('#setup-charms-return-option')).toBeHidden();
+  await expect(page.locator('#setup-charms-link')).toHaveValue('');
+  await page.screenshot({ path: test.info().outputPath('activation-retry.png'), fullPage: true });
+  await page.getByRole('button', { name: 'Enable Charms', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Start chatting' })).toBeVisible();
+  expect(tokenExchanges).toBe(1);
+});
+
+test('a return window with standalone display mode does not consume the code before its first paste', async ({
+  page,
+  context,
+  request,
+}) => {
+  await request.post(base + 'connections/chatgpt/callback', { data: {} });
+  await context.addInitScript(() =>
+    Object.defineProperty(navigator, 'standalone', { value: true }),
+  );
+  let exchanges = 0;
+  context.on('request', (request) => {
+    if (request.url() === base + 'connections/charms/token') exchanges++;
+  });
+  await page.goto(base);
+  const popup = page.waitForEvent('popup');
+  await page.getByRole('button', { name: 'Connect Charms', exact: true }).click();
+  const consent = await popup;
+  await consent.getByRole('link', { name: 'Allow Charms' }).click();
+  await expect(consent.getByRole('heading', { name: 'Return to Kinetik' })).toBeVisible();
+  expect(exchanges).toBe(0);
+  const callback = await consent.getByLabel('Return link for Kinetik').inputValue();
+  await consent.close();
+  await page.getByLabel('Return link from Kineto').fill(callback);
+  await page.getByRole('button', { name: 'Finish connecting Charms' }).click();
+  await expect(page.getByRole('button', { name: 'Start chatting' })).toBeVisible();
+  expect(exchanges).toBe(1);
+});
