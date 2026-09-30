@@ -7,6 +7,8 @@ const prefix = '/onboarding/';
 let installRequired = false;
 let browserChatGPT = false;
 let modelRelay = false;
+let failActivation = false;
+let tokenExchanges = 0;
 let connected = false,
   revoked = false;
 const flows = new Map();
@@ -41,7 +43,14 @@ export async function onboardingFixture(req, res) {
     modelRelay = url.searchParams.has('relay');
     return reply({});
   }
+  if (url.pathname === prefix + 'fail-activation') {
+    failActivation = true;
+    return reply({});
+  }
+  if (url.pathname === prefix + 'stats') return reply({ tokenExchanges });
   if (url.pathname === prefix + 'reset') {
+    failActivation = false;
+    tokenExchanges = 0;
     browserChatGPT = false;
     modelRelay = false;
     installRequired = false;
@@ -98,6 +107,7 @@ export async function onboardingFixture(req, res) {
     return true;
   }
   if (url.pathname.endsWith('/token')) {
+    tokenExchanges++;
     const values = new URLSearchParams(await body());
     const flow = flows.get(values.get('code'));
     flows.delete(values.get('code'));
@@ -122,6 +132,10 @@ export async function onboardingFixture(req, res) {
     if (revoked || req.headers.authorization !== 'Bearer charms-fixture-token')
       return reply({}, 401);
     const rpc = JSON.parse(await body());
+    if (rpc.method === 'tools/list' && failActivation) {
+      failActivation = false;
+      return reply({ error: 'Temporary activation failure' }, 503);
+    }
     let result = {};
     if (rpc.method === 'initialize') result = { protocolVersion: '2025-11-25' };
     if (rpc.method === 'tools/list')

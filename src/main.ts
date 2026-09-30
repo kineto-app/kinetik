@@ -594,6 +594,10 @@ const connectionSetup = setupConnections((value) => {
   if (!current()?.messages.length) lastMessages = '';
   render();
 });
+byId('install-open').onclick = () => {
+  closeDrawer(false);
+  connectionSetup.install();
+};
 for (const id of ['connection-status', 'connection-open', 'chatgpt-open'])
   byId(id).onclick = () => {
     for (const dialog of document.querySelectorAll<HTMLDialogElement>('dialog[open]'))

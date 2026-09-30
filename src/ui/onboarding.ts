@@ -13,12 +13,10 @@ const initial: SetupState = {
 export function setupConnections(changed: (state: SetupState) => void) {
   let state = initial;
   let busy = false;
-  let screen: 'install' | 'handoff' | 'charms' | 'chatgpt' | 'ready' = 'charms';
+  let screen: 'install' | 'handoff' | 'connected' | 'charms' | 'chatgpt' | 'ready' = 'charms';
   const installation = setupInstallation(() => {
-    if (screen === 'install' && dialog.open) {
-      if (installation.standalone) void initialize();
-      else go('install', false);
-    }
+    renderInstallButtons();
+    if (screen === 'install' && dialog.open) go('install', false);
   });
   let signingIn = false;
   const url = new URL(location.href);
@@ -51,19 +49,19 @@ export function setupConnections(changed: (state: SetupState) => void) {
   dialog.className = 'connection-setup';
   dialog.setAttribute('aria-labelledby', 'setup-title');
   dialog.innerHTML = `
-    <header class="setup-nav"><div class="brand"><img src="./icon.svg" width="34" height="34" alt=""/>Kinetik</div><button id="setup-later" class="setup-quiet">Set up later</button></header>
+    <header class="setup-nav"><div class="brand"><img src="./icon.svg" width="34" height="34" alt=""/>Kinetik</div><div class="actions"><button id="setup-install-open" class="setup-quiet">Install</button><button id="setup-later" class="setup-quiet" aria-label="Set up later">Later</button></div></header>
     <div class="setup-body">
       <section class="setup-main">
-        <ol class="setup-steps" aria-label="Connection progress"><li data-step="install"><span>1</span>Install</li><li data-step="chatgpt"><span>2</span>ChatGPT</li><li data-step="charms"><span>3</span>Charms</li><li data-step="ready"><span>4</span>Ready</li></ol>
+        <ol class="setup-steps" aria-label="Connection progress"><li data-step="chatgpt"><span>2</span>ChatGPT</li><li data-step="charms"><span>3</span>Charms</li><li data-step="ready"><span>4</span>Ready</li></ol>
         <h1 id="setup-title" tabindex="-1">Connect Charms</h1>
         <p id="setup-description" class="setup-lead"></p>
         <div id="setup-install" hidden>
           <button id="setup-install-button" class="primary setup-primary">${icon('download')} Install Kinetik</button>
           <ol id="setup-install-instructions" class="setup-instructions"></ol>
-          <p id="setup-install-hint" class="setup-hint"></p>
+          <p id="setup-install-hint" class="setup-hint"></p><button id="setup-install-continue" class="secondary setup-primary">Continue in browser</button>
           <details class="setup-install-help"><summary>Need help?</summary><p>Already installed? Open Kinetik from your Home Screen, Dock, or apps.</p><p>Cannot install? Try Safari on iPhone or Mac, or Chrome on desktop or Android.</p></details>
         </div>
-        <div id="setup-handoff" hidden><label for="setup-charms-return">Return link for Kinetik</label><textarea id="setup-charms-return" readonly rows="3" spellcheck="false"></textarea><button id="setup-copy-return" class="primary setup-primary">${icon('copy')} Copy return link</button><p class="setup-hint">Keep this link private.</p></div>
+        <div id="setup-connected" hidden><button id="setup-return-to-app" class="primary setup-primary">Return to Kinetik</button></div><div id="setup-handoff" hidden><label for="setup-charms-return">Return link for Kinetik</label><textarea id="setup-charms-return" readonly rows="3" spellcheck="false"></textarea><button id="setup-copy-return" class="primary setup-primary">${icon('copy')} Copy return link</button><p class="setup-hint">Keep this link private.</p></div>
         <div id="setup-charms">
           <button id="setup-connect-charms" class="primary setup-primary">Connect Charms ${icon('external')}</button>
           <p id="setup-charms-hint" class="setup-hint">Opens Kineto, then brings you back here.</p>
@@ -104,11 +102,15 @@ export function setupConnections(changed: (state: SetupState) => void) {
   function go(next: typeof screen, focus = true) {
     screen = next;
     clearError();
-    for (const name of ['install', 'handoff', 'charms', 'chatgpt', 'ready'])
+    for (const name of ['install', 'handoff', 'connected', 'charms', 'chatgpt', 'ready'])
       $(name).hidden = name !== next;
+    dialog.querySelector<HTMLElement>('.setup-steps')!.hidden = [
+      'install',
+      'handoff',
+      'connected',
+    ].includes(next);
     let stepNumber = 0;
     for (const li of dialog.querySelectorAll<HTMLElement>('[data-step]')) {
-      li.hidden = li.dataset.step === 'install' && !state.installation.required;
       if (!li.hidden) li.querySelector('span')!.textContent = String(++stepNumber);
       if (li.dataset.step === next) li.setAttribute('aria-current', 'step');
       else li.removeAttribute('aria-current');
@@ -116,21 +118,24 @@ export function setupConnections(changed: (state: SetupState) => void) {
     $('title').textContent = {
       install: 'Install Kinetik',
       handoff: 'Return to Kinetik',
+      connected: 'Charms connected',
       charms: 'Connect Charms',
       chatgpt: 'Connect ChatGPT',
       ready: "You're ready",
     }[next];
     $('description').textContent = {
-      install: 'Install the app, then open it to sign in.',
+      install: 'Add Kinetik to your Home Screen or Dock.',
+      connected: 'Return to Kinetik to continue.',
       handoff: 'Copy this link and paste it in the Kinetik app.',
       charms: 'Use your Charms files, tools, and skills.',
       chatgpt: 'Chat using your ChatGPT subscription.',
       ready: '',
     }[next];
     $('description').hidden = !$('description').textContent;
-    $('later').hidden = blocked() || next === 'handoff';
+    $('later').hidden = next === 'handoff' || next === 'connected';
+    renderInstallButtons();
     $('install-example').hidden = next !== 'install';
-    $('chat-example').hidden = next === 'install' || next === 'handoff';
+    $('chat-example').hidden = ['install', 'handoff', 'connected'].includes(next);
     if (next === 'install') renderInstallation();
     if (next === 'handoff') $<HTMLTextAreaElement>('charms-return').value = callbackAddress;
     $('charms-ready').hidden = state.charms.status !== 'connected';
@@ -169,8 +174,17 @@ export function setupConnections(changed: (state: SetupState) => void) {
       dialog.scrollTop = 0;
     }
   }
-  function blocked() {
-    return state.installation.required && !installation.standalone;
+  function renderInstallButtons() {
+    const hidden = installation.standalone;
+    $('install-open').hidden =
+      hidden || screen === 'install' || screen === 'handoff' || screen === 'connected';
+    const button = document.getElementById('install-open');
+    if (button) button.hidden = hidden;
+  }
+  function install() {
+    go('install');
+    if (!dialog.open) dialog.showModal();
+    $('title').focus();
   }
   function renderInstallation() {
     $('install-button').hidden = !installation.available || installation.accepted;
@@ -218,15 +232,13 @@ export function setupConnections(changed: (state: SetupState) => void) {
   }
   function next() {
     go(
-      blocked()
-        ? 'install'
-        : !state.chatgpt.connected && state.chatgpt.available
-          ? 'chatgpt'
-          : state.charms.available && state.charms.status !== 'connected'
-            ? 'charms'
-            : state.chatgpt.connected
-              ? 'ready'
-              : 'chatgpt',
+      !state.chatgpt.connected && state.chatgpt.available
+        ? 'chatgpt'
+        : state.charms.available && state.charms.status !== 'connected'
+          ? 'charms'
+          : state.chatgpt.connected
+            ? 'ready'
+            : 'chatgpt',
     );
   }
   function open() {
@@ -235,14 +247,23 @@ export function setupConnections(changed: (state: SetupState) => void) {
     $('title').focus();
   }
   function close() {
-    if (blocked() || screen === 'handoff') return;
+    if (screen === 'handoff' || screen === 'connected') return;
     dialog.close();
     sessionStorage.removeItem('kinetik-setup');
     document.getElementById('prompt')?.focus();
   }
   async function refresh() {
+    const previous = state;
     state = await rpc<SetupState>('setupState');
     changed(state);
+    renderInstallButtons();
+    if (
+      !busy &&
+      dialog.open &&
+      screen === 'charms' &&
+      previous.charms.status !== state.charms.status
+    )
+      next();
   }
   async function run(work: () => Promise<void>, progress: string) {
     if (busy) return;
@@ -291,12 +312,18 @@ export function setupConnections(changed: (state: SetupState) => void) {
   $('later').onclick = close;
   $('start').onclick = close;
   dialog.addEventListener('cancel', (event) => {
-    if (blocked() || screen === 'handoff') {
+    if (screen === 'handoff' || screen === 'connected') {
       event.preventDefault();
       return;
     }
     sessionStorage.removeItem('kinetik-setup');
   });
+  $('install-open').onclick = install;
+  $('install-continue').onclick = () => {
+    if (state.chatgpt.available || state.charms.available) next();
+    else close();
+  };
+  $('return-to-app').onclick = () => location.replace(new URL('./', location.href).href);
   $('back').onclick = () => go('chatgpt');
   $('install-button').onclick = () =>
     void run(() => installation.prompt(), 'Waiting for your browser…');
@@ -307,10 +334,9 @@ export function setupConnections(changed: (state: SetupState) => void) {
     }, 'Copying return link…');
   $('connect-charms').onclick = () => {
     if (busy) return;
-    const tab =
-      installation.standalone && !['connected', 'disabled'].includes(state.charms.status)
-        ? window.open('about:blank', '_blank')
-        : null;
+    const tab = !['connected', 'disabled'].includes(state.charms.status)
+      ? window.open('about:blank', '_blank')
+      : null;
     if (tab) tab.opener = null;
     void run(async () => {
       try {
@@ -326,14 +352,12 @@ export function setupConnections(changed: (state: SetupState) => void) {
         }
         sessionStorage.setItem('kinetik-setup', 'charms');
         const destination = await rpc<string>('connectionBegin', {
-          handoff: installation.standalone,
+          handoff: true,
         });
-        if (installation.standalone) {
-          $<HTMLAnchorElement>('charms-authorize').href = destination;
-          $<HTMLDetailsElement>('charms-return-option').open = true;
-          $('charms-authorize').hidden = false;
-          if (tab) tab.location.replace(destination);
-        } else location.assign(destination);
+        $<HTMLAnchorElement>('charms-authorize').href = destination;
+        $('charms-hint').textContent = 'Finish signing in, then return here.';
+        $('charms-authorize').hidden = false;
+        if (tab) tab.location.replace(destination);
       } catch (e) {
         tab?.close();
         throw e;
@@ -437,6 +461,7 @@ export function setupConnections(changed: (state: SetupState) => void) {
     }, 'Checking your connections…');
   return {
     open,
+    install,
     refresh,
     async disconnectCharms() {
       await rpc('connectionDisconnect');
@@ -454,16 +479,14 @@ export function setupConnections(changed: (state: SetupState) => void) {
   async function initialize() {
     try {
       await refresh();
-      // Installed-app sign-in is completed by pasting into the initiating window.
-      // A callback can itself open as a standalone window; it must not consume the code.
-      if (callback?.state.startsWith('app.')) {
+      // Separate browser/PWA storage may not contain the initiating PKCE request.
+      // Only that case needs a manual handoff; finish() still validates the full request.
+      if (
+        callback?.state.startsWith('app.') &&
+        !(await rpc<boolean>('connectionCanFinish', { state: callback.state }))
+      ) {
         open();
         go('handoff');
-        return;
-      }
-      if (blocked()) {
-        open();
-        if (callback) go('handoff');
         return;
       }
       if ((requested === 'charms' || state.installation.required) && state.charms.available) {
@@ -484,7 +507,10 @@ export function setupConnections(changed: (state: SetupState) => void) {
         await run(async () => {
           await rpc('connectionFinish', callback);
           await refresh();
-          next();
+          if (callback.state.startsWith('app.')) {
+            go('connected');
+            window.close();
+          } else next();
         }, 'Connecting Charms and loading your skills…');
     } catch (e) {
       open();
