@@ -147,7 +147,10 @@ test('tool activity is collapsed while result files remain visible', async ({ pa
   await expect(page.locator('.file-card')).toBeVisible();
   await send(page, '/write /workspace/note.txt\nNew working version');
   await page.reload();
-  await page.locator('.file-card').getByRole('button', { name: 'Open', exact: true }).click();
+  await page
+    .locator('.file-card')
+    .getByRole('button', { name: /^Expand / })
+    .click();
   await expect(page.locator('#file-preview-text')).toHaveText('A useful note');
 });
 

@@ -150,7 +150,10 @@ test('connections and composer uploads complete their visible workflows', async 
     .getByRole('textbox', { name: 'Message', exact: true })
     .fill('/show_file /workspace/example.txt');
   await page.getByRole('button', { name: 'Send', exact: true }).click();
-  await page.locator('.file-card').getByRole('button', { name: 'Open', exact: true }).click();
+  await page
+    .locator('.file-card')
+    .getByRole('button', { name: /^Expand / })
+    .click();
   await expect(page.locator('#file-preview-text')).toHaveText('local file');
   const downloading = page.waitForEvent('download');
   await page.locator('#file-preview-download').click();
@@ -177,7 +180,10 @@ test('everyday examples explicitly share files that reopen offline', async ({
   await expect(page.locator('.tool-details[open]')).toHaveCount(0);
   await expect(page.locator('.file-card')).toContainText('Weekend packing list.txt');
   await page.screenshot({ path: info.outputPath('everyday-chat.png') });
-  await page.locator('.file-card').getByRole('button', { name: 'Open', exact: true }).click();
+  await page
+    .locator('.file-card')
+    .getByRole('button', { name: /^Expand / })
+    .click();
   await expect(page.locator('#file-preview-text')).toContainText('Toiletries');
   for (const theme of ['light', 'dark']) {
     await page.evaluate((value) => {
@@ -194,6 +200,9 @@ test('everyday examples explicitly share files that reopen offline', async ({
   await context.setOffline(true);
   await page.reload();
   await expect(page.locator('#status')).toHaveText('Ready');
-  await page.locator('.file-card').getByRole('button', { name: 'Open', exact: true }).click();
+  await page
+    .locator('.file-card')
+    .getByRole('button', { name: /^Expand / })
+    .click();
   await expect(page.locator('#file-preview-text')).toContainText('Toiletries');
 });

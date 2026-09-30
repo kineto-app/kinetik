@@ -1,0 +1,147 @@
+.file-card {
+  min-width: 0;
+}
+.shared-file-panel {
+  min-width: 0;
+  background: var(--frame-fill);
+  border-radius: var(--radius);
+  padding: var(--space-content);
+}
+.shared-file-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-inline);
+  padding-left: var(--space-inline);
+  margin-bottom: var(--space-inline);
+}
+.shared-file-head strong {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+  font-weight: 600;
+}
+.shared-file-head .icon-button {
+  flex: none;
+  width: var(--target);
+  min-height: var(--target);
+  padding: 0;
+  color: var(--accent-ink);
+  background: transparent;
+}
+.shared-file-head .icon-button:hover {
+  background: var(--hover);
+}
+.shared-file-body {
+  background: var(--group-fill);
+  padding: var(--space-inline);
+  border-radius: var(--radius-inner);
+  max-height: 28rem;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  font-size: 14px;
+  line-height: 1.65;
+}
+.shared-file-body pre {
+  font: inherit;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  margin: 0;
+}
+.shared-file-body .message-content {
+  font-size: inherit;
+  line-height: inherit;
+}
+.shared-file-body .message-content > :first-child {
+  margin-top: 0;
+}
+.shared-file-body .message-content > :last-child {
+  margin-bottom: 0;
+}
+.shared-file-body img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: contain;
+  border-radius: var(--radius-inner);
+}
+.shared-file-row {
+  display: flex;
+  align-items: center;
+  text-align: left;
+  gap: var(--space-content);
+  width: 100%;
+  min-height: var(--target);
+  padding: var(--space-content);
+  border: 0;
+  border-radius: var(--radius-inner);
+  background: var(--group-fill);
+}
+.shared-file-row:hover {
+  background: var(--hover);
+}
+.shared-file-row > .icon {
+  color: var(--accent-ink);
+  flex: none;
+}
+.shared-file-info {
+  flex: 1;
+  min-width: 0;
+}
+.shared-file-info strong {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+  font-weight: 500;
+}
+.shared-file-info small {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+}
+#file-dialog {
+  width: min(680px, calc(100% - 32px));
+  padding: var(--space-section);
+}
+#file-dialog .shared-file-panel {
+  padding: 0;
+  background: transparent;
+}
+#file-dialog .shared-file-head strong {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+#file-dialog .shared-file-body {
+  max-height: 65dvh;
+}
+:root[data-theme='dark'] .shared-file-panel {
+  padding: 0;
+}
+:root[data-theme='dark'] .shared-file-body {
+  padding: var(--space-section);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .shared-file-panel {
+    padding: 0;
+  }
+  :root:not([data-theme='light']) .shared-file-body {
+    padding: var(--space-section);
+  }
+}
+
+.shared-file-image {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  border-radius: var(--radius-inner);
+}
+.shared-file-head .copy-action .icon {
+  width: var(--icon-size);
+  height: var(--icon-size);
+}

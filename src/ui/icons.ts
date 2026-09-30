@@ -1,5 +1,13 @@
 // Kinetik Charms icons. See THIRD_PARTY_NOTICES.md.
 const paths = {
+  expand: ['M8 3H3v5', 'M16 3h5v5', 'M3 16v5h5', 'M21 16v5h-5'],
+  openArrow: ['M7 17 17 7', 'M7 7h10v10'],
+  refresh: [
+    'M21 12a9 9 0 0 0-15.74-6.26L3 8',
+    'M3 3v5h5',
+    'M3 12a9 9 0 0 0 15.74 6.26L21 16',
+    'M16 16h5v5',
+  ],
   info: ['M12 11v6', 'M12 7h.01', 'M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0'],
   external: ['M14 3h7v7', 'M21 3 10 14', 'M10 3H3v18h18v-7'],
   stop: ['M6 6h12v12H6z'],

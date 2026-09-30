@@ -174,7 +174,7 @@ test('an explicitly shared background result is visible without its internal rec
     },
     msg('a', 'assistant', 'Your file is ready.'),
   ]);
-  await expect(page.locator('.file-card')).toHaveText('result.txtOpenDownload');
+  await expect(page.locator('.file-card')).toContainText('result.txt');
   await expect(page.locator('.tool-group')).toHaveCount(0);
   await expect(page.locator('#timeline')).not.toContainText('internal sharing receipt');
 });
