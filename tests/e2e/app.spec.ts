@@ -218,6 +218,95 @@ test('MCP Apps handshake, tool interaction, visibility and origin isolation', as
   ).toHaveText('Ready');
 });
 
+test('MCP Apps fullscreen preserves the selected view and restores inline layout', async ({
+  page,
+}, testInfo) => {
+  await rpc(page, 'install', {
+    source: 'http://127.0.0.1:4173/plugins/mcp/plugin.json',
+    settings: JSON.stringify({ url: 'http://127.0.0.1:4174/mcp' }),
+  });
+  await rpc(page, 'enable', { id: 'mcp', enabled: true });
+  await send(page, '/tool mcp__show {}');
+  await settled(page);
+  const app = page.frameLocator('iframe.mcp-app').frameLocator('iframe');
+  const panel = page.locator('.mcp-app-panel');
+  await expect(app.locator('#result')).toHaveText('Ready');
+  await expect(app.locator('#mode')).toHaveText('inline');
+  await app.getByRole('textbox', { name: 'Widget note' }).fill('Keep this selected view');
+  await app.locator('body').evaluate(() =>
+    parent.postMessage(
+      {
+        jsonrpc: '2.0',
+        method: 'ui/notifications/size-changed',
+        params: { height: 280 },
+      },
+      '*',
+    ),
+  );
+  await expect(page.locator('iframe.mcp-app')).toHaveCSS('height', '280px');
+  await page.screenshot({ path: testInfo.outputPath('widget-inline.png') });
+  await app.getByRole('button', { name: 'Full screen', exact: true }).click();
+  await expect(panel).toHaveJSProperty('open', true);
+  await expect(page.getByRole('dialog', { name: 'Widget fullscreen' })).toBeVisible();
+  await expect(app.locator('#mode-result')).toHaveText('fullscreen');
+  await expect(app.locator('#detail')).toBeVisible();
+  await expect(app.getByRole('textbox', { name: 'Widget note' })).toHaveValue(
+    'Keep this selected view',
+  );
+  await expect(page.getByRole('button', { name: 'Close fullscreen' })).toBeFocused();
+  await expect(panel.locator('#composer')).toBeVisible();
+  await page.getByRole('textbox', { name: 'Message', exact: true }).fill('Keep my draft');
+  const size = await panel.boundingBox();
+  expect(size!.width).toBe(page.viewportSize()!.width);
+  expect(size!.height).toBe(page.viewportSize()!.height);
+  await page.screenshot({ path: testInfo.outputPath('widget-fullscreen.png') });
+  await app.locator('body').evaluate(() =>
+    parent.postMessage(
+      {
+        jsonrpc: '2.0',
+        method: 'ui/notifications/size-changed',
+        params: { height: 900 },
+      },
+      '*',
+    ),
+  );
+  // Widget size notifications cannot replace the host's fullscreen dimensions.
+  await expect(page.locator('iframe.mcp-app')).not.toHaveCSS('height', '900px');
+  // Unsupported requests must report the current mode, not silently collapse.
+  await app.getByRole('button', { name: 'Picture in picture' }).click();
+  await expect(app.locator('#mode-result')).toHaveText('fullscreen');
+  await app.getByRole('button', { name: 'Increment', exact: true }).click();
+  await expect(app.locator('#result')).toHaveText('Incremented');
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await expect(app.locator('html')).toHaveCSS('color-scheme', 'dark');
+  await page.screenshot({ path: testInfo.outputPath('widget-fullscreen-dark.png') });
+  await page.getByRole('button', { name: 'Close fullscreen' }).click();
+  await expect(app.locator('#mode')).toHaveText('inline');
+  await expect(page.getByRole('textbox', { name: 'Message', exact: true })).toHaveValue(
+    'Keep my draft',
+  );
+  await expect(panel.locator('#composer')).toHaveCount(0);
+  await expect(panel).not.toHaveClass(/is-fullscreen/);
+  await expect(page.locator('iframe.mcp-app')).toHaveCSS('height', '280px');
+  await expect(app.locator('#result')).toHaveText('Incremented');
+  await expect(app.getByRole('textbox', { name: 'Widget note' })).toHaveValue(
+    'Keep this selected view',
+  );
+  await app.getByRole('button', { name: 'Full screen', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Close fullscreen' })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(app.locator('#mode')).toHaveText('inline');
+  await app.getByRole('button', { name: 'Full screen', exact: true }).click();
+  await app.getByRole('button', { name: 'Back to chat' }).click();
+  await expect(app.locator('#mode-result')).toHaveText('inline');
+  await expect(app.locator('#detail')).toBeHidden();
+  // Opening another host dialog must not close the inline widget container.
+  if (testInfo.project.name === 'mobile-chromium' || testInfo.project.name === 'webkit')
+    await page.locator('#menu').click();
+  await page.locator('#settings-open').click();
+  await expect(panel).toHaveJSProperty('open', true);
+});
+
 test('MCP Apps share host styles and follow theme changes without remounting', async ({ page }) => {
   await page.emulateMedia({ colorScheme: 'dark' });
   await rpc(page, 'install', {

@@ -7,7 +7,7 @@ export async function setupUpdates(registration: ServiceWorkerRegistration) {
   const feedback = document.getElementById('app-update-feedback')!;
   const home = document.createComment('update banner');
   banner.before(home);
-  const modalSelector = 'dialog[open], [role="dialog"][aria-modal="true"]';
+  const modalSelector = 'dialog:modal, [role="dialog"][aria-modal="true"]';
   let surfaces = [...document.querySelectorAll<HTMLElement>(modalSelector)];
   const placeBanner = (changes: MutationRecord[] = []) => {
     // A banner behind a modal is inert. Keep the same control inside the topmost
