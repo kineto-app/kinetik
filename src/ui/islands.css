@@ -90,8 +90,24 @@ dialog:not(.connection-setup) {
   flex: none;
   min-width: var(--target);
 }
-#connection-status[data-connected='true'] {
-  color: var(--ok);
+#connection-status,
+#connections-dot[data-attention='true'] {
+  color: var(--bad);
+}
+#connections-dot[data-attention='true'] {
+  background: var(--bad);
+}
+.connection-nav-text {
+  display: grid;
+  flex: 1;
+  text-align: left;
+}
+.connection-nav-text small {
+  font-size: 11px;
+  color: var(--muted);
+}
+#connections-open {
+  width: 100%;
 }
 #timeline {
   padding-block: 28px;

@@ -74,6 +74,7 @@ test('iPhone offers manual installation without blocking account setup', async (
 test('installed launch resumes setup and completes a shared-storage Charms redirect automatically', async ({
   page,
   context,
+  request,
 }) => {
   await page.addInitScript(() => Object.defineProperty(navigator, 'standalone', { value: true }));
   await context.route('https://auth.openai.com/**', (route) =>
@@ -101,7 +102,33 @@ test('installed launch resumes setup and completes a shared-storage Charms redir
   await page.getByRole('button', { name: 'Start chatting' }).click();
   await page.reload();
   await expect(page.locator('#connection-setup')).toBeHidden();
-  await expect(page.locator('#connection-status')).toHaveAttribute('title', 'Charms connected');
+  await expect(page.locator('#connection-status')).toBeHidden();
+  await page.getByRole('textbox', { name: 'Message', exact: true }).fill('Hello');
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await expect(page.locator('[data-role=assistant]')).toContainText(
+    'Your Charms workspace is ready.',
+  );
+  for (const theme of ['dark', 'light'] as const) {
+    await page.emulateMedia({ colorScheme: theme });
+    await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
+    await page.screenshot({ path: test.info().outputPath(`header-${theme}.png`) });
+  }
+  await page.locator('#top-new-chat').click();
+  await expect(page.locator('#title')).toHaveText('New chat');
+  await expect(page.locator('[data-role=assistant]')).toHaveCount(0);
+  if (await page.locator('#menu').isVisible()) await page.locator('#menu').click();
+  await expect(page.locator('#connections-summary')).toHaveText('ChatGPT · Charms');
+  await page.screenshot({ path: test.info().outputPath('connections-sidebar.png') });
+  await page.locator('#connections-open').click();
+  await expect(page.locator('#connection-setup')).toBeVisible();
+  await expect(page.locator('#drawer-scrim')).toBeHidden();
+  await page.getByRole('button', { name: 'Start chatting' }).click();
+  await request.post(base + 'connections/chatgpt/logout');
+  await focusApp(page);
+  await expect(page.locator('#connection-status')).toBeVisible();
+  await expect(page.locator('#connection-status')).toHaveAttribute('title', 'Connect ChatGPT');
+  await page.locator('#connection-status').click();
+  await expect(page.getByRole('heading', { name: 'Connect ChatGPT' })).toBeVisible();
 });
 
 test('repository-run configuration also keeps installation optional', async ({ page, request }) => {

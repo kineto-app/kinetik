@@ -566,13 +566,23 @@ const connectionSetup = setupConnections((value) => {
   connectionState = value;
   if (becameConnected) void resumeWork();
   const configured = value.charms.available || value.chatgpt.available;
-  byId('connection-status').hidden = !configured;
+  const attention =
+    (value.chatgpt.available && !value.chatgpt.connected) || value.charms.status === 'reconnect';
+  byId('connection-status').hidden = !attention;
+  byId('connections-dot').dataset.attention = String(attention);
+  const connected = [
+    value.chatgpt.connected ? 'ChatGPT' : '',
+    value.charms.status === 'connected' ? 'Charms' : '',
+  ].filter(Boolean);
+  byId('connections-dot').hidden = !attention && !connected.length;
+  byId('connections-summary').textContent = attention
+    ? 'Needs attention'
+    : connected.join(' · ') || (configured ? 'Not connected' : 'Manage services');
   byId('managed-section').hidden = !configured;
   byId('connection-status').innerHTML = icon('plug');
   byId('connection-status').classList.add('icon-button');
   byId('connection-status').title =
-    value.charms.status === 'connected' ? 'Charms connected' : 'Connections';
-  byId('connection-status').dataset.connected = String(value.charms.status === 'connected');
+    value.chatgpt.available && !value.chatgpt.connected ? 'Connect ChatGPT' : 'Reconnect Charms';
   byId('charms-state').textContent =
     value.charms.status === 'connected'
       ? 'Connected · cloud workspace'
@@ -606,6 +616,12 @@ const connectionSetup = setupConnections((value) => {
 byId('install-open').onclick = () => {
   closeDrawer(false);
   connectionSetup.install();
+};
+byId('connections-open').onclick = () => {
+  if (connectionState?.charms.available || connectionState?.chatgpt.available) {
+    closeDrawer(false);
+    connectionSetup.open();
+  } else openDialog('plugins');
 };
 for (const id of ['connection-status', 'connection-open', 'chatgpt-open'])
   byId(id).onclick = () => {
