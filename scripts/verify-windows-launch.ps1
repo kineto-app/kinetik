@@ -2,6 +2,7 @@
 param([string]$Executable = 'src-tauri/target/release/kinetik.exe')
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes, System.Drawing
+$env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = '--remote-debugging-port=9222'
 $app = Start-Process -FilePath (Resolve-Path $Executable) -PassThru
 try {
     $ready = $false
@@ -33,5 +34,6 @@ try {
     }
     Write-Output 'Windows app rendered ChatGPT onboarding.'
 } finally {
+    node scripts/inspect-windows-webview.mjs
     if (-not $app.HasExited) { Stop-Process -Id $app.Id }
 }

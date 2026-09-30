@@ -28,7 +28,7 @@ npm run ios:build -- --debug --target aarch64-sim --no-sign
 
 A physical iOS build needs an Apple development team and signing identity. Set `APPLE_DEVELOPMENT_TEAM`; use TestFlight before distributing a store release. Do not regenerate Android project files without reviewing the resulting manifest and signing changes.
 
-The unsigned simulator build also needs an app-identity entitlement before testing Keychain access. Native CI applies a simulator-only ad-hoc signature and checks the launch screenshot for startup errors. Follow its `Sign simulator app for Keychain access` step when installing a `--no-sign` build locally. Never use that simulator identity for a physical-device release.
+The unsigned simulator build also needs an app identity before testing Keychain access. Native CI embeds simulator-only XML and DER entitlements in Mach-O sections and checks the launch screenshot for startup errors. Follow its `Prepare simulator Keychain identity` step and the build step’s `XCODE_XCCONFIG_FILE` setting when building with `--no-sign` locally. Do not apply iOS entitlements to the simulator executable’s macOS code signature or use the simulator identity for a physical-device release.
 
 ## Distribution configuration
 
@@ -50,6 +50,8 @@ KINETIK_SIGNING_PROPERTIES=/absolute/path/to/signing.properties npm run android:
 The default target is ARM64. `KINETIK_ANDROID_TARGET` selects another Tauri Android target. The APK is written beneath `src-tauri/gen/android/app/build/outputs/apk/`. Back up the keystore, passwords, and frontend signing key securely. Losing the Android key prevents updating an existing sideloaded installation. Increment the app version in `package.json`, `src-tauri/tauri.conf.json`, and `src-tauri/Cargo.toml` for each native release. Keep the application identifier unchanged.
 
 ## Authentication and storage
+
+The built-in ChatGPT connection uses GPT-6.1 Sol with medium reasoning. Sign-in checks the account model catalog; an existing login switches on its next request without reauthorization. If the model is unavailable, the app reports this instead of selecting another model.
 
 ChatGPT sign-in opens the system browser on Android and desktop. iOS uses `ASWebAuthenticationSession` to present system sign-in over the app, keeping the loopback listener in the foreground. The iOS sheet is implemented but still requires simulator and physical-device validation. A listener binds a random loopback port before opening the authorization page. The app validates the returned state, exchanges the code using PKCE, validates the ID token and granted scope, and returns through a token-free app link. Authorization codes and tokens never enter that app link. Cancelling closes the listener.
 
