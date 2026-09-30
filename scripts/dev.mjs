@@ -1,12 +1,13 @@
 import { createServer } from 'vite';
 import { context } from 'esbuild';
 import { readFile } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
 const worker = await context({
   entryPoints: ['src/sw.ts'],
   outfile: '.dev/sw.js',
   bundle: true,
   platform: 'browser',
-  alias: { 'node:zlib': new URL('../src/browser/no-zlib.ts', import.meta.url).pathname },
+  alias: { 'node:zlib': fileURLToPath(new URL('../src/browser/no-zlib.ts', import.meta.url)) },
   target: 'es2022',
   format: 'iife',
   define: { __PRECACHE__: '[]', __BUILD_ID__: '"dev"' },
