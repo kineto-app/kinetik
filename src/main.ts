@@ -195,7 +195,9 @@ function render() {
       if (hiddenActivity && item.app && c) {
         // A rendered result is user-facing even when its producing tool call is internal.
         timeline.insertBefore(article, timeline.querySelector('[data-draft]'));
-        disposeContent.push(mountApp(article, item.app, c.id));
+        disposeContent.push(
+          mountApp(article, item.app, c.id, document.querySelector<HTMLElement>('.composer-area')!),
+        );
         continue;
       }
       const label = document.createElement('div');
@@ -233,7 +235,10 @@ function render() {
         if (item.role === 'user') article.append(messageTime(item.createdAt));
       }
       timeline.insertBefore(article, timeline.querySelector('[data-draft]'));
-      if (item.app && c) disposeContent.push(mountApp(article, item.app, c.id));
+      if (item.app && c)
+        disposeContent.push(
+          mountApp(article, item.app, c.id, document.querySelector<HTMLElement>('.composer-area')!),
+        );
     }
     if (c?.draft && !isBackgroundTurn(c)) {
       let draft = timeline.querySelector<HTMLElement>('[data-draft]');
@@ -430,7 +435,7 @@ for (const [id, retry] of [
   };
 function openDialog(name: string) {
   closeDrawer();
-  for (const dialog of document.querySelectorAll<HTMLDialogElement>('dialog[open]')) dialog.close();
+  for (const dialog of document.querySelectorAll<HTMLDialogElement>('dialog:modal')) dialog.close();
   byId<HTMLDialogElement>(name + '-dialog').showModal();
 }
 for (const name of ['plugins', 'automations', 'settings'])
@@ -633,7 +638,7 @@ byId('connections-open').onclick = () => {
 };
 for (const id of ['connection-status', 'connection-open', 'chatgpt-open'])
   byId(id).onclick = () => {
-    for (const dialog of document.querySelectorAll<HTMLDialogElement>('dialog[open]'))
+    for (const dialog of document.querySelectorAll<HTMLDialogElement>('dialog:modal'))
       dialog.close();
     connectionSetup.open();
   };
