@@ -4,10 +4,15 @@ import { setupAutomations, renderAutomations } from './ui/automations';
 import type { Automation } from './core/automation';
 import { shell } from './ui/shell';
 import { icon, type IconName } from './ui/icons';
+import { demoTasks } from './core/demo-tasks';
+import { taskLabel } from './ui/task-labels';
+import { setupFiles, refreshFiles, previewFile, downloadFile } from './ui/files';
+import { setupUpdates } from './browser/updates';
 import { connect, rpc } from './browser/client';
 import type { Conversation, InstalledPlugin } from './core/types';
 
 type State = {
+  background: { id: string; conversationId: string; tool: string }[];
   automations: Automation[];
   conversations: Conversation[];
   plugins: Pick<InstalledPlugin, 'manifest' | 'source' | 'enabledAt' | 'digest'>[];
@@ -15,13 +20,20 @@ type State = {
 const root = document.querySelector<HTMLDivElement>('#app')!;
 root.innerHTML = shell;
 const byId = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
-let state: State = { conversations: [], plugins: [], automations: [] };
+let state: State = { conversations: [], plugins: [], automations: [], background: [] };
 let selected = sessionStorage.getItem('kinetik-conversation') ?? '';
 let refreshGeneration = 0;
 let lastMessages = '';
 let disposeApps: (() => void)[] = [];
 let timelineConversation = '';
 const renderedMessages = new Set<string>();
+const draftKey = 'kinetik-composer';
+byId<HTMLTextAreaElement>('prompt').value = sessionStorage.getItem(draftKey) ?? '';
+const isBackgroundTurn = (c: Conversation) => {
+  if (c.turn) return c.turn === 'background';
+  const active = c.messages.find((m) => m.id === (c.activeMessage ?? c.pending[0]));
+  return active?.source === 'background' || Boolean(active?.id.startsWith('background-completed:'));
+};
 const current = () => state.conversations.find((c) => c.id === selected);
 function showError(error: unknown, target = 'error') {
   byId(target).textContent = error instanceof Error ? error.message : String(error);
@@ -53,7 +65,7 @@ function render() {
   nav.replaceChildren();
   for (const c of state.conversations) {
     const entry = button(
-      (c.status === 'running' ? '• ' : '') + c.title,
+      (c.status === 'running' && !isBackgroundTurn(c) ? '• ' : '') + c.title,
       () => choose(c.id),
       'conversation',
     );
@@ -67,20 +79,27 @@ function render() {
     nav.append(hint);
   }
   const c = current();
-  byId('title').textContent = c?.title ?? 'New conversation';
-  byId('status').textContent =
-    c?.status === 'running'
-      ? 'Working locally'
-      : c?.status === 'needs_review'
-        ? 'Needs review'
-        : 'Local workspace';
-  byId('stop').hidden = c?.status !== 'running';
+  const foreground = c?.status === 'running' && !isBackgroundTurn(c);
+  const jobs = state.background ?? [];
+  const processing = state.conversations.some(
+    (item) => item.status === 'running' && isBackgroundTurn(item),
+  );
+  byId('background-activity').hidden = !jobs.length && !processing;
+  byId('background-label').textContent = jobs.length
+    ? `${jobs.length} background ${jobs.length === 1 ? 'task' : 'tasks'} running`
+    : 'Processing background result';
+  byId('title').textContent = c?.title ?? 'New chat';
+  byId('status').textContent = foreground
+    ? 'Working…'
+    : c?.status === 'needs_review'
+      ? 'Needs review'
+      : 'Ready';
+  byId('stop').hidden =
+    c?.status !== 'running' && !jobs.some((job) => job.conversationId === selected);
   byId('status').dataset.state = c?.status ?? 'idle';
-  byId('activity').hidden = c?.status !== 'running';
+  byId('activity').hidden = !foreground;
   byId('activity-label').textContent =
-    c?.call?.state === 'pending'
-      ? `Running ${c.call.name} · ${c.call.provider}`
-      : 'Working on your message';
+    c?.call?.state === 'pending' ? taskLabel(c.call.name) : 'Working on your message';
   byId('recovery').hidden = c?.status !== 'needs_review';
   const serialized = JSON.stringify([selected, c?.messages, c?.draft]);
   if (serialized !== lastMessages) {
@@ -101,21 +120,15 @@ function render() {
     if (!c?.messages.length) {
       const empty = document.createElement('div');
       empty.className = 'empty';
-      empty.innerHTML = `<h2>What would you like to work on?</h2><p>Keep your files, tools, and conversations together.<br class="desktop-break" /> Start with a small task in your browser.</p><div class="panel starter"><h3 class="section-label">Try the local workspace</h3><div class="suggestions section-body"></div></div>`;
+      empty.innerHTML = `<h2>What would you like a hand with?</h2><p>Try a sample task. Make a file you can keep.<br class="desktop-break" /> Your chats and files stay in this browser.</p><div class="panel starter"><h3 class="section-label">Try an example</h3><div class="suggestions section-body"></div></div><p class="preview-note">This preview uses sample replies. Open-ended AI chat and ChatGPT sign-in are not connected yet.</p>`;
       const examples: [string, string, IconName, string][] = [
-        [
-          'Create a note',
-          'Save something to your workspace',
+        ...demoTasks.map((task): [string, string, IconName, string] => [
+          task.title,
+          task.description,
           'file',
-          '/write /workspace/note.txt\nHello from Kinetik.',
-        ],
-        [
-          'Try the shell',
-          'Run a command with just-bash',
-          'terminal',
-          '/exec printf "hello from the browser\\n" | tr a-z A-Z',
-        ],
-        ['Explore native skills', 'See what your agent knows how to do', 'spark', '/skills'],
+          task.prompt,
+        ]),
+        ['Find my files', 'See what you’ve saved here', 'folder', 'Show my saved files.'],
       ];
       for (const [label, description, glyph, text] of examples) {
         const action = button(
@@ -133,7 +146,13 @@ function render() {
       timeline.append(empty);
     }
     for (const item of c?.messages ?? []) {
-      if (renderedMessages.has(item.id)) continue;
+      if (
+        item.visibility === 'internal' ||
+        item.id.startsWith('background-completed:') ||
+        item.tool?.startsWith('background ·') ||
+        renderedMessages.has(item.id)
+      )
+        continue;
       renderedMessages.add(item.id);
       const article = document.createElement('article');
       article.className = 'message';
@@ -144,7 +163,7 @@ function render() {
         item.role === 'user'
           ? 'You'
           : item.role === 'assistant'
-            ? 'Kinetik · local test model'
+            ? 'Kinetik'
             : (item.tool ?? 'Workspace notice');
       const content = document.createElement('pre');
       content.textContent = item.text;
@@ -162,11 +181,40 @@ function render() {
         mark.innerHTML = icon('check');
         label.prepend(mark);
       }
-      article.append(label, content);
+      if (item.role === 'tool') {
+        const details = document.createElement('details');
+        details.className = 'tool-details';
+        const summary = document.createElement('summary');
+        summary.textContent = taskLabel(item.tool ?? '', true);
+        details.append(summary, label, content);
+        article.append(details);
+        if (item.file) {
+          const file = item.file;
+          const card = document.createElement('div');
+          card.className = 'file-card';
+          const name = document.createElement('strong');
+          name.textContent = file.name;
+          const actions = document.createElement('div');
+          actions.className = 'actions';
+          actions.append(
+            button(
+              'Open',
+              async () => {
+                openDialog('files');
+                await previewFile(file.path);
+              },
+              'secondary',
+            ),
+            button('Download', () => downloadFile(file.path)),
+          );
+          card.append(name, actions);
+          article.append(card);
+        }
+      } else article.append(label, content);
       timeline.append(article);
       if (item.app && c) disposeApps.push(mountApp(article, item.app, c.id));
     }
-    if (c?.draft) {
+    if (c?.draft && !isBackgroundTurn(c)) {
       const draft = document.createElement('pre');
       draft.className = 'message';
       draft.dataset.draft = 'true';
@@ -186,7 +234,7 @@ function render() {
   const list = byId('plugin-list');
   list.replaceChildren();
   if (!state.plugins.length)
-    list.innerHTML = `<div class="plugins-empty">${icon('plug')}<div><strong>No plugins yet</strong><p class="field-hint">Your built-in tools are ready. Add a plugin when you need more.</p></div></div>`;
+    list.innerHTML = `<div class="plugins-empty">${icon('plug')}<div><strong>No connections yet</strong><p class="field-hint">Add a service when you need more help.</p></div></div>`;
   for (const plugin of state.plugins) {
     const row = document.createElement('div');
     row.className = 'plugin-row';
@@ -194,7 +242,7 @@ function render() {
     name.textContent = plugin.manifest.name;
     const version = document.createElement('p');
     version.className = 'small muted';
-    version.textContent = `${plugin.manifest.version} · ${plugin.enabledAt === null ? 'Disabled' : 'Enabled, priority ' + plugin.enabledAt}`;
+    version.textContent = `${plugin.manifest.version} · ${plugin.enabledAt === null ? 'Off' : 'On'}`;
     const actions = document.createElement('div');
     actions.className = 'plugin-actions';
     actions.append(
@@ -227,12 +275,14 @@ async function refresh() {
   if (generation !== refreshGeneration) return;
   state = next;
   if (!current() && state.conversations.length) selected = state.conversations[0].id;
+  sessionStorage.setItem('kinetik-conversation', selected);
   render();
 }
 let submitting = false;
 function updateComposer() {
   const input = byId<HTMLTextAreaElement>('prompt');
   byId<HTMLButtonElement>('send').disabled = submitting || !input.value.trim();
+  sessionStorage.setItem(draftKey, input.value);
   input.style.height = 'auto';
   input.style.height = Math.min(input.scrollHeight, 200) + 'px';
 }
@@ -331,9 +381,11 @@ for (const [id, retry] of [
   };
 function openDialog(name: string) {
   closeDrawer();
+  for (const dialog of document.querySelectorAll<HTMLDialogElement>('dialog[open]')) dialog.close();
   byId<HTMLDialogElement>(name + '-dialog').showModal();
+  if (name === 'files') void refreshFiles().catch((error) => showError(error, 'file-result'));
 }
-for (const name of ['plugins', 'files', 'automations'])
+for (const name of ['plugins', 'files', 'automations', 'settings'])
   byId(name + '-open').onclick = () => openDialog(name);
 byId('attach').onclick = () => openDialog('files');
 for (const close of document.querySelectorAll<HTMLButtonElement>('[data-close]'))
@@ -353,7 +405,7 @@ byId('plugin-form').onsubmit = (event) => {
     const install = byId<HTMLButtonElement>('install');
     if (install.disabled) return;
     install.disabled = true;
-    install.textContent = 'Installing…';
+    install.textContent = 'Adding…';
     byId('plugin-error').textContent = '';
     byId('plugin-error').dataset.kind = '';
     try {
@@ -361,40 +413,14 @@ byId('plugin-form').onsubmit = (event) => {
         source: byId<HTMLInputElement>('plugin-source').value,
         settings: byId<HTMLTextAreaElement>('plugin-settings').value,
       });
-      byId('plugin-error').textContent =
-        'Installed. Enable the plugin to activate its tools and skills.';
+      byId('plugin-error').textContent = 'Added. Choose Enable to let Kinetik use this connection.';
       byId('plugin-error').dataset.kind = 'success';
       await refresh();
     } finally {
       install.disabled = false;
-      install.textContent = 'Install plugin';
+      install.textContent = 'Add connection';
     }
   })().catch((error) => showError(error, 'plugin-error'));
-};
-byId('upload').onchange = () => {
-  void (async () => {
-    const file = byId<HTMLInputElement>('upload').files?.[0];
-    if (!file) return;
-    if (file.size > 4 * 1024 * 1024) throw new Error('Maximum import size is 4 MiB.');
-    await rpc('import', { name: file.name, bytes: new Uint8Array(await file.arrayBuffer()) });
-    byId('file-result').textContent = 'Imported /workspace/' + file.name;
-    byId('file-result').dataset.kind = 'success';
-  })().catch((error) => showError(error, 'file-result'));
-};
-byId('download-form').onsubmit = (event) => {
-  event.preventDefault();
-  void (async () => {
-    const path = byId<HTMLInputElement>('download-path').value;
-    const bytes = await rpc<Uint8Array>('export', { path });
-    const url = URL.createObjectURL(new Blob([bytes as BlobPart]));
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = path.split('/').pop() || 'download';
-    link.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-    byId('file-result').textContent = 'Downloaded ' + path;
-    byId('file-result').dataset.kind = 'success';
-  })().catch((error) => showError(error, 'file-result'));
 };
 let refreshTimer: ReturnType<typeof setTimeout>;
 navigator.serviceWorker?.addEventListener('message', (event) => {
@@ -407,8 +433,10 @@ navigator.serviceWorker?.addEventListener('message', (event) => {
 });
 async function start() {
   const registration = await connect();
+  const updatesReady = setupUpdates(registration);
   await refresh();
   await rpc('tick');
+  await updatesReady;
   // The build is complete before the one-shot local launcher is allowed to exit.
   if (registration.installing)
     await new Promise<void>((resolve) => {
@@ -435,7 +463,9 @@ async function start() {
     /* Hosted and offline copies have no launcher. */
   }
 }
+setupFiles();
 setupAutomations(refresh);
+updateComposer();
 setInterval(() => {
   void rpc('tick')
     .then(refresh)

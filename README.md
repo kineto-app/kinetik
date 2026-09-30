@@ -43,15 +43,27 @@ npx --package ./kinetik-oss-0.1.0.tgz kinetik-oss
 
 No global installation, account, API key, or external service is needed for the local prototype. The bundled example plugin works offline; third-party plugin installation and refresh require network access.
 
+## App updates
+
+The app checks for new builds on opening, on returning to the foreground, on reconnecting, and every 15 minutes while visible. A downloaded build shows **Update available**. Click **Update** to activate it and reload open app tabs. Checking or downloading an update does not reload the app. Your files, conversations, plugins, appearance, and each tab's unsent message are retained.
+
+If foreground or background work is running, the update stays available and asks you to try again after it finishes. An installation failure or an offline check leaves the current build usable. Once downloaded, an update can be applied offline. As with other service-worker PWAs, closing all app tabs lets the browser activate a waiting build on the next launch.
+
+For a local installation, pull the new source, run `npm ci && npm run build`, then `npm start` at the same address. The launcher exits once the new app files finish caching; the Update button remains usable afterward. There is no automatic download from GitHub or npm.
+
 ## Appearance
 
-Choose **System**, **Light**, or **Dark** in the sidebar. The preference is saved in this browser, shared across app tabs, and applied before the interface loads. On mobile, open the conversation menu to find it. The drawer supports Escape and keyboard focus stays inside it while open.
+Open **Settings** and choose **Use device setting**, **Light**, or **Dark**. The preference is saved in this browser, shared across app tabs, and applied before the interface loads. On mobile, open the chat menu to find Settings. The drawer supports Escape and keyboard focus stays inside it while open.
 
 The interface uses the Charms renderer’s tinted panels, compact action rows, upload controls, and icon strokes. Small button text uses a slightly deeper purple for readable contrast. All theme values live in [the design tokens](src/ui/tokens.css).
 
 ## Try it
 
-The mock model understands explicit commands so runtime behavior is reproducible:
+Choose **Create a note** or **Make a packing list**, then send the suggested message. These are fixed preview examples: they create real local files but do not understand arbitrary requests. Open or download the resulting file card, or use **Files** to browse, preview, add, and download files without typing a path. Files shows this browser’s workspace; files on connected services remain in that service.
+
+Foreground steps have short, everyday labels. Expand a step only when you want its technical details. Interactive MCP cards remain visible. **Settings → Manage connections** holds service configuration, with custom plugin links and JSON options under advanced setup. The preview limitation stays visible beside the message box and in Settings.
+
+For developers, the test model also understands explicit commands so runtime behavior is reproducible:
 
 ```text
 /exec printf "hello from Kinetik\n" > note.txt; cat note.txt
@@ -64,7 +76,7 @@ The mock model understands explicit commands so runtime behavior is reproducible
 
 `/write /workspace/note.txt` followed by a new line and content replaces a file. Shift+Enter inserts a line in the composer. `/tool plugin__tool {"argument":"value"}` invokes another enabled tool.
 
-Conversations run concurrently and share `/workspace`. New messages steer an active conversation after its current tool finishes. Stop aborts model work and requests tool cancellation; an uncertain effect stays visible for review. On a worker restart, uncertain calls pause rather than execute twice. Resolving without retry continues; retry is an explicit user action.
+Conversations run concurrently and share `/workspace`. User messages and background completion events use the same durable steering queue. They join the next model request together at a safe boundary after the current tool finishes. A message arriving during inference prevents the stale response from executing a tool; the next request includes the new steering context. Stop aborts model work and requests tool cancellation; an uncertain effect stays visible for review. On a worker restart, uncertain calls pause rather than execute twice. Resolving without retry continues; retry is an explicit user action.
 
 Files live in a virtual filesystem, not arbitrary host folders. Import/export handles files up to 4 MiB per import. This small-workspace implementation persists each operation, with limits of 16 MiB and 2,000 entries. It delegates shell filesystem semantics to just-bash's InMemoryFs, including its replacement behavior for writes through hard-linked paths. Whole scripts are not transactions.
 
@@ -72,7 +84,7 @@ The shell exposes a selected set of file/text commands, pipes, and shell syntax.
 
 ## Plugins and skills
 
-Open **Plugins**, select **Use example URL**, install, then enable it. Its `exec` replacement echoes what it received instead of running a shell. Disable it to restore local execution. Its skill appears in `/skills` and loads through `read_skill` independently of workspace replacements.
+Open **Settings → Manage connections → Add a custom connection**, select **Use demo connection**, add it, then enable it. Its `exec` replacement echoes what it received instead of running a shell. Disable it to restore local execution. Its skill appears in `/skills` and loads through `read_skill` independently of workspace replacements.
 
 Plugins are trusted JavaScript. They can access the app's origin storage and network. Installation downloads code; enabling permits execution. Updates are explicit, and active turns retain their code/tool bindings. Skill sources are checked for every message and cached on failure. The last explicitly enabled plugin wins a replacement; updating code does not change priority.
 
@@ -82,7 +94,7 @@ See [the plugin contract](docs/plugins.md) and [the bundled example](public/plug
 
 ## Background processes
 
-The `background` tool runs a long tool call independently of the agent turn. Start with `{"action":"start","tool":"exec","input":{"command":"sleep 5; echo finished"}}`. It immediately returns a job ID, letting the agent finish its turn or do other work. When execution finishes, the runtime saves the result and wakes the **same conversation** once. The agent does not poll for completion. With the bundled test model, try `/bg sleep 5; echo finished`.
+The `background` tool runs a long tool call independently of the agent turn. Start with `{"action":"start","tool":"exec","input":{"command":"sleep 5; echo finished"}}`. It immediately returns a job ID, letting the agent finish its turn or do other work. When execution finishes, the runtime saves the result and wakes the **same conversation** once. The agent does not poll for completion. A compact activity indicator shows running background work. Job receipts, raw completion results, and tools called while handling a background result are internal context, not chat history. Only the agent’s useful final reply appears in chat. A completion arriving during foreground work steers that conversation rather than starting a competing agent loop. With the bundled test model, try `/bg sleep 5; echo finished`.
 
 `background` also accepts `{"action":"list"}` and `{"action":"cancel","id":"..."}` for the current conversation. Stop cancels its running processes. Execution uses the selected provider, including plugin tool replacements. The default timeout is five minutes, configurable through `timeoutMs` up to fifteen minutes, with at most eight running jobs per conversation. Results include output and errors; cancellation and interruption warn about possible partial effects.
 
@@ -92,7 +104,7 @@ The Charms adapter waits for remote jobs internally using its status API. This p
 
 ## Routines and events
 
-Open **Background work** in the sidebar:
+Open **Routines** in the sidebar to manage scheduled work and goals. Detached background processes have no separate menu or job list:
 
 - **Task:** one independent conversation. With the current test model, use an explicit command such as `/exec echo done > /workspace/result.txt`.
 - **Goal:** continue an objective for a bounded number of runs. An integrated LLM would judge completion through the `automation` tool; the bundled test model cannot reason about goals.

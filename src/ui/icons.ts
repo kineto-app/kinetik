@@ -18,6 +18,8 @@ const paths = {
   plus: ['M12 5v14', 'M5 12h14'],
   menu: ['M4 6h16', 'M4 12h16', 'M4 18h16'],
   terminal: ['m4 6 6 6-6 6', 'M12 18h8'],
+  settings: ['M4 7h16', 'M4 17h16', 'M8 4v6', 'M16 14v6'],
+  clock: ['M12 8v4l3 2', 'M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0'],
   monitor: ['M3 4h18v13H3z', 'M8 21h8', 'M12 17v4'],
 } as const;
 export type IconName = keyof typeof paths;

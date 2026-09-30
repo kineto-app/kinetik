@@ -1,19 +1,59 @@
 /// <reference lib="webworker" />
 import { sandboxCSP } from './browser/sandbox';
 import { Runtime } from './core/runtime';
-import { errorText } from './core/types';
+import { errorText, type Conversation } from './core/types';
+import { Store } from './browser/store';
+import type { BackgroundProcess } from './core/background';
 declare const __PRECACHE__: string[];
 declare const __BUILD_ID__: string;
 const sw = globalThis as unknown as ServiceWorkerGlobalScope;
 const scope = new URL(sw.registration.scope);
 const cachePrefix = 'kinetik-app:' + scope.pathname + ':';
 const cacheName = cachePrefix + __BUILD_ID__;
-const runtime = new Runtime(undefined, () => {
-  void sw.clients
-    .matchAll()
-    .then((clients) => clients.forEach((client) => client.postMessage({ type: 'changed' })));
-});
-const initialized = runtime.recover();
+const store = new Store();
+const updateKey = 'app-update:' + scope.pathname;
+const operationLock = 'kinetik-runtime:' + scope.pathname;
+let runtime: Runtime;
+let initialized: Promise<void> | undefined;
+function initialize() {
+  return (initialized ??= (async () => {
+    runtime = new Runtime(store, () => {
+      void sw.clients
+        .matchAll()
+        .then((clients) => clients.forEach((client) => client.postMessage({ type: 'changed' })));
+    });
+    await runtime.recover();
+  })());
+}
+async function operation(work: () => Promise<void>) {
+  await navigator.locks.request(operationLock, { mode: 'shared' }, async () => {
+    const target = await store.get<string>(updateKey);
+    if (target && target !== __BUILD_ID__) throw new Error('App updated. Reload to continue.');
+    await initialize();
+    await work();
+  });
+}
+async function activateUpdate() {
+  await navigator.locks.request(operationLock, { ifAvailable: true }, async (lock) => {
+    if (!lock) throw new Error('Work is still running. Try Update again when it finishes.');
+    const conversations = await store.entries<Conversation>('conversation:');
+    const jobs = await store.entries<BackgroundProcess>('background:');
+    if (
+      conversations.some(([, c]) => ['running', 'queued'].includes(c.status)) ||
+      jobs.some(([, job]) => job.state === 'running' || !job.delivered)
+    )
+      throw new Error('Work is still running. Try Update again when it finishes.');
+    // Older workers cannot start new work in the gap before activation.
+    const previous = await store.get<string>(updateKey);
+    await store.put(updateKey, __BUILD_ID__);
+    try {
+      await sw.skipWaiting();
+    } catch (error) {
+      await store.put(updateKey, previous ?? '');
+      throw error;
+    }
+  });
+}
 sw.addEventListener('install', (event) => {
   // Waiting updates do not interrupt in-progress turns. First install activates naturally.
   event.waitUntil(
@@ -25,7 +65,8 @@ sw.addEventListener('install', (event) => {
 sw.addEventListener('activate', (event) =>
   event.waitUntil(
     (async () => {
-      await initialized;
+      await store.put(updateKey, __BUILD_ID__);
+      await initialize();
       for (const name of await caches.keys())
         if (name.startsWith(cachePrefix) && name !== cacheName) await caches.delete(name);
       await sw.clients.claim();
@@ -79,17 +120,32 @@ sw.addEventListener('message', (event) => {
   if (!port || !event.source || !('url' in event.source)) return;
   const source = new URL(event.source.url);
   if (source.origin !== scope.origin || !source.pathname.startsWith(scope.pathname)) return;
+  if (event.data?.op === 'version' || event.data?.op === 'activateUpdate') {
+    event.waitUntil(
+      (async () => {
+        try {
+          if (event.data.op === 'activateUpdate') await activateUpdate();
+          port.postMessage({ ok: true, result: __BUILD_ID__ });
+        } catch (error) {
+          port.postMessage({ ok: false, error: errorText(error) });
+        }
+      })(),
+    );
+    return;
+  }
   event.waitUntil(
-    (async () => {
+    operation(async () => {
       let followup: string | undefined;
       try {
-        await initialized;
         const data = event.data as Record<string, unknown>;
         let result: unknown;
         switch (data.op) {
           case 'state':
             result = {
               automations: await runtime.automations.list(),
+              background: (await store.entries<BackgroundProcess>('background:'))
+                .filter(([, job]) => job.state === 'running')
+                .map(([, { id, conversationId, tool }]) => ({ id, conversationId, tool })),
               conversations: (await runtime.conversations()).map((c) => ({
                 ...c,
                 plugins: undefined,
@@ -171,6 +227,9 @@ sw.addEventListener('message', (event) => {
             if (!(data.bytes instanceof Uint8Array)) throw new Error('Invalid file bytes.');
             await runtime.importFile(string(data.name), data.bytes);
             break;
+          case 'files':
+            result = await runtime.files();
+            break;
           case 'export':
             result = await runtime.exportFile(string(data.path));
             break;
@@ -192,15 +251,14 @@ sw.addEventListener('message', (event) => {
       } finally {
         await runtime.background.drain();
       }
-    })(),
+    }).catch((error) => port.postMessage({ ok: false, error: errorText(error) })),
   );
 });
 
 // Push providers deliver {id, name, text}; IDs deduplicate redelivery. No token lives here.
 sw.addEventListener('push', (event) => {
   event.waitUntil(
-    (async () => {
-      await initialized;
+    operation(async () => {
       const value = event.data?.json();
       if (value)
         await runtime.automations.emit(string(value.name), string(value.text), string(value.id));
@@ -210,7 +268,7 @@ sw.addEventListener('push', (event) => {
       });
       await runtime.automations.tick();
       await runtime.background.drain();
-    })(),
+    }),
   );
 });
 sw.addEventListener('notificationclick', (event) => {
@@ -220,7 +278,10 @@ sw.addEventListener('notificationclick', (event) => {
 for (const type of ['sync', 'periodicsync']) {
   sw.addEventListener(type, ((event: ExtendableEvent) => {
     event.waitUntil(
-      initialized.then(() => runtime.automations.tick()).then(() => runtime.background.drain()),
+      operation(async () => {
+        await runtime.automations.tick();
+        await runtime.background.drain();
+      }),
     );
   }) as EventListener);
 }
