@@ -105,7 +105,18 @@ jobs:
           xcrun simctl boot "$KINETIK_SIMULATOR"
           xcrun simctl bootstatus "$KINETIK_SIMULATOR" -b
           xcrun simctl install "$KINETIK_SIMULATOR" src-tauri/gen/apple/build/arm64-sim/Kinetik.app
-          xcrun simctl launch "$KINETIK_SIMULATOR" app.kinetik.oss
+          # SpringBoard can still reject the first launch after a fresh simulator boot.
+          for attempt in 1 2 3; do
+            if xcrun simctl launch "$KINETIK_SIMULATOR" app.kinetik.oss; then
+              launched=1
+              break
+            fi
+            sleep 3
+          done
+          if [ "${launched:-0}" != 1 ]; then
+            xcrun simctl spawn "$KINETIK_SIMULATOR" log show --last 3m --style compact --predicate 'process == "Kinetik" OR process == "securityd" OR process == "SpringBoard"'
+            exit 1
+          fi
           sleep 8
           xcrun simctl io "$KINETIK_SIMULATOR" screenshot ios-launch.png
           swift scripts/verify-ios-launch.swift ios-launch.png
