@@ -540,3 +540,35 @@ test('opening an older chat repairs the known pre-dispatch background rejection'
   );
   expect((await read(store, c.id)).messages.at(-1)?.text).toBe('Continued automatically.');
 });
+
+test('a background completion can produce a persisted app without exposing its tool output', async () => {
+  const store = new Store(crypto.randomUUID());
+  await store.put('plugins', [
+    plugin(`return {tools: {show: {
+      description: 'Show the result', inputSchema: {type: 'object'},
+      async execute() { return {content: [{type: 'text', text: 'private tool receipt'}]}; },
+      app: {async resource() { return {html: '<h1>Finished result</h1>'}; }}
+    }}}`),
+  ]);
+  const mock = new MockModel();
+  const runtime = new Runtime(store, undefined, {
+    next(request, signal) {
+      if (request.message.startsWith('Background job '))
+        return Promise.resolve(
+          request.result === undefined
+            ? { type: 'tool' as const, name: 'remote__show', input: {} }
+            : { type: 'text' as const, text: 'Your result is ready.' },
+        );
+      return mock.next(request, signal);
+    },
+  });
+  const c = await runtime.create();
+  await runtime.submit(c.id, '/bg sleep 0.2; echo ready');
+  await runtime.run(c.id);
+  await runtime.background.drain();
+  const finished = await read(store, c.id);
+  const rendered = finished.messages.find((m) => m.app);
+  expect(rendered?.app?.html).toContain('Finished result');
+  expect(rendered?.visibility).toBe('internal');
+  expect(finished.messages.at(-1)?.text).toBe('Your result is ready.');
+});

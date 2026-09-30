@@ -12,6 +12,9 @@ let tokenExchanges = 0;
 let failModel = false;
 let modelRequests = 0;
 let narratedModel = false;
+let backgroundModel = false;
+let remoteRuns = 0;
+let remoteDone = false;
 let connected = false,
   revoked = false;
 const flows = new Map();
@@ -50,6 +53,14 @@ export async function onboardingFixture(req, res) {
     failActivation = true;
     return reply({});
   }
+  if (url.pathname === prefix + 'background-model') {
+    backgroundModel = true;
+    return reply({});
+  }
+  if (url.pathname === prefix + 'finish-job') {
+    remoteDone = true;
+    return reply({});
+  }
   if (url.pathname === prefix + 'narrated-model') {
     narratedModel = true;
     return reply({});
@@ -58,12 +69,16 @@ export async function onboardingFixture(req, res) {
     failModel = true;
     return reply({});
   }
-  if (url.pathname === prefix + 'stats') return reply({ tokenExchanges, modelRequests });
+  if (url.pathname === prefix + 'stats')
+    return reply({ tokenExchanges, modelRequests, remoteRuns });
   if (url.pathname === prefix + 'reset') {
     failActivation = false;
     tokenExchanges = 0;
     modelRequests = 0;
     narratedModel = false;
+    backgroundModel = false;
+    remoteRuns = 0;
+    remoteDone = false;
     failModel = false;
     browserChatGPT = false;
     modelRelay = false;
@@ -155,6 +170,7 @@ export async function onboardingFixture(req, res) {
     if (rpc.method === 'tools/list')
       result = {
         tools: [
+          ...(backgroundModel ? ['charms_job', 'charms_render'] : []),
           'charms_exec',
           'charms_files_read',
           'charms_files_write',
@@ -162,10 +178,41 @@ export async function onboardingFixture(req, res) {
           'charms_files_list',
           'charms_skill_find',
           'charms_skill_load',
-        ].map((name) => ({ name, description: name, inputSchema: { type: 'object' } })),
+        ].map((name) => ({
+          name,
+          description: name,
+          inputSchema: { type: 'object' },
+          ...(name === 'charms_render'
+            ? { _meta: { ui: { resourceUri: 'ui://fixture/result' } } }
+            : {}),
+        })),
+      };
+    if (rpc.method === 'resources/read')
+      result = {
+        contents: [
+          {
+            uri: 'ui://fixture/result',
+            mimeType: 'text/html;profile=mcp-app',
+            text: `<p id="result">Loading</p><script>
+        const send=(method,params,id)=>parent.postMessage({jsonrpc:'2.0',method,params,id},'*');
+        addEventListener('message', e=>{if(e.data.id===1 && e.data.result) send('ui/notifications/initialized',{}); if(e.data.method==='ui/notifications/tool-result') document.getElementById('result').textContent='Recovered result';});
+        send('ui/initialize',{},1);
+      </script>`,
+          },
+        ],
       };
     if (rpc.method === 'tools/call') {
       let payload = { ok: true };
+      if (backgroundModel && rpc.params.name === 'charms_exec') {
+        remoteRuns++;
+        payload = { job_id: 'durable-job', status: 'running' };
+      }
+      if (backgroundModel && rpc.params.name === 'charms_job')
+        payload = {
+          job_id: 'durable-job',
+          status: remoteDone ? 'completed' : 'running',
+          output: 'remote result',
+        };
       if (rpc.params.name === 'charms_skill_find')
         payload = {
           catalog_version: '1',
@@ -210,6 +257,41 @@ export async function onboardingFixture(req, res) {
     if (failModel) {
       failModel = false;
       return reply({ error: 'Temporary model failure' }, 503);
+    }
+    if (backgroundModel) {
+      const { request } = JSON.parse(await body());
+      const step = modelRequests;
+      const call = step === 1 ? 'background' : step === 3 ? 'charms__charms_render' : undefined;
+      const output = call
+        ? [
+            {
+              type: 'function_call',
+              call_id: 'bg-call-' + step,
+              name: request.tools[0].tools.find((tool) => tool.name.startsWith(call + '_')).name,
+              arguments: JSON.stringify(
+                step === 1
+                  ? { action: 'start', tool: 'exec', input: { command: 'create result' } }
+                  : { content: 'result' },
+              ),
+            },
+          ]
+        : [
+            {
+              type: 'message',
+              role: 'assistant',
+              content: [
+                {
+                  type: 'output_text',
+                  text: step === 2 ? 'Working in the background.' : 'Your result is ready.',
+                },
+              ],
+            },
+          ];
+      res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+      res.end(
+        'data: ' + JSON.stringify({ type: 'response.completed', response: { output } }) + '\n\n',
+      );
+      return true;
     }
     if (narratedModel) {
       const { request } = JSON.parse(await body());
