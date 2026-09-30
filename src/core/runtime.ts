@@ -811,7 +811,7 @@ export class Runtime {
           ...value.messages,
           {
             ...message('tool', printable(result), 'App · ' + name),
-            activity: { input, outcome: toolOutcome(result) },
+            activity: { scope: 'app:' + id, input, outcome: toolOutcome(result) },
           },
         ],
       }));

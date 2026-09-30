@@ -209,6 +209,11 @@ test('MCP Apps handshake, tool interaction, visibility and origin isolation', as
   await action.getByText('Technical details', { exact: true }).click();
   await expect(action).toContainText('App · increment');
   await expect(app.locator('#result')).toHaveText('Incremented');
+  const saved = await rpc<{ conversations: Conversation[] }>(page, 'state');
+  const messages = saved.conversations.flatMap((conversation) => conversation.messages);
+  expect(messages.find((message) => message.tool === 'App · increment')?.activity?.scope).toBe(
+    'app:' + messages.find((message) => message.app)?.app?.id,
+  );
   expect(await page.evaluate(() => localStorage.getItem('escaped'))).toBeNull();
   await context.setOffline(true);
   await page.reload();

@@ -98,3 +98,15 @@ test('technical details mask token fields and URLs, ordinary descriptions never 
     'Prepared a preview.',
   );
 });
+
+test('one widget cannot resolve a failed action from another widget', () => {
+  const failed = receipt('App · save', { value: 'draft' }, 'failed');
+  const succeeded = receipt('App · save', { value: 'draft' });
+  Object.assign(failed.activity!, { scope: 'widget-a' });
+  Object.assign(succeeded.activity!, { scope: 'widget-b' });
+  const batches = activityBatches([failed, succeeded]);
+  expect(batches).toHaveLength(2);
+  expect(batches[0].failed).toBe(true);
+  succeeded.activity!.scope = 'widget-a';
+  expect(activityBatches([failed, succeeded])[0].failed).toBe(false);
+});

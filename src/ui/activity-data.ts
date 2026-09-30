@@ -29,6 +29,7 @@ function stable(value: unknown): string {
   return JSON.stringify(value) ?? 'null';
 }
 function provider(message: Message) {
+  if (message.activity?.scope) return message.activity.scope;
   const [name, source] = (message.tool ?? '').split(' · ');
   return name === 'App' ? 'App' : (source ?? name.split('__')[0]);
 }
@@ -58,13 +59,14 @@ export function activityBatches(messages: Message[]): ActivityBatch[] {
   const activities: Activity[] = [];
   for (const message of [...messages].reverse()) {
     const state = outcome(message);
-    const identity = message.activity
-      ? provider(message) +
-        ':' +
-        taskKind(message.tool ?? '') +
-        ':' +
-        stable(message.activity.input)
-      : undefined;
+    const identity =
+      message.activity && !(message.tool?.startsWith('App · ') && !message.activity.scope)
+        ? provider(message) +
+          ':' +
+          taskKind(message.tool ?? '') +
+          ':' +
+          stable(message.activity.input)
+        : undefined;
     const recovered = state === 'failed' && identity !== undefined && succeeded.has(identity);
     if (state === 'completed' && identity !== undefined) succeeded.add(identity);
     activities.unshift({ message, outcome: state, recovered });

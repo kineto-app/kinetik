@@ -7,6 +7,8 @@ export interface Message {
   source?: 'background';
   tool?: string;
   activity?: {
+    /** Keeps calls from separate widget instances independent. */
+    scope?: string;
     input: Record<string, unknown>;
     outcome: 'completed' | 'failed' | 'running' | 'started' | 'unknown';
   };
