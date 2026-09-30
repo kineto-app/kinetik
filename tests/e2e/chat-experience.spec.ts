@@ -135,10 +135,13 @@ test('tool activity is collapsed while result files remain visible', async ({ pa
   const group = page.locator('.tool-group');
   await expect(group).toHaveCount(1);
   await expect(group).not.toHaveAttribute('open');
-  await expect(group.locator('.tool-group-label')).toContainText('Created a file');
+  await expect(group.locator('.tool-group-label')).toContainText('Saved a file');
   await group.locator(':scope > summary').click();
   await expect(group.locator('.tool-details')).toBeVisible();
   await group.locator('.tool-details > summary').click();
+  await expect(group.locator('.activity-explanation')).toHaveText('Saved “note.txt”.');
+  await expect(group.locator('.tool-details pre')).toHaveCount(0);
+  await group.getByText('Technical details', { exact: true }).click();
   await expect(group.locator('.tool-details pre')).toBeVisible();
 });
 

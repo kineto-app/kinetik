@@ -213,18 +213,6 @@ function render() {
         label.prepend(avatar);
       }
       if (item.role === 'tool') {
-        const mark = document.createElement('span');
-        mark.className = 'tool-mark';
-        mark.innerHTML = icon('check');
-        label.prepend(mark);
-      }
-      if (item.role === 'tool') {
-        const details = document.createElement('details');
-        details.className = 'tool-details';
-        const summary = document.createElement('summary');
-        summary.textContent = taskLabel(item.tool ?? '', true);
-        details.append(summary, label, content);
-        article.append(details);
         if (item.file) {
           const file = item.file;
           const card = document.createElement('div');

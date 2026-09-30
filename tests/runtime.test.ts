@@ -472,3 +472,18 @@ test('Stop during a remote recovery check does not restart the conversation', as
   await recovering;
   expect((await read(store, c.id)).status).toBe('stopped');
 });
+
+test('tool receipts retain arguments and unsuccessful command outcomes across reloads', async () => {
+  const store = new Store(crypto.randomUUID());
+  const runtime = new Runtime(store);
+  const c = await runtime.create();
+  await runtime.submit(c.id, '/exec false');
+  await runtime.run(c.id);
+  const saved = (await read(store, c.id)).messages.find((item) => item.role === 'tool');
+  expect(saved?.activity).toEqual({ input: { command: 'false' }, outcome: 'failed' });
+  const restarted = new Runtime(store);
+  await restarted.recover();
+  expect(
+    (await read(store, c.id)).messages.find((item) => item.id === saved?.id)?.activity,
+  ).toEqual(saved?.activity);
+});

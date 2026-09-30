@@ -6,6 +6,10 @@ export interface Message {
   visibility?: 'internal';
   source?: 'background';
   tool?: string;
+  activity?: {
+    input: Record<string, unknown>;
+    outcome: 'completed' | 'failed' | 'running' | 'started' | 'unknown';
+  };
   app?: AppView;
   file?: { path: string; name: string };
 }

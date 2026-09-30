@@ -220,53 +220,131 @@ dialog:not(.connection-setup) {
 #resume-work {
   font-size: 12px;
 }
+/* One quiet card per narration segment. */
 .tool-group {
   margin: 0 0 var(--space-section);
-  font-size: 12px;
-  color: var(--muted);
-}
-.tool-group > summary {
-  display: flex;
-  gap: var(--space-inline);
-  align-items: center;
-  width: fit-content;
-  max-width: 100%;
-  min-height: var(--target);
-  padding: var(--space-inline) var(--space-content);
   border: 1px solid var(--line);
-  border-radius: var(--radius-pill);
-  background: var(--sidebar-fill);
-  list-style: none;
-  cursor: pointer;
+  border-radius: var(--radius);
+  background: var(--glass-panel);
+  color: var(--ink);
+  font-size: 13px;
+  overflow: hidden;
 }
-.tool-group > summary::-webkit-details-marker {
+.tool-group summary {
+  cursor: pointer;
+  min-height: var(--target);
+  list-style: none;
+  transition: background var(--duration) var(--ease-out);
+}
+.tool-group summary::-webkit-details-marker {
   display: none;
 }
-.tool-group > summary::after {
-  content: '›';
-  font-size: 18px;
+.tool-group summary:hover {
+  background: var(--hover);
 }
-.tool-group[open] > summary::after {
-  transform: rotate(90deg);
+.tool-group summary:active {
+  background: var(--panel);
 }
-.tool-group-mark {
+.tool-group summary:focus-visible {
+  outline-offset: -3px;
+}
+.activity-summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-inline);
+  padding: var(--space-content);
+}
+.activity-label {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.activity-mark,
+.activity-chevron {
+  display: flex;
+  flex: none;
+  color: var(--muted);
+}
+.activity-mark .icon,
+.activity-chevron .icon {
+  width: 16px;
+  height: 16px;
+}
+[data-outcome='completed'] > summary .activity-mark {
   color: var(--accent-ink);
 }
-.tool-group[data-running='true'] .tool-group-mark {
+[data-outcome='failed'] > summary .activity-mark,
+[data-outcome='unknown'] > summary .activity-mark {
+  color: var(--bad);
+}
+[data-outcome='running'] > summary .activity-mark {
   animation: thinking 1.2s ease-in-out infinite;
 }
+.activity-chevron {
+  transition: transform var(--duration) var(--ease-out);
+}
+details[open] > summary > .activity-chevron {
+  transform: rotate(90deg);
+}
+.activity-count {
+  padding: 0 var(--space-inline);
+  background: var(--hover);
+  border-radius: var(--radius-pill);
+  color: var(--muted);
+  font-size: 12px;
+}
 .tool-group-steps {
-  border-left: 1px solid var(--control-line);
-  padding-left: var(--space-content);
-  margin: var(--space-content);
+  margin: 0 var(--space-content);
+  border-top: 1px solid var(--line);
 }
 .tool-group .tool-details {
-  padding: var(--space-inline) 0;
+  border: 0;
+  padding: 0;
   margin: 0;
 }
-.tool-group .tool-details pre {
+.tool-group .tool-details > summary {
+  color: var(--ink);
+  padding: var(--space-content) 0;
+}
+.tool-group-steps > .activity-batch > summary {
+  padding-inline: 0;
+}
+.tool-group-steps > * + * {
+  border-top: 1px solid var(--line);
+}
+.activity-calls {
+  padding-left: var(--space-content);
+}
+.activity-body {
+  padding: 0 0 var(--space-content);
+  color: var(--muted);
+}
+.activity-explanation {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.activity-technical > summary {
+  display: flex;
+  align-items: center;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.activity-technical pre {
   max-height: 240px;
   overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background: var(--ground);
+  border-radius: var(--radius-inner);
+  padding: var(--space-content);
+  margin: 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  .tool-group *,
+  .tool-group summary {
+    animation: none !important;
+    transition: none;
+  }
 }
 .jump-latest {
   background: var(--glass-panel);

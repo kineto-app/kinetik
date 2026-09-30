@@ -63,7 +63,7 @@ Replies format headings, lists, tables, links, and code. Copy a complete reply o
 
 Choose **Create a note** or **Make a packing list**, then send the suggested message. These are fixed preview examples: they create real local files but do not understand arbitrary requests. Open or download the resulting file card, or use **Files** to browse, preview, add, and download files without typing a path. Files shows this browser’s workspace; files on connected services remain in that service.
 
-Foreground steps have short, everyday labels. Expand a step only when you want its technical details. Interactive MCP cards remain visible. **Settings → Manage connections** holds service configuration, with custom plugin links and JSON options under advanced setup. The preview limitation stays visible beside the message box and in Settings.
+Foreground tools appear in a collapsed activity card between narration messages. Repeated actions share a row, with individual calls available on expansion. Each call has a short explanation and optional technical details. A successful retry of the same action and arguments resolves its earlier failure inside that group; unrelated and uncertain outcomes stay visible. Interactive MCP cards remain visible. **Settings → Manage connections** holds service configuration, with custom plugin links and JSON options under advanced setup. The preview limitation stays visible beside the message box and in Settings.
 
 For developers, the test model also understands explicit commands so runtime behavior is reproducible:
 

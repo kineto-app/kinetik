@@ -1,4 +1,5 @@
 import Ajv from 'ajv';
+import { toolOutcome } from './tool-outcome';
 import { isConnectionError, SignInRequired } from './connection-error';
 import { localSkills } from './skills';
 import { Automations } from './automation';
@@ -380,6 +381,14 @@ export class Runtime {
                 ...value.messages,
                 {
                   ...message('tool', result!, `${output.name} · ${binding.provider}`),
+                  id: value.call!.id,
+                  activity: {
+                    input: output.input,
+                    outcome: toolOutcome(
+                      response,
+                      output.name === 'exec' || output.name.endsWith('__charms_exec'),
+                    ),
+                  },
                   app,
                   file:
                     binding.provider === 'local' &&
@@ -406,7 +415,7 @@ export class Runtime {
             await this.update(id, (value) => ({
               ...value,
               status: 'needs_review',
-              call: { ...value.call!, state: 'unknown' },
+              call: { ...value.call!, state: 'unknown', result: errorText(error) },
               messages: [
                 ...value.messages,
                 message(
@@ -646,6 +655,14 @@ export class Runtime {
                         printable(status.result),
                         `${value.call!.name} · ${value.call!.provider}`,
                       ),
+                      id: value.call!.id,
+                      activity: {
+                        input: value.call!.input,
+                        outcome: toolOutcome(
+                          status.result,
+                          value.call!.name === 'exec' || value.call!.name.endsWith('__charms_exec'),
+                        ),
+                      },
                       visibility: value.turn === 'background' ? 'internal' : undefined,
                     },
                   ],
@@ -790,7 +807,13 @@ export class Runtime {
       });
       await this.update(record.conversationId, (value) => ({
         ...value,
-        messages: [...value.messages, message('tool', printable(result), 'App · ' + name)],
+        messages: [
+          ...value.messages,
+          {
+            ...message('tool', printable(result), 'App · ' + name),
+            activity: { input, outcome: toolOutcome(result) },
+          },
+        ],
       }));
       return result;
     } catch (error) {

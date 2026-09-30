@@ -1,0 +1,162 @@
+import { test, expect, type Page } from '@playwright/test';
+import AxeBuilder from '@axe-core/playwright';
+import type { Conversation, Message } from '../../src/core/types';
+
+const msg = (id: string, role: Message['role'], text: string): Message => ({
+  id,
+  role,
+  text,
+  createdAt: 1,
+});
+const action = (
+  id: string,
+  tool: string,
+  input: Record<string, unknown>,
+  outcome: NonNullable<Message['activity']>['outcome'] = 'completed',
+): Message => ({
+  ...msg(id, 'tool', JSON.stringify({ result: 'Saved result', render_token: 'do-not-display' })),
+  tool,
+  activity: { input, outcome },
+});
+async function seed(page: Page, messages: Message[]) {
+  await page.goto('/');
+  await expect(page.locator('#status')).toHaveText('Ready');
+  await page.evaluate(async (messages) => {
+    // Wait for the worker to create the store before opening it from the page.
+    const registration = await navigator.serviceWorker.ready;
+    await new Promise<void>((resolve, reject) => {
+      const channel = new MessageChannel();
+      channel.port1.onmessage = (event) => {
+        channel.port1.close();
+        event.data.ok ? resolve() : reject(new Error(event.data.error));
+      };
+      registration.active!.postMessage({ op: 'state' }, [channel.port2]);
+    });
+    const db = await new Promise<IDBDatabase>((resolve) => {
+      const open = indexedDB.open('kinetik-oss-v1', 1);
+      open.onsuccess = () => resolve(open.result);
+    });
+    const conversation: Conversation = {
+      id: 'activity-test',
+      title: 'Weekend packing list',
+      messages,
+      pending: [],
+      status: 'idle',
+      updatedAt: Date.now(),
+    };
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction('records', 'readwrite');
+      tx.objectStore('records').put(conversation, 'conversation:activity-test');
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+    db.close();
+    sessionStorage.setItem('kinetik-conversation', conversation.id);
+  }, messages);
+  await page.reload();
+  await expect(page.locator('#title')).toHaveText('Weekend packing list');
+}
+
+test('activity combines repeats, explains retries, and keeps technical output optional', async ({
+  page,
+}, info) => {
+  await seed(page, [
+    msg('u', 'user', 'Make a packing list for a weekend away.'),
+    msg('n', 'assistant', 'I’ll check your notes and prepare the list.'),
+    action('r1', 'charms__charms_files_read · charms', { path: '/workspace/trip.md' }),
+    action('r2', 'charms__charms_files_read · charms', { path: '/workspace/preferences.md' }),
+    action('e1', 'exec · charms', { command: 'python3 packing.py' }, 'failed'),
+    action('e2', 'exec · charms', { command: 'python3 packing.py' }),
+    action('r3', 'charms__charms_files_read · charms', { path: '/workspace/trip.md' }),
+    msg('n2', 'assistant', 'The list is ready. I’m saving it for you.'),
+    {
+      ...action('w', 'write · local', { path: '/workspace/packing.txt' }),
+      file: { path: '/workspace/packing.txt', name: 'packing.txt' },
+    },
+    msg('final', 'assistant', 'Here’s your weekend packing list.'),
+  ]);
+  const cards = page.locator('.tool-group');
+  await expect(cards).toHaveCount(2);
+  const first = cards.first();
+  await expect(first).not.toHaveAttribute('open');
+  await expect(first.locator(':scope > summary')).toHaveText('Actions completed2');
+  await expect(page.locator('.file-card')).toBeVisible();
+  await expect(page.locator('.activity-technical pre')).toHaveCount(0);
+  await first.locator(':scope > summary').click();
+  const rows = first.locator('.tool-group-steps > details');
+  await expect(rows).toHaveCount(2);
+  await expect(rows.nth(0).locator(':scope > summary')).toHaveText('Read 2 files');
+  await expect(rows.nth(1).locator(':scope > summary')).toHaveText('Ran a command');
+  await expect(first).toHaveAttribute('data-outcome', 'completed');
+  for (const theme of ['dark', 'light']) {
+    await page.evaluate((theme) => {
+      document.documentElement.dataset.theme = theme;
+    }, theme);
+    const axe = await new AxeBuilder({ page }).include('.tool-group').analyze();
+    expect(axe.violations).toEqual([]);
+    await page.screenshot({ path: info.outputPath(`activity-${theme}.png`) });
+  }
+  await rows.nth(0).locator(':scope > summary').click();
+  await expect(rows.nth(0).locator('.tool-details > summary').first()).toContainText(
+    'Read trip.md',
+  );
+  await rows.nth(1).locator(':scope > summary').click();
+  const failedAttempt = rows.nth(1).locator('.tool-details').first();
+  await failedAttempt.locator(':scope > summary').click();
+  await expect(failedAttempt.locator('.activity-explanation')).toContainText('later retry');
+  await expect(failedAttempt.locator('pre')).toHaveCount(0);
+  await failedAttempt.getByText('Technical details', { exact: true }).click();
+  await expect(failedAttempt.locator('pre')).toContainText('python3 packing.py');
+  await expect(failedAttempt.locator('pre')).not.toContainText('do-not-display');
+  await expect(failedAttempt.locator('pre')).toContainText('[redacted]');
+  await page.reload();
+  await expect(cards).toHaveCount(2);
+  await expect(first).toHaveAttribute('data-outcome', 'completed');
+});
+
+test('unrelated successes cannot hide errors and long untrusted data stays inert', async ({
+  page,
+}) => {
+  await seed(page, [
+    msg('u', 'user', 'Check my files.'),
+    action('fail', 'exec · charms', { command: 'build' }, 'failed'),
+    action('other', 'exec · charms', { command: 'pwd' }),
+    {
+      ...action('unsafe', 'read · local', { path: '<script>alert(1)</script>' }),
+      text: '<img src=x onerror="window.escaped=true">',
+    },
+  ]);
+  const card = page.locator('.tool-group');
+  await expect(card.locator(':scope > summary')).toContainText('Needs attention');
+  await card.locator(':scope > summary').click();
+  await card.locator('.activity-batch > summary').click();
+  await expect(card.locator('.tool-details').first().locator(':scope > summary')).toContainText(
+    'Failed',
+  );
+  const unsafe = card.locator('.tool-details').last();
+  await unsafe.locator(':scope > summary').click();
+  await unsafe.getByText('Technical details', { exact: true }).click();
+  await expect(unsafe.locator('pre')).toContainText('<img');
+  expect(await page.evaluate(() => 'escaped' in window)).toBe(false);
+  await page.setViewportSize({ width: 320, height: 740 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
+test('a live command keeps the activity card open when its result arrives', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.locator('#status')).toHaveText('Ready');
+  await page
+    .getByRole('textbox', { name: 'Message', exact: true })
+    .fill('/exec sleep 2; echo finished');
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  const card = page.locator('.tool-group');
+  await expect(card).toHaveAttribute('data-outcome', 'running');
+  await card.locator(':scope > summary').click();
+  const action = card.locator('.tool-details');
+  await action.locator(':scope > summary').click();
+  await expect(card).toHaveAttribute('data-outcome', 'completed');
+  await expect(card).toHaveAttribute('open');
+  await expect(action).toHaveAttribute('open');
+  await expect(action.locator(':scope > summary')).toBeFocused();
+  await expect(page.locator('[data-role=assistant]')).toContainText('finished');
+});
