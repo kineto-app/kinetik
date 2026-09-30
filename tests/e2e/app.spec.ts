@@ -236,3 +236,40 @@ test('idle state reads do not create a worker notification loop', async ({ page 
   });
   expect(changes).toBeLessThan(5);
 });
+
+test('background process releases the turn and later wakes it with output without another message', async ({
+  page,
+  context,
+}, testInfo) => {
+  await send(
+    page,
+    '/bg sleep 2; echo background-finished > /workspace/bg-result; cat /workspace/bg-result',
+  );
+  await settled(page);
+  await expect(page.locator('[data-role="assistant"] pre').last()).toContainText(
+    'Completion will wake',
+  );
+  // The originating model turn is done. A second foreground command can run meanwhile.
+  await send(page, '/exec echo foreground-finished');
+  await settled(page);
+  await expect(page.locator('[data-role="assistant"] pre').last()).toContainText(
+    'foreground-finished',
+  );
+  await expect(page.locator('[data-role="assistant"] pre').last()).toContainText(
+    'background-finished',
+  );
+  await page.screenshot({ path: testInfo.outputPath('background-process.png') });
+  const before = await rpc<{ conversations: Conversation[] }>(page, 'state');
+  const events = () =>
+    before.conversations[0].messages.filter((m) => m.id.startsWith('background-completed:'));
+  expect(events()).toHaveLength(1);
+  expect(before.conversations[0].messages.filter((m) => m.role === 'user')).toHaveLength(2);
+  await context.setOffline(true);
+  await page.reload();
+  await expect(page.locator('#status')).toHaveText('Local workspace');
+  await settled(page);
+  const after = await rpc<{ conversations: Conversation[] }>(page, 'state');
+  expect(
+    after.conversations[0].messages.filter((m) => m.id.startsWith('background-completed:')),
+  ).toHaveLength(1);
+});

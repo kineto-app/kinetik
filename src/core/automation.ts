@@ -188,6 +188,19 @@ export class Automations {
           }));
         }
         if (conversation?.status === 'idle' && conversation.messages.length) {
+          const background = await this.store.entries<{
+            conversationId: string;
+            state: string;
+            delivered?: boolean;
+          }>('background:');
+          if (
+            background.some(
+              ([, job]) =>
+                job.conversationId === item.conversationId &&
+                (job.state === 'running' || !job.delivered),
+            )
+          )
+            continue;
           await this.store.update<State>('automations', (previous) => ({
             ...previous!,
             items: previous!.items.map((current) =>
