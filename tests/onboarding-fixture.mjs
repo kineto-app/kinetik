@@ -6,6 +6,7 @@ const base = 'http://127.0.0.1:4174';
 const prefix = '/onboarding/';
 let installRequired = false;
 let browserChatGPT = false;
+let modelRelay = false;
 let connected = false,
   revoked = false;
 const flows = new Map();
@@ -37,10 +38,12 @@ export async function onboardingFixture(req, res) {
   }
   if (url.pathname === prefix + 'browser-chatgpt') {
     browserChatGPT = true;
+    modelRelay = url.searchParams.has('relay');
     return reply({});
   }
   if (url.pathname === prefix + 'reset') {
     browserChatGPT = false;
+    modelRelay = false;
     installRequired = false;
     connected = false;
     revoked = false;
@@ -63,7 +66,11 @@ export async function onboardingFixture(req, res) {
         },
       },
       chatgpt: browserChatGPT
-        ? { mode: 'browser', jwksUrl: base + prefix + 'connections/chatgpt/keys' }
+        ? {
+            mode: 'browser',
+            jwksUrl: base + prefix + 'connections/chatgpt/keys',
+            ...(modelRelay ? { modelRelay: base + prefix + 'connections/chatgpt/model/' } : {}),
+          }
         : { apiBase: base + prefix + 'connections/chatgpt/' },
     });
   if (url.pathname === prefix + 'connections/charms/metadata')

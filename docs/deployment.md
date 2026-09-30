@@ -49,12 +49,38 @@ For experimental browser-owned sign-in, add:
 
 The host must serve OpenAI's public `https://auth.openai.com/.well-known/jwks.json`
 through the same-origin `jwksUrl`, without forwarding cookies, credentials, or redirects.
-This endpoint returns public signing keys only. Codes, tokens, refreshes and model requests
-travel directly between the browser worker and OpenAI. The paste-back flow checks state,
+This endpoint returns public signing keys only. OAuth code exchange, refresh and revocation
+travel directly between the browser worker and OpenAI. Model requests are direct by default,
+which requires OpenAI to allow the browser origin through CORS. A successful token exchange
+does not prove that authenticated model responses are readable. The paste-back flow checks state,
 PKCE, the ID-token signature, issuer, audience, nonce, expiry and plan permission. Credentials
 remain only in worker memory, separately from workspace files and chat. Sign-in must be repeated after worker termination, even if the PWA is still open. The short-lived OAuth transaction and public registration persist in IndexedDB to support the return flow. Trusted plugins still share
 origin privileges. This mode deliberately departs from OpenAI's documented token-storage
 guidance and has no claim of official browser support. Use it only on a trusted personal device.
+
+For an experimental stateless model relay, extend the browser configuration:
+
+```json
+{
+  "connections": {},
+  "chatgpt": {
+    "mode": "browser",
+    "jwksUrl": "./connections/chatgpt/keys",
+    "modelRelay": "./connections/chatgpt/model/"
+  }
+}
+```
+
+`modelRelay` must be on the app's origin and end in `/`. The worker sends authenticated
+`POST models` with `{}` and `POST responses` with the Responses API request body.
+The host forwards these to `GET https://api.openai.com/v1/models` and
+`POST https://api.openai.com/v1/responses`. OAuth and refresh tokens do not use the relay.
+The relay receives the access token and prompt in transit. It must not log or persist them,
+forward cookies, accept arbitrary upstream URLs, or follow redirects. Enforce the exact
+request origin, bound request sizes, preserve streaming and cancellation, and return 429
+with `Retry-After` when rate limited. Force `store: false` and `stream: true`. Do not cache
+responses. This repository supplies the client contract; the host implements the relay.
+This experimental transport does not establish official support for hosted subscription use.
 
 For an existing credential helper, add:
 

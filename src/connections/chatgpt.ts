@@ -43,18 +43,29 @@ export class BrowserChatGPT {
     private jwksUrl: string,
     private store = new Store('kinetik-chatgpt-v1'),
     private request: typeof fetch = fetch.bind(globalThis),
+    private modelRelay?: string,
   ) {}
-  private async json(url: string, init: RequestInit = {}) {
-    const response = await this.request(url, {
-      ...init,
-      credentials: 'omit',
-      cache: 'no-store',
-      redirect: 'error',
-      signal: init.signal ?? AbortSignal.timeout(30000),
-    });
+  private async json(url: string, init: RequestInit = {}, stage = 'request') {
+    let response: Response;
+    let text: string;
+    try {
+      response = await this.request(url, {
+        ...init,
+        credentials: 'omit',
+        cache: 'no-store',
+        redirect: 'error',
+        signal: init.signal ?? AbortSignal.timeout(30000),
+      });
+      text = await response.text();
+    } catch {
+      // Browser fetch errors hide whether DNS, TLS, CORS or connectivity failed.
+      // Identify the request without leaking callback codes or token responses.
+      throw new Error(
+        `Could not reach ChatGPT (${stage}). Check your connection, then restart sign-in.`,
+      );
+    }
     if (!response.ok)
-      throw new Error(`ChatGPT returned HTTP ${response.status}. Try again or reconnect.`);
-    const text = await response.text();
+      throw new Error(`ChatGPT returned HTTP ${response.status} (${stage}). Restart sign-in.`);
     if (text.length > 1024 * 1024) throw new Error('ChatGPT response was too large.');
     return text ? JSON.parse(text) : {};
   }
@@ -136,17 +147,21 @@ export class BrowserChatGPT {
         url.searchParams.getAll('code').length !== 1
       )
         throw new Error('The return link is incomplete. Start sign-in again.');
-      const tokens = await this.json(tokenEndpoint, {
-        method: 'POST',
-        body: new URLSearchParams({
-          grant_type: 'authorization_code',
-          client_id: clientId,
-          code,
-          code_verifier: pending.verifier,
-          redirect_uri: redirectUri,
-          resource,
-        }),
-      });
+      const tokens = await this.json(
+        tokenEndpoint,
+        {
+          method: 'POST',
+          body: new URLSearchParams({
+            grant_type: 'authorization_code',
+            client_id: clientId,
+            code,
+            code_verifier: pending.verifier,
+            redirect_uri: redirectUri,
+            resource,
+          }),
+        },
+        'token exchange',
+      );
       const claims = await this.identity(tokens.id_token, clientId, pending.nonce);
       if (registration.subject && registration.subject !== claims.sub)
         throw new Error('ChatGPT account does not match this registration.');
@@ -156,9 +171,18 @@ export class BrowserChatGPT {
       )
         throw new Error('ChatGPT plan access was not granted.');
       const session = this.session(tokens, String(claims.sub));
-      const catalog = await this.json(resource + '/models', {
-        headers: { Authorization: 'Bearer ' + session.access },
-      });
+      const catalog = await this.json(
+        this.modelRelay ? this.modelRelay + 'models' : resource + '/models',
+        {
+          method: this.modelRelay ? 'POST' : 'GET',
+          headers: {
+            Authorization: 'Bearer ' + session.access,
+            ...(this.modelRelay ? { 'Content-Type': 'application/json' } : {}),
+          },
+          body: this.modelRelay ? '{}' : undefined,
+        },
+        'model list',
+      );
       const models = Array.isArray(catalog.models)
         ? catalog.models.filter(
             (m: { visibility?: string; slug?: string }) =>
@@ -201,8 +225,8 @@ export class BrowserChatGPT {
     const claims = JSON.parse(new TextDecoder().decode(decode(payload)));
     if (header.alg !== 'RS256' || typeof header.kid !== 'string')
       throw new Error('Unsupported ChatGPT identity signature.');
-    // The host relays public signing keys only; OAuth credentials go directly to OpenAI.
-    const jwks = await this.json(this.jwksUrl);
+    // Public signing keys; OAuth code exchange and refresh go directly to OpenAI.
+    const jwks = await this.json(this.jwksUrl, {}, 'identity keys');
     const jwk = jwks.keys?.find(
       (k: JsonWebKey & { kid?: string }) =>
         k.kid === header.kid && k.kty === 'RSA' && (!k.use || k.use === 'sig'),
@@ -277,7 +301,7 @@ export class BrowserChatGPT {
     const session = await this.access();
     if (body.account !== session.account)
       throw new Error('ChatGPT account changed. Retry your message.');
-    return this.request(resource + '/responses', {
+    return this.request(this.modelRelay ? this.modelRelay + 'responses' : resource + '/responses', {
       method: 'POST',
       credentials: 'omit',
       redirect: 'error',
