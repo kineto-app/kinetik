@@ -5,22 +5,24 @@ const markdown = new MarkdownIt({ html: false, linkify: false, breaks: true });
 // Replies cannot load tracking images or embed arbitrary HTML. Links require a user click.
 markdown.disable('image');
 
-export function copyButton(text: string, label: string) {
+export function copyButton(text: string, label: string, iconOnly = false) {
   const action = document.createElement('button');
   action.type = 'button';
   action.className = 'copy-action';
   action.setAttribute('aria-label', label);
   action.title = label;
-  action.innerHTML = icon('copy') + (label === 'Copy reply' ? '' : '<span>Copy</span>');
+  action.innerHTML = icon('copy') + (iconOnly || label === 'Copy reply' ? '' : '<span>Copy</span>');
   action.onclick = async () => {
     try {
       await navigator.clipboard.writeText(text);
-      action.innerHTML = icon('check') + (label === 'Copy reply' ? '' : '<span>Copied</span>');
+      action.innerHTML =
+        icon('check') + (iconOnly || label === 'Copy reply' ? '' : '<span>Copied</span>');
       const announcement = document.getElementById('ui-announcement');
       if (announcement)
-        announcement.textContent = `${label === 'Copy reply' ? 'Reply' : 'Code'} copied to clipboard.`;
+        announcement.textContent = `${label === 'Copy reply' ? 'Reply' : label === 'Copy file' ? 'File' : 'Code'} copied to clipboard.`;
       setTimeout(() => {
-        action.innerHTML = icon('copy') + (label === 'Copy reply' ? '' : '<span>Copy</span>');
+        action.innerHTML =
+          icon('copy') + (iconOnly || label === 'Copy reply' ? '' : '<span>Copy</span>');
       }, 1800);
     } catch {
       const announcement = document.getElementById('ui-announcement');

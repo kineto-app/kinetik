@@ -334,6 +334,9 @@ sw.addEventListener('message', (event) => {
           case 'files':
             result = await runtime.files();
             break;
+          case 'export-shared':
+            result = await runtime.exportSharedFile(string(data.id));
+            break;
           case 'export':
             result = await runtime.exportFile(string(data.path));
             break;

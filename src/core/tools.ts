@@ -1,6 +1,7 @@
 import { Bash, type CommandName } from 'just-bash/browser';
 import type { createFilesystem } from '../browser/filesystem';
 import type { Binding, Skill } from './types';
+import type { Store } from '../browser/store';
 const text = { type: 'string' };
 const schema = (properties: Record<string, unknown>, required: string[]) => ({
   type: 'object',
@@ -46,6 +47,7 @@ const commands: CommandName[] = [
 export function localTools(
   workspace: Awaited<ReturnType<typeof createFilesystem>>,
   skills: () => Skill[],
+  store: Store,
 ): Record<string, Binding> {
   const { fs } = workspace;
   const path = (value: unknown) => fs.resolvePath('/workspace', String(value));
@@ -99,6 +101,17 @@ export function localTools(
       'List a directory in the shared browser filesystem.',
       schema({ path: text }, ['path']),
       async (input) => (await fs.readdir(path(input.path))).join('\n'),
+    ),
+    show_file: bind(
+      'Share a finished local file with the user as a downloadable attachment. Creates a snapshot; later edits do not change it. Writing a file does not share it.',
+      schema({ path: text }, ['path']),
+      async (input) => {
+        const resolved = path(input.path);
+        const bytes = await fs.readFileBuffer(resolved);
+        const snapshotId = crypto.randomUUID();
+        await store.put('shared-file:' + snapshotId, bytes);
+        return { file: { path: resolved, name: resolved.split('/').at(-1)!, snapshotId } };
+      },
     ),
     read_skill: bind(
       'Read native skill instructions independently of the workspace provider.',

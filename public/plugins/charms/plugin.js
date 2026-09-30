@@ -76,7 +76,7 @@ return (async () => {
     async cancel(id) { await client.call('charms_job_cancel', { job_id: id }); },
   };
   return {
-    tools, replacements,
+    tools, replacements: { ...replacements, show_file: null },
     skills: {
       async sync(previous, signal) {
         const catalogPages = await pages('charms_skill_find', {}, signal);

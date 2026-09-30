@@ -26,7 +26,9 @@ export class MockModel implements Model {
             name: 'write',
             input: { path: '/workspace/' + example.filename, content: example.content },
           }
-        : { type: 'text', text: example.reply };
+        : request.result.startsWith('Saved ') && request.tools.includes('show_file')
+          ? { type: 'tool', name: 'show_file', input: { path: '/workspace/' + example.filename } }
+          : { type: 'text', text: example.reply };
     if (request.message.trim() === 'Show my saved files.')
       return request.result === undefined
         ? { type: 'tool', name: 'list', input: { path: '/workspace' } }
@@ -37,11 +39,12 @@ export class MockModel implements Model {
                 request.result
                   .split('\n')
                   .map((name) => '• ' + name)
-                  .join('\n') +
-                '\n\nOpen Files to view or download them.'
+                  .join('\n')
               : 'You haven’t saved any files yet. Try creating a note or adding a file.',
           };
     if (request.result !== undefined) {
+      if (request.message.startsWith('/show_file '))
+        return { type: 'text', text: 'Here is your file.' };
       if (request.message.startsWith('/bg ') || request.message.startsWith('/tool background ')) {
         const receipt = JSON.parse(request.result);
         if (receipt.id && receipt.state === 'running')
@@ -75,7 +78,12 @@ export class MockModel implements Model {
       return { type: 'tool', name: 'exec', input: { command: [arg, ...lines].join('\n') } };
     if (command === 'write')
       return { type: 'tool', name: 'write', input: { path: arg, content: lines.join('\n') } };
-    if (command === 'read' || command === 'list' || command === 'read_skill')
+    if (
+      command === 'read' ||
+      command === 'list' ||
+      command === 'read_skill' ||
+      command === 'show_file'
+    )
       return { type: 'tool', name: command, input: { path: arg || '/workspace' } };
     if (command === 'tool') {
       const i = arg.indexOf(' ');

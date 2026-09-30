@@ -6,8 +6,14 @@ export interface Message {
   visibility?: 'internal';
   source?: 'background';
   tool?: string;
+  activity?: {
+    /** Keeps calls from separate widget instances independent. */
+    scope?: string;
+    input: Record<string, unknown>;
+    outcome: 'completed' | 'failed' | 'running' | 'started' | 'unknown';
+  };
   app?: AppView;
-  file?: { path: string; name: string };
+  file?: { path: string; name: string; snapshotId?: string };
 }
 export type RunStatus = 'idle' | 'running' | 'stopped' | 'needs_review' | 'queued' | 'waiting';
 export interface ToolCall {
@@ -78,7 +84,9 @@ export interface ToolDefinition {
 }
 export interface Plugin {
   tools?: Record<string, ToolDefinition>;
-  replacements?: Partial<Record<'exec' | 'read' | 'write' | 'edit' | 'list', string>>;
+  replacements?: Partial<
+    Record<'exec' | 'read' | 'write' | 'edit' | 'list' | 'show_file', string | null>
+  >;
   skills?: {
     sync(previous: SkillSnapshot | undefined, signal: AbortSignal): Promise<SkillSnapshot>;
   };
