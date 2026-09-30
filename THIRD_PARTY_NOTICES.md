@@ -9,4 +9,4 @@ The locked dependency tree includes additional packages and their respective not
 
 ## Kinetik visual language
 
-`src/ui/tokens.css` is adapted from Kineto's `cloud/charms-widget/src/styles.css`. `public/icon.svg` uses the mascot from `cloud/charms-widget/src/components/BrandMark.tsx`, at commit `abfb798cbfacd5d74b7985faf1a736298bce181e`. Reused at the owner's direction for this Kinetik project. Copyright Kineto; retained under this project's license. The license does not grant rights to use Kineto or Kinetik trademarks to imply endorsement.
+`src/ui/tokens.css` is adapted from Kineto's `cloud/charms-widget/src/styles.css`. `src/ui/icons.ts` reuses the file, folder, action, and skill icon paths from `cloud/charms-widget/src/ui/icons.ts`, with matching strokes for additional controls. `public/icon.svg` uses the mascot from `cloud/charms-widget/src/components/BrandMark.tsx`, at commit `abfb798cbfacd5d74b7985faf1a736298bce181e`. Reused at the owner's direction for this Kinetik project. Copyright Kineto; retained under this project's license. The license does not grant rights to use Kineto or Kinetik trademarks to imply endorsement.

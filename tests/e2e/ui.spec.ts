@@ -1,0 +1,143 @@
+import { test, expect, type Page } from '@playwright/test';
+import AxeBuilder from '@axe-core/playwright';
+
+async function drawer(page: Page) {
+  if (await page.locator('#menu').isVisible()) await page.locator('#menu').click();
+}
+async function appearance(page: Page, value: string) {
+  await drawer(page);
+  await page.getByRole('combobox', { name: 'Appearance' }).selectOption(value);
+  if (await page.locator('#menu-close').isVisible()) await page.locator('#menu-close').click();
+}
+async function accessible(page: Page) {
+  const result = await new AxeBuilder({ page })
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21aa'])
+    .analyze();
+  expect(
+    result.violations.map((v) => ({
+      id: v.id,
+      nodes: v.nodes.map((n) => ({ target: n.target, summary: n.failureSummary })),
+    })),
+  ).toEqual([]);
+}
+
+test('appearance follows system, persists offline, and synchronizes tabs', async ({
+  page,
+  context,
+}) => {
+  await page.emulateMedia({ colorScheme: 'light' });
+  await page.goto('/');
+  await expect(page.locator('#status')).toHaveText('Local workspace');
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  await appearance(page, 'light');
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+  const other = await context.newPage();
+  await other.goto('/');
+  await appearance(page, 'dark');
+  await expect(other.locator('html')).toHaveAttribute('data-theme', 'dark');
+  await context.setOffline(true);
+  await page.reload();
+  await expect(page.locator('#status')).toHaveText('Local workspace');
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  await drawer(page);
+  await expect(page.getByRole('combobox', { name: 'Appearance' })).toHaveValue('dark');
+  if (await page.locator('#menu-close').isVisible()) await page.locator('#menu-close').click();
+  await appearance(page, 'system');
+  await page.emulateMedia({ colorScheme: 'light' });
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+});
+
+test('light and dark workspace, dialogs and messages are accessible', async ({ page }, info) => {
+  await page.goto('/');
+  await expect(page.locator('#status')).toHaveText('Local workspace');
+  for (const theme of ['light', 'dark']) {
+    await appearance(page, theme);
+    await accessible(page);
+    await page.screenshot({ path: info.outputPath(`workspace-${theme}.png`) });
+    await drawer(page);
+    await page.getByRole('button', { name: 'Plugins', exact: false }).click();
+    await expect(page.getByRole('dialog', { name: 'Plugins', exact: true })).toBeVisible();
+    await accessible(page);
+    await page.screenshot({ path: info.outputPath(`plugins-${theme}.png`) });
+    await page.getByRole('button', { name: 'Close plugins', exact: true }).click();
+    await page.getByRole('button', { name: 'Import or export files' }).click();
+    await accessible(page);
+    await page.screenshot({ path: info.outputPath(`files-${theme}.png`) });
+    await page.getByRole('button', { name: 'Close files' }).click();
+  }
+  await page.getByRole('button', { name: 'Create a note' }).click();
+  await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeEnabled();
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await expect(page.locator('[data-role="assistant"] pre')).toContainText(
+    'Saved /workspace/note.txt',
+  );
+  await accessible(page);
+  await page.screenshot({ path: info.outputPath('conversation-dark.png') });
+});
+
+test('mobile drawer traps focus and narrow or landscape layouts keep controls reachable', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.goto('/');
+  await expect(page.locator('#status')).toHaveText('Local workspace');
+  await drawer(page);
+  await expect(page.locator('#menu-close')).toBeFocused();
+  await page.keyboard.press('Shift+Tab');
+  await expect(page.getByRole('combobox', { name: 'Appearance' })).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(page.locator('#menu-close')).toBeFocused();
+  await accessible(page);
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#menu')).toBeFocused();
+  await expect(page.locator('#main')).not.toHaveAttribute('inert');
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  for (const size of [
+    { width: 320, height: 740 },
+    { width: 375, height: 812 },
+    { width: 667, height: 375 },
+    { width: 768, height: 1024 },
+  ]) {
+    await page.setViewportSize(size);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+      true,
+    );
+    await page.getByRole('textbox', { name: 'Message', exact: true }).fill('/exec echo reachable');
+    await expect(page.locator('#send')).toBeInViewport();
+  }
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await expect(page.locator('[data-role="assistant"] pre')).toHaveText('reachable\n');
+});
+
+test('plugin and file dialogs complete their visible workflows', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.locator('#status')).toHaveText('Local workspace');
+  await drawer(page);
+  await page.locator('#plugins-open').click();
+  await page.getByRole('button', { name: 'Use example URL' }).click();
+  await page.getByRole('button', { name: 'Install plugin', exact: true }).click();
+  await expect(page.locator('#plugin-error')).toContainText('Installed.');
+  await page.getByRole('button', { name: 'Enable', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Disable', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Close plugins', exact: true }).click();
+  await page.getByRole('textbox', { name: 'Message', exact: true }).fill('/exec from the UI');
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await expect(page.locator('[data-role="assistant"] pre')).toHaveText(
+    'Example plugin received: from the UI',
+  );
+  await page.getByRole('button', { name: 'Import or export files' }).click();
+  await page.locator('#upload').setInputFiles({
+    name: 'example.txt',
+    mimeType: 'text/plain',
+    buffer: Buffer.from('local file'),
+  });
+  await expect(page.locator('#file-result')).toHaveText('Imported /workspace/example.txt');
+  await page.getByRole('textbox', { name: 'Workspace path' }).fill('/workspace/example.txt');
+  const downloading = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Download', exact: true }).click();
+  const download = await downloading;
+  expect(download.suggestedFilename()).toBe('example.txt');
+  expect(await download.failure()).toBeNull();
+});

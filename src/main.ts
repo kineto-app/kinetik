@@ -1,4 +1,6 @@
 import './ui/styles.css';
+import { shell } from './ui/shell';
+import { icon, type IconName } from './ui/icons';
 import { connect, rpc } from './browser/client';
 import type { Conversation, InstalledPlugin } from './core/types';
 
@@ -7,40 +9,7 @@ type State = {
   plugins: Pick<InstalledPlugin, 'manifest' | 'source' | 'enabledAt' | 'digest'>[];
 };
 const root = document.querySelector<HTMLDivElement>('#app')!;
-root.innerHTML = `
-<div class="layout">
-  <aside class="sidebar" aria-label="Conversations">
-    <div class="brand"><img src="./icon.svg" alt="" /><span>Kinetik</span><small>OSS</small></div>
-    <button class="secondary" id="new-chat">＋ New conversation</button>
-    <nav id="conversations" aria-label="Conversation list"></nav>
-    <div class="sidebar-footer"><button id="plugins-open">Plugins</button><button id="files-open">Import or export files</button><small>Shared local workspace<br />Stored in this browser</small></div>
-  </aside>
-  <main class="main">
-    <header class="topbar"><button id="menu" aria-label="Toggle conversations">☰</button><h1 id="title">New conversation</h1><span class="status" id="status">Starting worker</span></header>
-    <section id="timeline" aria-label="Conversation" aria-live="polite"></section>
-    <section class="composer-area">
-      <div id="recovery" hidden><p>A tool's outcome is unknown. Check its effects before continuing.</p><button class="secondary" id="resolve">Continue without retry</button><button id="retry">Retry the tool</button></div>
-      <div id="error" role="alert"></div>
-      <form id="composer" class="composer"><textarea id="prompt" aria-label="Message" placeholder="Try /exec echo hello" rows="2" maxlength="16384"></textarea><div class="composer-actions"><span class="small muted">Local test model</span><div><button type="button" id="stop" hidden>Stop</button><button class="primary" id="send" type="submit">Send</button></div></div></form>
-      <p class="disclosure">Prototype with a mock model. No messages are sent to OpenAI.</p>
-    </section>
-  </main>
-</div>
-<dialog id="plugins-dialog" aria-labelledby="plugins-heading">
-  <div class="dialog-head"><h2 id="plugins-heading">Plugins</h2><button data-close="plugins-dialog" aria-label="Close plugins">✕</button></div>
-  <p class="muted">Add tools and native skills. Plugins run as trusted code and can access this app’s data. The last enabled replacement wins.</p>
-  <div id="plugin-list"></div>
-  <form id="plugin-form"><label for="plugin-source">Manifest, GitHub folder, or file URL</label><input id="plugin-source" type="url" required placeholder="https://example.org/plugin.json" /><label for="plugin-settings">Settings, JSON string values</label><textarea id="plugin-settings" spellcheck="false">{}</textarea><p class="small muted">An example plugin is included. It replaces exec and supplies a native skill.</p><button type="button" id="example">Use example URL</button><button class="primary" type="submit">Install plugin</button></form>
-  <p id="plugin-error" class="dialog-error" role="alert"></p>
-  <p class="small muted">Code updates are manual. Skills refresh before every message.</p>
-</dialog>
-<dialog id="files-dialog" aria-labelledby="files-heading">
-  <div class="dialog-head"><h2 id="files-heading">Local files</h2><button data-close="files-dialog" aria-label="Close files">✕</button></div>
-  <p class="muted">All conversations share /workspace. These controls always use local files, even when a plugin replaces workspace tools.</p>
-  <label for="upload">Import into /workspace</label><input type="file" id="upload" />
-  <form id="download-form"><label for="download-path">File to download</label><input id="download-path" value="/workspace/note.txt" required /><p><button class="primary">Download file</button></p></form>
-  <p id="file-result" role="status"></p>
-</dialog>`;
+root.innerHTML = shell;
 const byId = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 let state: State = { conversations: [], plugins: [] };
 let selected = sessionStorage.getItem('kinetik-conversation') ?? '';
@@ -49,6 +18,7 @@ let lastMessages = '';
 const current = () => state.conversations.find((c) => c.id === selected);
 function showError(error: unknown, target = 'error') {
   byId(target).textContent = error instanceof Error ? error.message : String(error);
+  byId(target).dataset.kind = 'error';
 }
 function button(
   text: string,
@@ -68,8 +38,8 @@ function choose(id: string) {
   sessionStorage.setItem('kinetik-conversation', id);
   lastMessages = '';
   render();
-  byId('sidebar')?.classList.remove('open');
-  document.querySelector('.sidebar')?.classList.remove('open');
+  closeDrawer(false);
+  byId('prompt').focus();
 }
 function render() {
   const nav = byId('conversations');
@@ -83,6 +53,12 @@ function render() {
     entry.setAttribute('aria-current', String(c.id === selected));
     nav.append(entry);
   }
+  if (!state.conversations.length) {
+    const hint = document.createElement('p');
+    hint.className = 'history-empty';
+    hint.textContent = 'A little space for each idea.';
+    nav.append(hint);
+  }
   const c = current();
   byId('title').textContent = c?.title ?? 'New conversation';
   byId('status').textContent =
@@ -92,29 +68,53 @@ function render() {
         ? 'Needs review'
         : 'Local workspace';
   byId('stop').hidden = c?.status !== 'running';
+  byId('status').dataset.state = c?.status ?? 'idle';
+  byId('activity').hidden = c?.status !== 'running';
+  byId('activity-label').textContent =
+    c?.call?.state === 'pending'
+      ? `Running ${c.call.name} · ${c.call.provider}`
+      : 'Working on your message';
   byId('recovery').hidden = c?.status !== 'needs_review';
   const serialized = JSON.stringify([selected, c?.messages]);
   if (serialized !== lastMessages) {
+    const forceScroll = !lastMessages;
     lastMessages = serialized;
     const timeline = byId('timeline');
+    const oldScroll = timeline.scrollTop;
+    const nearBottom = timeline.scrollHeight - timeline.scrollTop - timeline.clientHeight < 80;
     timeline.replaceChildren();
     if (!c?.messages.length) {
       const empty = document.createElement('div');
       empty.className = 'empty';
-      empty.innerHTML =
-        '<img src="./icon.svg" alt="" /><h2>A little space to get things done.</h2><p>Your files, tools, and conversations, right here in the browser. Try the local workspace while we build the agent.</p><div class="suggestions"></div>';
-      const examples = [
-        ['Create a note', '/write /workspace/note.txt\nHello from Kinetik.'],
-        ['Try the shell', '/exec printf "hello from the browser\\n" | tr a-z A-Z'],
-        ['Explore native skills', '/skills'],
+      empty.innerHTML = `<h2>What would you like to work on?</h2><p>Keep your files, tools, and conversations together.<br class="desktop-break" /> Start with a small task in your browser.</p><div class="panel starter"><h3 class="section-label">Try the local workspace</h3><div class="suggestions section-body"></div></div>`;
+      const examples: [string, string, IconName, string][] = [
+        [
+          'Create a note',
+          'Save something to your workspace',
+          'file',
+          '/write /workspace/note.txt\nHello from Kinetik.',
+        ],
+        [
+          'Try the shell',
+          'Run a command with just-bash',
+          'terminal',
+          '/exec printf "hello from the browser\\n" | tr a-z A-Z',
+        ],
+        ['Explore native skills', 'See what your agent knows how to do', 'spark', '/skills'],
       ];
-      for (const [label, text] of examples)
-        empty.querySelector('.suggestions')!.append(
-          button(label, () => {
+      for (const [label, description, glyph, text] of examples) {
+        const action = button(
+          '',
+          () => {
             byId<HTMLTextAreaElement>('prompt').value = text;
+            updateComposer();
             byId('prompt').focus();
-          }),
+          },
+          'action-row',
         );
+        action.innerHTML = `<span class="glyph">${icon(glyph)}</span><span class="action-main"><span class="action-title">${label}</span><span class="field-hint">${description}</span></span>${icon('chevron')}`;
+        empty.querySelector('.suggestions')!.append(action);
+      }
       timeline.append(empty);
     }
     for (const item of c?.messages ?? []) {
@@ -131,13 +131,36 @@ function render() {
             : (item.tool ?? 'Workspace notice');
       const content = document.createElement('pre');
       content.textContent = item.text;
+      if (item.role === 'assistant') {
+        const avatar = document.createElement('img');
+        avatar.src = './icon.svg';
+        avatar.alt = '';
+        avatar.width = 24;
+        avatar.height = 24;
+        label.prepend(avatar);
+      }
+      if (item.role === 'tool') {
+        const mark = document.createElement('span');
+        mark.className = 'tool-mark';
+        mark.innerHTML = icon('check');
+        label.prepend(mark);
+      }
       article.append(label, content);
       timeline.append(article);
     }
-    timeline.scrollTop = timeline.scrollHeight;
+    timeline.scrollTop = !c?.messages.length
+      ? 0
+      : forceScroll || nearBottom
+        ? timeline.scrollHeight
+        : oldScroll;
   }
+  byId('plugin-count').textContent = String(
+    state.plugins.filter((p) => p.enabledAt !== null).length,
+  );
   const list = byId('plugin-list');
   list.replaceChildren();
+  if (!state.plugins.length)
+    list.innerHTML = `<div class="plugins-empty">${icon('plug')}<div><strong>No plugins yet</strong><p class="field-hint">Your built-in tools are ready. Add a plugin when you need more.</p></div></div>`;
   for (const plugin of state.plugins) {
     const row = document.createElement('div');
     row.className = 'plugin-row';
@@ -180,6 +203,59 @@ async function refresh() {
   if (!current() && state.conversations.length) selected = state.conversations[0].id;
   render();
 }
+let submitting = false;
+function updateComposer() {
+  const input = byId<HTMLTextAreaElement>('prompt');
+  byId<HTMLButtonElement>('send').disabled = submitting || !input.value.trim();
+  input.style.height = 'auto';
+  input.style.height = Math.min(input.scrollHeight, 200) + 'px';
+}
+byId('prompt').addEventListener('input', updateComposer);
+const narrow = matchMedia('(max-width: 700px)');
+function closeDrawer(restoreFocus = true) {
+  const wasOpen = byId('sidebar').classList.contains('open');
+  byId('sidebar').classList.remove('open');
+  byId('sidebar').removeAttribute('role');
+  byId('sidebar').removeAttribute('aria-modal');
+  byId('sidebar').inert = narrow.matches;
+  byId('main').inert = false;
+  byId('drawer-scrim').hidden = true;
+  byId('menu').setAttribute('aria-expanded', 'false');
+  if (wasOpen && restoreFocus) byId('menu').focus();
+}
+function openDrawer() {
+  byId('sidebar').inert = false;
+  byId('sidebar').classList.add('open');
+  byId('sidebar').setAttribute('role', 'dialog');
+  byId('sidebar').setAttribute('aria-modal', 'true');
+  byId('main').inert = true;
+  byId('drawer-scrim').hidden = false;
+  byId('menu').setAttribute('aria-expanded', 'true');
+  byId('menu-close').focus();
+}
+narrow.addEventListener('change', () => closeDrawer(false));
+closeDrawer(false);
+byId('sidebar').addEventListener('keydown', (event) => {
+  if (!narrow.matches || !byId('sidebar').classList.contains('open')) return;
+  if (event.key === 'Escape') {
+    event.preventDefault();
+    closeDrawer();
+  }
+  if (event.key === 'Tab') {
+    const items = [
+      ...byId('sidebar').querySelectorAll<HTMLElement>('button:not([disabled]),select'),
+    ];
+    const first = items[0],
+      last = items.at(-1)!;
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  }
+});
 byId('new-chat').onclick = () => {
   void (async () => {
     const c = await rpc<Conversation>('create');
@@ -194,13 +270,21 @@ byId('composer').onsubmit = (event) => {
   void (async () => {
     const input = byId<HTMLTextAreaElement>('prompt');
     const text = input.value;
-    if (!text.trim()) return;
-    if (!current()) selected = (await rpc<Conversation>('create')).id;
-    await rpc('submit', { id: selected, text });
-    input.value = '';
-    byId('error').textContent = '';
-    await refresh();
-    input.focus();
+    if (!text.trim() || submitting) return;
+    submitting = true;
+    updateComposer();
+    try {
+      if (!current()) selected = (await rpc<Conversation>('create')).id;
+      await rpc('submit', { id: selected, text });
+      input.value = '';
+      updateComposer();
+      byId('error').textContent = '';
+      await refresh();
+      input.focus();
+    } finally {
+      submitting = false;
+      updateComposer();
+    }
   })().catch(showError);
 };
 byId('prompt').onkeydown = (event) => {
@@ -219,11 +303,17 @@ for (const [id, retry] of [
   byId(id).onclick = () => {
     void rpc('resolve', { id: selected, retry }).then(refresh).catch(showError);
   };
-for (const name of ['plugins', 'files'])
-  byId(name + '-open').onclick = () => byId<HTMLDialogElement>(name + '-dialog').showModal();
+function openDialog(name: string) {
+  closeDrawer();
+  byId<HTMLDialogElement>(name + '-dialog').showModal();
+}
+for (const name of ['plugins', 'files']) byId(name + '-open').onclick = () => openDialog(name);
+byId('attach').onclick = () => openDialog('files');
 for (const close of document.querySelectorAll<HTMLButtonElement>('[data-close]'))
   close.onclick = () => byId<HTMLDialogElement>(close.dataset.close!).close();
-byId('menu').onclick = () => document.querySelector('.sidebar')!.classList.toggle('open');
+byId('menu').onclick = openDrawer;
+byId('menu-close').onclick = () => closeDrawer();
+byId('drawer-scrim').onclick = () => closeDrawer();
 byId('example').onclick = () => {
   byId<HTMLInputElement>('plugin-source').value = new URL(
     'plugins/example/plugin.json',
@@ -233,14 +323,25 @@ byId('example').onclick = () => {
 byId('plugin-form').onsubmit = (event) => {
   event.preventDefault();
   void (async () => {
-    byId('plugin-error').textContent = 'Installing…';
-    await rpc('install', {
-      source: byId<HTMLInputElement>('plugin-source').value,
-      settings: byId<HTMLTextAreaElement>('plugin-settings').value,
-    });
-    byId('plugin-error').textContent =
-      'Installed. Enable the plugin to activate its tools and skills.';
-    await refresh();
+    const install = byId<HTMLButtonElement>('install');
+    if (install.disabled) return;
+    install.disabled = true;
+    install.textContent = 'Installing…';
+    byId('plugin-error').textContent = '';
+    byId('plugin-error').dataset.kind = '';
+    try {
+      await rpc('install', {
+        source: byId<HTMLInputElement>('plugin-source').value,
+        settings: byId<HTMLTextAreaElement>('plugin-settings').value,
+      });
+      byId('plugin-error').textContent =
+        'Installed. Enable the plugin to activate its tools and skills.';
+      byId('plugin-error').dataset.kind = 'success';
+      await refresh();
+    } finally {
+      install.disabled = false;
+      install.textContent = 'Install plugin';
+    }
   })().catch((error) => showError(error, 'plugin-error'));
 };
 byId('upload').onchange = () => {
@@ -250,6 +351,7 @@ byId('upload').onchange = () => {
     if (file.size > 4 * 1024 * 1024) throw new Error('Maximum import size is 4 MiB.');
     await rpc('import', { name: file.name, bytes: new Uint8Array(await file.arrayBuffer()) });
     byId('file-result').textContent = 'Imported /workspace/' + file.name;
+    byId('file-result').dataset.kind = 'success';
   })().catch((error) => showError(error, 'file-result'));
 };
 byId('download-form').onsubmit = (event) => {
@@ -264,6 +366,7 @@ byId('download-form').onsubmit = (event) => {
     link.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
     byId('file-result').textContent = 'Downloaded ' + path;
+    byId('file-result').dataset.kind = 'success';
   })().catch((error) => showError(error, 'file-result'));
 };
 let refreshTimer: ReturnType<typeof setTimeout>;

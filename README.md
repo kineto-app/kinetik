@@ -1,10 +1,12 @@
 # Kinetik OSS
 
-A small browser agent prototype with a persistent workspace, just-bash, native skills, and JavaScript plugins that can replace its tools. The chat interface uses Kinetik Charms styles.
+A small browser agent prototype with a persistent workspace, just-bash, native skills, and JavaScript plugins that can replace its tools. The chat interface reuses Kinetik Charms colors, panels, action rows, and icons.
 
 **This version uses a deterministic local test model, not an LLM.** No prompts go to OpenAI. Official ChatGPT subscription authentication is not implemented: the selected browser credential design conflicts with the current documented storage requirements. See [feasibility findings](RESEARCH.md).
 
-![Kinetik local workspace](docs/images/desktop.png)
+| Light                                       | Dark                                            |
+| ------------------------------------------- | ----------------------------------------------- |
+| ![Light workspace](docs/images/desktop.png) | ![Dark workspace](docs/images/desktop-dark.png) |
 
 ## Run locally
 
@@ -40,6 +42,12 @@ npx --package ./kinetik-oss-0.1.0.tgz kinetik-oss
 ```
 
 No global installation, account, API key, or external service is needed for the local prototype. The bundled example plugin works offline; third-party plugin installation and refresh require network access.
+
+## Appearance
+
+Choose **System**, **Light**, or **Dark** in the sidebar. The preference is saved in this browser, shared across app tabs, and applied before the interface loads. On mobile, open the conversation menu to find it. The drawer supports Escape and keyboard focus stays inside it while open.
+
+The interface uses the Charms renderer’s tinted panels, compact action rows, upload controls, and icon strokes. Small button text uses a slightly deeper purple for readable contrast. All theme values live in [the design tokens](src/ui/tokens.css).
 
 ## Try it
 
