@@ -31,8 +31,14 @@ interface Session {
   account: string;
 }
 
-/** Experimental browser credentials. Never exposed through workspace files or UI snapshots. */
+/** Experimental session-only credentials. Lost when the browser discards this worker. */
 export class BrowserChatGPT {
+  private current?: Session;
+  private cleared?: Promise<void>;
+  private prepare() {
+    // Remove credentials saved by the earlier experimental browser-storage build.
+    return (this.cleared ??= this.store.put('session', null));
+  }
   constructor(
     private jwksUrl: string,
     private store = new Store('kinetik-chatgpt-v1'),
@@ -53,10 +59,12 @@ export class BrowserChatGPT {
     return text ? JSON.parse(text) : {};
   }
   async status() {
-    const session = await this.store.get<Session | null>('session');
+    await this.prepare();
+    const session = this.current;
     return { connected: !!session, model: session?.model ?? '', account: session?.account ?? '' };
   }
   async login() {
+    await this.prepare();
     return navigator.locks.request('kinetik-chatgpt', async () => {
       const registration = await this.registration();
       const pending: Pending = {
@@ -94,6 +102,7 @@ export class BrowserChatGPT {
     );
   }
   async callback(value: string) {
+    await this.prepare();
     return navigator.locks.request('kinetik-chatgpt', async () => {
       const url = new URL(value);
       const pending = await this.store.get<Pending | null>('pending');
@@ -159,7 +168,7 @@ export class BrowserChatGPT {
       session.model = models[0]?.slug ?? '';
       if (!session.model) throw new Error('No ChatGPT models are available for this account.');
       await this.store.put('registration', { ...registration, clientId, subject: claims.sub });
-      await this.store.put('session', session);
+      this.current = session;
       return { ok: true };
     });
   }
@@ -232,8 +241,9 @@ export class BrowserChatGPT {
     return claims;
   }
   private async access() {
+    await this.prepare();
     return navigator.locks.request('kinetik-chatgpt', async () => {
-      let session = await this.store.get<Session | null>('session');
+      let session = this.current;
       if (!session) throw new Error('Connect ChatGPT in Connections to continue.');
       if (session.expires < Date.now() + 60000) {
         const registration = await this.registration();
@@ -251,11 +261,11 @@ export class BrowserChatGPT {
           }),
         });
         if (!response.ok) {
-          if ([400, 401, 403].includes(response.status)) await this.store.put('session', null);
+          if ([400, 401, 403].includes(response.status)) this.current = undefined;
           throw new Error('ChatGPT session could not be renewed. Try again or reconnect.');
         }
         session = this.session(await response.json(), session.account, session);
-        await this.store.put('session', session);
+        this.current = session;
       }
       return session;
     });
@@ -277,10 +287,11 @@ export class BrowserChatGPT {
     });
   }
   async logout() {
+    await this.prepare();
     return navigator.locks.request('kinetik-chatgpt', async () => {
-      const session = await this.store.get<Session | null>('session');
+      const session = this.current;
       const registration = await this.registration();
-      await this.store.put('session', null);
+      this.current = undefined;
       await this.store.put('pending', null);
       if (session && registration.clientId) {
         try {
