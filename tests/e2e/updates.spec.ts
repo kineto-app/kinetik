@@ -300,7 +300,11 @@ test('app updates preserve the saved browser login', async ({ page }) => {
   revision = 2;
   await checkUpdate(page);
   await expect(page.locator('#app-update')).toBeVisible();
+  const reloaded = page.waitForEvent('framenavigated', (frame) => frame === page.mainFrame());
   await page.locator('#app-update-apply').click();
+  await reloaded;
+  await expect(page.locator('#status')).toHaveText('Ready');
+  expect(await rpc(page, 'version')).toBe('release-2');
   await expect(page.locator('#app-update')).toBeHidden();
   expect(
     (await rpc<{ chatgpt: { connected: boolean } }>(page, 'setupState')).chatgpt.connected,
