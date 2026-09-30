@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Preserve streamed OpenAI output items when the terminal response has an empty output array, as observed during a real ChatGPT subscription test.
+
 - Add background tool processes that release the agent turn and wake the same conversation with a durable completion result. Include cancellation, plugin completion hooks, remote recovery and interruption reporting without replay.
 
 ## 0.1.0 - Unreleased
