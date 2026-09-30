@@ -55,7 +55,9 @@ For a local installation, pull the new source, run `npm ci && npm run build`, th
 
 Open **Settings** and choose **Use device setting**, **Light**, or **Dark**. The preference is saved in this browser, shared across app tabs, and applied before the interface loads. On mobile, open the chat menu to find Settings. The drawer supports Escape and keyboard focus stays inside it while open.
 
-The interface uses the Charms renderer’s tinted panels, compact action rows, upload controls, and icon strokes. Small button text uses a slightly deeper purple for readable contrast. All theme values live in [the design tokens](src/ui/tokens.css).
+The interface uses the Charms renderer’s tinted panels, compact action rows, upload controls, and icon strokes. Small button text uses a slightly deeper purple for readable contrast. All theme values live in [the design tokens](src/ui/tokens.css). New messages and dialogs use brief transitions; the device’s reduced-motion preference disables them.
+
+Replies format headings, lists, tables, links, and code. Copy a complete reply or an individual code block. Raw HTML and remote images remain inactive. When you scroll up, new content leaves your reading position in place; **Latest message** returns you to the end. You can send another message while Kinetik works to steer the current turn.
 
 ## Try it
 

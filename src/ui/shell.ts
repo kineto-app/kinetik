@@ -3,6 +3,7 @@ import { filesDialog } from './files';
 import { automationDialog } from './automations';
 
 export const shell = `
+<div id="ui-announcement" class="sr-only" role="status"></div>
 <a class="skip-link" href="#prompt">Skip to message</a>
 <div class="layout">
   <aside class="sidebar" id="sidebar" aria-label="Chats">
@@ -16,15 +17,15 @@ export const shell = `
   </aside>
   <button id="drawer-scrim" class="drawer-scrim" aria-label="Close chats" tabindex="-1" hidden></button>
   <main class="main" id="main">
-    <header class="topbar"><button id="menu" class="icon-button" aria-label="Toggle chats" aria-expanded="false" aria-controls="sidebar">${icon('menu')}</button><div class="heading"><h1 id="title">New chat</h1><span class="small muted">A little help with everyday things</span></div><span class="status" id="status" role="status">Getting ready</span></header>
+    <header class="topbar"><button id="menu" class="icon-button" aria-label="Toggle chats" aria-expanded="false" aria-controls="sidebar">${icon('menu')}</button><div class="heading"><h1 id="title">New chat</h1><span class="small muted">Your everyday workspace</span></div><span class="status" id="status" role="status">Getting ready</span></header>
     <div id="app-update" class="app-update" role="status" hidden><div><strong>Update available</strong><span id="app-update-feedback" class="field-hint">Apply when you’re ready. Your workspace will be kept.</span></div><button id="app-update-apply" class="primary">Update</button></div>
-    <section id="timeline" aria-label="Conversation" aria-live="polite" aria-relevant="additions text"></section>
+    <div class="conversation-stage"><section id="timeline" aria-label="Conversation" aria-live="polite" aria-relevant="additions text"></section><button id="jump-latest" class="jump-latest" type="button" hidden>Latest message ${icon('download')}</button></div>
     <section class="composer-area">
       <div id="background-activity" class="activity background-activity" role="status" hidden><span class="spinner" aria-hidden="true"></span><span id="background-label"></span></div>
-      <div id="activity" class="activity" role="status" hidden><span class="spinner"></span><span id="activity-label">Working</span></div>
+      <div id="activity" class="activity" role="status" hidden><span class="thinking-dots" aria-hidden="true"><i></i><i></i><i></i></span><span id="activity-label">Working</span></div>
       <div id="recovery" class="panel" hidden><p>A step was interrupted. Check what changed before trying it again.</p><div class="actions"><button class="secondary" id="resolve">Continue without repeating</button><button id="retry">Try that step again</button></div></div>
       <div id="error" class="feedback" role="alert"></div>
-      <form id="composer" class="composer"><label class="sr-only" for="prompt">Message</label><textarea id="prompt" aria-describedby="composer-hint" placeholder="What would you like help with?" rows="2" maxlength="16384"></textarea><div class="composer-actions"><div class="composer-tools"><button type="button" id="attach" class="icon-button" aria-label="Add or open files" title="Files">${icon('plus')}</button><span class="model-label">${icon('spark')}Preview</span></div><div class="actions"><button type="button" id="stop" class="secondary" hidden><span class="stop-mark"></span>Stop</button><button class="primary" id="send" type="submit" disabled><span>Send</span>${icon('send')}</button></div></div></form>
+      <form id="composer" class="composer"><label class="sr-only" for="prompt">Message</label><textarea id="prompt" aria-describedby="composer-hint" placeholder="Ask anything, or tell me what to do…" rows="2" maxlength="16384"></textarea><div class="composer-actions"><div class="composer-tools"><button type="button" id="attach" class="icon-button" aria-label="Add or open files" title="Files">${icon('plus')}</button><span class="model-label">${icon('spark')}Preview</span></div><div class="actions"><button type="button" id="stop" class="secondary" hidden><span class="stop-mark"></span>Stop</button><button class="primary" id="send" type="submit" disabled><span>Send</span>${icon('send')}</button></div></div></form>
       <div class="composer-foot"><span id="composer-hint">Enter to send · Shift + Enter for a new line</span><span>Preview · ChatGPT is not connected</span></div>
     </section>
   </main>

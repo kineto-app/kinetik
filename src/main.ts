@@ -1,4 +1,6 @@
 import './ui/styles.css';
+import './ui/chat.css';
+import { renderMessageContent, copyButton } from './ui/message-content';
 import { mountApp } from './ui/mcp-app';
 import { setupAutomations, renderAutomations } from './ui/automations';
 import type { Automation } from './core/automation';
@@ -24,6 +26,8 @@ let state: State = { conversations: [], plugins: [], automations: [], background
 let selected = sessionStorage.getItem('kinetik-conversation') ?? '';
 let refreshGeneration = 0;
 let lastMessages = '';
+let lastNavigation = '';
+let followNextMessage = false;
 let disposeApps: (() => void)[] = [];
 let timelineConversation = '';
 const renderedMessages = new Set<string>();
@@ -62,21 +66,28 @@ function choose(id: string) {
 }
 function render() {
   const nav = byId('conversations');
-  nav.replaceChildren();
-  for (const c of state.conversations) {
-    const entry = button(
-      (c.status === 'running' && !isBackgroundTurn(c) ? '• ' : '') + c.title,
-      () => choose(c.id),
-      'conversation',
-    );
-    entry.setAttribute('aria-current', String(c.id === selected));
-    nav.append(entry);
-  }
-  if (!state.conversations.length) {
-    const hint = document.createElement('p');
-    hint.className = 'history-empty';
-    hint.textContent = 'A little space for each idea.';
-    nav.append(hint);
+  const navigation = JSON.stringify([
+    selected,
+    state.conversations.map((c) => [c.id, c.title, c.status, isBackgroundTurn(c)]),
+  ]);
+  if (navigation !== lastNavigation) {
+    lastNavigation = navigation;
+    nav.replaceChildren();
+    for (const c of state.conversations) {
+      const entry = button(
+        (c.status === 'running' && !isBackgroundTurn(c) ? '• ' : '') + c.title,
+        () => choose(c.id),
+        'conversation',
+      );
+      entry.setAttribute('aria-current', String(c.id === selected));
+      nav.append(entry);
+    }
+    if (!state.conversations.length) {
+      const hint = document.createElement('p');
+      hint.className = 'history-empty';
+      hint.textContent = 'A little space for each idea.';
+      nav.append(hint);
+    }
   }
   const c = current();
   const foreground = c?.status === 'running' && !isBackgroundTurn(c);
@@ -94,6 +105,9 @@ function render() {
     : c?.status === 'needs_review'
       ? 'Needs review'
       : 'Ready';
+  byId('composer-hint').textContent = foreground
+    ? 'Send another message to guide Kinetik as it works.'
+    : 'Enter to send · Shift + Enter for a new line';
   byId('stop').hidden =
     c?.status !== 'running' && !jobs.some((job) => job.conversationId === selected);
   byId('status').dataset.state = c?.status ?? 'idle';
@@ -103,7 +117,8 @@ function render() {
   byId('recovery').hidden = c?.status !== 'needs_review';
   const serialized = JSON.stringify([selected, c?.messages, c?.draft]);
   if (serialized !== lastMessages) {
-    const forceScroll = !lastMessages;
+    const forceScroll = !lastMessages || followNextMessage;
+    followNextMessage = false;
     lastMessages = serialized;
     const timeline = byId('timeline');
     const oldScroll = timeline.scrollTop;
@@ -116,11 +131,11 @@ function render() {
       timelineConversation = selected;
     }
     if (c?.messages.length) timeline.querySelector('.empty')?.remove();
-    timeline.querySelector('[data-draft]')?.remove();
+    if (!c?.draft || isBackgroundTurn(c)) timeline.querySelector('[data-draft]')?.remove();
     if (!c?.messages.length) {
       const empty = document.createElement('div');
       empty.className = 'empty';
-      empty.innerHTML = `<h2>What would you like a hand with?</h2><p>Try a sample task. Make a file you can keep.<br class="desktop-break" /> Your chats and files stay in this browser.</p><div class="panel starter"><h3 class="section-label">Try an example</h3><div class="suggestions section-body"></div></div><p class="preview-note">This preview uses sample replies. Open-ended AI chat and ChatGPT sign-in are not connected yet.</p>`;
+      empty.innerHTML = `<div class="welcome-mark" aria-hidden="true">${icon('spark')}</div><p class="welcome-eyebrow eyebrow">A LITTLE HELP. A LOT MORE POSSIBLE.</p><h2>What can we get done today?</h2><p>Try a sample task. Make a file you can keep.<br class="desktop-break" /> Your chats and files stay in this browser.</p><div class="starter"><h3 class="section-label">A place to start</h3><div class="suggestions"></div></div><p class="preview-note">This preview uses sample replies. Open-ended AI chat and ChatGPT sign-in are not connected yet.</p>`;
       const examples: [string, string, IconName, string][] = [
         ...demoTasks.map((task): [string, string, IconName, string] => [
           task.title,
@@ -138,7 +153,7 @@ function render() {
             updateComposer();
             byId('prompt').focus();
           },
-          'action-row',
+          'action-row starter-card',
         );
         action.innerHTML = `<span class="glyph">${icon(glyph)}</span><span class="action-main"><span class="action-title">${label}</span><span class="field-hint">${description}</span></span>${icon('chevron')}`;
         empty.querySelector('.suggestions')!.append(action);
@@ -155,7 +170,7 @@ function render() {
         continue;
       renderedMessages.add(item.id);
       const article = document.createElement('article');
-      article.className = 'message';
+      article.className = 'message message-enter';
       article.dataset.role = item.role;
       const label = document.createElement('div');
       label.className = 'message-label';
@@ -165,8 +180,10 @@ function render() {
           : item.role === 'assistant'
             ? 'Kinetik'
             : (item.tool ?? 'Workspace notice');
-      const content = document.createElement('pre');
-      content.textContent = item.text;
+      const content =
+        item.role === 'assistant' ? renderMessageContent(item.text) : document.createElement('pre');
+      content.classList.add('message-content');
+      if (item.role !== 'assistant') content.textContent = item.text;
       if (item.role === 'assistant') {
         const avatar = document.createElement('img');
         avatar.src = './icon.svg';
@@ -207,19 +224,38 @@ function render() {
             ),
             button('Download', () => downloadFile(file.path)),
           );
-          card.append(name, actions);
+          const fileIcon = document.createElement('span');
+          fileIcon.className = 'glyph';
+          fileIcon.innerHTML = icon('file');
+          card.append(fileIcon, name, actions);
           article.append(card);
         }
-      } else article.append(label, content);
-      timeline.append(article);
+      } else {
+        article.append(label, content);
+        if (item.role === 'assistant') {
+          const actions = document.createElement('div');
+          actions.className = 'message-actions';
+          actions.append(copyButton(item.text, 'Copy reply'));
+          article.append(actions);
+        }
+      }
+      timeline.insertBefore(article, timeline.querySelector('[data-draft]'));
       if (item.app && c) disposeApps.push(mountApp(article, item.app, c.id));
     }
     if (c?.draft && !isBackgroundTurn(c)) {
-      const draft = document.createElement('pre');
-      draft.className = 'message';
-      draft.dataset.draft = 'true';
-      draft.textContent = c.draft;
-      timeline.append(draft);
+      let draft = timeline.querySelector<HTMLElement>('[data-draft]');
+      if (!draft) {
+        draft = document.createElement('article');
+        draft.className = 'message streaming-message';
+        draft.dataset.draft = 'true';
+        draft.innerHTML = `<div class="message-label"><img src="./icon.svg" width="24" height="24" alt="" />Kinetik<span class="streaming-label">Writing</span></div><div class="message-content streaming-content"></div>`;
+        timeline.append(draft);
+      }
+      const content = draft.querySelector('.message-content')!;
+      const text = content.firstChild;
+      if (text instanceof Text && c.draft.startsWith(text.data)) {
+        text.appendData(c.draft.slice(text.data.length));
+      } else content.textContent = c.draft;
     }
     timeline.scrollTop = !c?.messages.length
       ? 0
@@ -227,6 +263,7 @@ function render() {
         ? timeline.scrollHeight
         : oldScroll;
   }
+  updateJumpButton();
   renderAutomations(state.automations, refresh, choose);
   byId('plugin-count').textContent = String(
     state.plugins.filter((p) => p.enabledAt !== null).length,
@@ -351,6 +388,7 @@ byId('composer').onsubmit = (event) => {
     updateComposer();
     try {
       if (!current()) selected = (await rpc<Conversation>('create')).id;
+      followNextMessage = true;
       await rpc('submit', { id: selected, text });
       input.value = '';
       updateComposer();
@@ -421,6 +459,21 @@ byId('plugin-form').onsubmit = (event) => {
       install.textContent = 'Add connection';
     }
   })().catch((error) => showError(error, 'plugin-error'));
+};
+function updateJumpButton() {
+  const timeline = byId('timeline');
+  byId('jump-latest').hidden =
+    !timeline.querySelector('.message') ||
+    timeline.scrollHeight - timeline.scrollTop - timeline.clientHeight < 100;
+}
+byId('timeline').addEventListener('scroll', updateJumpButton, { passive: true });
+new ResizeObserver(updateJumpButton).observe(byId('timeline'));
+byId('jump-latest').onclick = () => {
+  const timeline = byId('timeline');
+  timeline.scrollTo({
+    top: timeline.scrollHeight,
+    behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth',
+  });
 };
 let refreshTimer: ReturnType<typeof setTimeout>;
 navigator.serviceWorker?.addEventListener('message', (event) => {

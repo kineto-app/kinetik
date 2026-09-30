@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Refine the chat layout, add formatted replies and copy controls, preserve reading position with a jump-to-latest action, and add reduced-motion-aware interaction transitions.
+
 - Simplified chat for nontechnical users: everyday preview examples, browsable local files with Open/Download cards, plain progress labels, and connection setup under Settings.
 
 - Offer downloaded PWA updates with an explicit Update button, retain unsent drafts across tab reloads, and keep the current build usable when downloads fail. Refuse activation during active work and defer runtime recovery until worker activation.
