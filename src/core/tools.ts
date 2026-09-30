@@ -64,7 +64,7 @@ export function localTools(
           cwd: '/workspace',
           commands,
           executionLimits: {
-            maxExecutionTimeMs: 15000,
+            maxExecutionTimeMs: context.background ? 900000 : 15000,
             maxLoopIterations: 10000,
             maxCommandCount: 1000,
             maxOutputSize: 128 * 1024,

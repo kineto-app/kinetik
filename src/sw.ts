@@ -189,6 +189,8 @@ sw.addEventListener('message', (event) => {
           );
       } catch (error) {
         port.postMessage({ ok: false, error: errorText(error) });
+      } finally {
+        await runtime.background.drain();
       }
     })(),
   );
@@ -207,6 +209,7 @@ sw.addEventListener('push', (event) => {
         tag: 'kinetik-event',
       });
       await runtime.automations.tick();
+      await runtime.background.drain();
     })(),
   );
 });
@@ -216,6 +219,8 @@ sw.addEventListener('notificationclick', (event) => {
 });
 for (const type of ['sync', 'periodicsync']) {
   sw.addEventListener(type, ((event: ExtendableEvent) => {
-    event.waitUntil(initialized.then(() => runtime.automations.tick()));
+    event.waitUntil(
+      initialized.then(() => runtime.automations.tick()).then(() => runtime.background.drain()),
+    );
   }) as EventListener);
 }
