@@ -5,6 +5,7 @@ const issuer = 'https://auth.openai.com';
 const tokenEndpoint = issuer + '/api/accounts/oauth/token';
 const redirectUri = 'http://127.0.0.1:1455/auth/callback';
 const resource = 'https://api.openai.com/v1';
+const defaultModel = 'gpt-6.1-sol';
 const encode = (bytes: Uint8Array) =>
   btoa(String.fromCharCode(...bytes))
     .replaceAll('+', '-')
@@ -192,30 +193,35 @@ export class BrowserChatGPT {
       )
         throw new Error('ChatGPT plan access was not granted.');
       const session = this.session(tokens, String(claims.sub));
-      const catalog = await this.json(
-        this.modelRelay ? this.modelRelay + 'models' : resource + '/models',
-        {
-          method: this.modelRelay ? 'POST' : 'GET',
-          headers: {
-            Authorization: 'Bearer ' + session.access,
-            ...(this.modelRelay ? { 'Content-Type': 'application/json' } : {}),
-          },
-          body: this.modelRelay ? '{}' : undefined,
-        },
-        'model list',
-      );
-      const models = Array.isArray(catalog.models)
-        ? catalog.models.filter(
-            (m: { visibility?: string; slug?: string }) =>
-              m.visibility === 'list' && typeof m.slug === 'string',
-          )
-        : [];
-      session.model = models[0]?.slug ?? '';
-      if (!session.model) throw new Error('No ChatGPT models are available for this account.');
+      session.model = await this.selectModel(session);
       await this.store.put('registration', { ...registration, clientId, subject: claims.sub });
       await this.store.put('session', session);
       return { ok: true };
     });
+  }
+  private async selectModel(session: Session, signal?: AbortSignal) {
+    const catalog = await this.json(
+      this.modelRelay ? this.modelRelay + 'models' : resource + '/models',
+      {
+        method: this.modelRelay ? 'POST' : 'GET',
+        headers: {
+          Authorization: 'Bearer ' + session.access,
+          ...(this.modelRelay ? { 'Content-Type': 'application/json' } : {}),
+        },
+        body: this.modelRelay ? '{}' : undefined,
+        signal,
+      },
+      'model list',
+    );
+    if (
+      !Array.isArray(catalog.models) ||
+      !catalog.models.some(
+        (model: { visibility?: string; slug?: string } | null) =>
+          model?.visibility === 'list' && model.slug === defaultModel,
+      )
+    )
+      throw new Error('GPT-6.1 Sol is not available for this ChatGPT account.');
+    return defaultModel;
   }
   private session(tokens: Record<string, unknown>, account: string, previous?: Session): Session {
     if (
@@ -290,10 +296,12 @@ export class BrowserChatGPT {
       throw new Error('ChatGPT identity validation failed.');
     return claims;
   }
-  private async access() {
+  private async access(account: string, signal: AbortSignal) {
     return navigator.locks.request('kinetik-chatgpt', async () => {
       let session = await this.storedSession();
       if (!session) throw new SignInRequired('Connect ChatGPT in Connections to continue.');
+      if (account !== session.account)
+        throw new Error('ChatGPT account changed. Retry your message.');
       if (session.expires < Date.now() + 60000) {
         const registration = await this.registration();
         const response = await this.request(tokenEndpoint, {
@@ -333,6 +341,10 @@ export class BrowserChatGPT {
         session = this.session(tokens, session.account, session);
         await this.store.put('session', session);
       }
+      if (session.model !== defaultModel) {
+        session.model = await this.selectModel(session, signal);
+        await this.store.put('session', session);
+      }
       return session;
     });
   }
@@ -340,16 +352,20 @@ export class BrowserChatGPT {
     body: { account: string; request: Record<string, unknown> },
     signal: AbortSignal,
   ) {
-    const session = await this.access();
-    if (body.account !== session.account)
-      throw new Error('ChatGPT account changed. Retry your message.');
+    const session = await this.access(body.account, signal);
     return this.request(this.modelRelay ? this.modelRelay + 'responses' : resource + '/responses', {
       method: 'POST',
       credentials: 'omit',
       redirect: 'error',
       signal,
       headers: { Authorization: 'Bearer ' + session.access, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...body.request, model: session.model, store: false, stream: true }),
+      body: JSON.stringify({
+        ...body.request,
+        model: session.model,
+        reasoning: { effort: 'medium' },
+        store: false,
+        stream: true,
+      }),
     });
   }
   async logout() {
