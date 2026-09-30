@@ -9,6 +9,9 @@ let browserChatGPT = false;
 let modelRelay = false;
 let failActivation = false;
 let tokenExchanges = 0;
+let failModel = false;
+let modelRequests = 0;
+let narratedModel = false;
 let connected = false,
   revoked = false;
 const flows = new Map();
@@ -47,10 +50,21 @@ export async function onboardingFixture(req, res) {
     failActivation = true;
     return reply({});
   }
-  if (url.pathname === prefix + 'stats') return reply({ tokenExchanges });
+  if (url.pathname === prefix + 'narrated-model') {
+    narratedModel = true;
+    return reply({});
+  }
+  if (url.pathname === prefix + 'fail-model') {
+    failModel = true;
+    return reply({});
+  }
+  if (url.pathname === prefix + 'stats') return reply({ tokenExchanges, modelRequests });
   if (url.pathname === prefix + 'reset') {
     failActivation = false;
     tokenExchanges = 0;
+    modelRequests = 0;
+    narratedModel = false;
+    failModel = false;
     browserChatGPT = false;
     modelRelay = false;
     installRequired = false;
@@ -192,6 +206,41 @@ export async function onboardingFixture(req, res) {
     return reply({});
   }
   if (url.pathname.endsWith('/chatgpt/responses')) {
+    modelRequests++;
+    if (failModel) {
+      failModel = false;
+      return reply({ error: 'Temporary model failure' }, 503);
+    }
+    if (narratedModel) {
+      const { request } = JSON.parse(await body());
+      const step = request.input.filter((item) => item.type === 'function_call_output').length;
+      const text = [
+        'I will create the slides.',
+        '',
+        'The draft is ready. I will check it.',
+        'The slides are ready.',
+      ][step];
+      const output = text
+        ? [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text }] }]
+        : [];
+      if (step < 3)
+        output.push({
+          type: 'function_call',
+          call_id: 'fixture-call-' + step,
+          name: request.tools[0].tools.find((tool) => tool.name.startsWith('exec_')).name,
+          arguments: JSON.stringify({ command: 'echo step >> /workspace/actions' }),
+        });
+      res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+      res.end(
+        (text
+          ? 'data: ' + JSON.stringify({ type: 'response.output_text.delta', delta: text }) + '\n\n'
+          : '') +
+          'data: ' +
+          JSON.stringify({ type: 'response.completed', response: { output } }) +
+          '\n\n',
+      );
+      return true;
+    }
     res.writeHead(200, { 'Content-Type': 'text/event-stream' });
     res.end(
       'data: ' +

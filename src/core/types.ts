@@ -27,6 +27,8 @@ export interface Conversation {
   pending: string[];
   status: RunStatus;
   waitingFor?: 'connection' | 'signin';
+  retryAt?: number;
+  retryAttempts?: number;
   activeMessage?: string;
   turn?: 'foreground' | 'background';
   plugins?: InstalledPlugin[];
@@ -117,6 +119,7 @@ export type ModelStep =
       name: string;
       input: Record<string, unknown>;
       callId?: string;
+      narration?: string;
       items?: Record<string, unknown>[];
     };
 export interface Model {
