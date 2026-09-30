@@ -1,4 +1,5 @@
-import type { ToolDefinition } from '../core/types';
+import Ajv from 'ajv';
+import type { AppResource, ToolDefinition } from '../core/types';
 
 type Rpc = { id?: string; result?: unknown; error?: { message: string } };
 /** Minimal Streamable HTTP client. Auth is a supplied bearer token; no OAuth UI yet. */
@@ -89,7 +90,11 @@ export class McpClient {
         'initialize',
         {
           protocolVersion: '2025-11-25',
-          capabilities: {},
+          capabilities: {
+            extensions: {
+              'io.modelcontextprotocol/ui': { mimeTypes: ['text/html;profile=mcp-app'] },
+            },
+          },
           clientInfo: { name: 'kinetik-oss', version: '0.1.0' },
         },
         signal,
@@ -117,6 +122,29 @@ export class McpClient {
       throw new Error(`MCP tool ${name} failed: ${JSON.stringify(result.content)}`);
     return result;
   }
+  async resource(uri: string, signal: AbortSignal): Promise<AppResource> {
+    if (!uri.startsWith('ui://')) throw new Error('MCP App resource must use ui://.');
+    await this.ready(signal);
+    const result = (await this.send('resources/read', { uri }, signal)) as {
+      contents?: {
+        uri: string;
+        mimeType?: string;
+        text?: string;
+        blob?: string;
+        _meta?: { ui?: { csp?: Record<string, string[]> } };
+      }[];
+    };
+    const resource = result.contents?.find((item) => item.uri === uri);
+    if (!resource || resource.mimeType !== 'text/html;profile=mcp-app')
+      throw new Error('MCP App did not return an HTML resource.');
+    const html =
+      resource.text ??
+      (resource.blob
+        ? new TextDecoder().decode(Uint8Array.from(atob(resource.blob), (c) => c.charCodeAt(0)))
+        : '');
+    if (!html || html.length > 2 * 1024 * 1024) throw new Error('Invalid MCP App HTML.');
+    return { html, csp: resource._meta?.ui?.csp };
+  }
   async tools(): Promise<Record<string, ToolDefinition>> {
     const signal = AbortSignal.timeout(15000);
     await this.ready(signal);
@@ -125,7 +153,15 @@ export class McpClient {
     const visited = new Set<string>();
     do {
       const result = (await this.send('tools/list', cursor ? { cursor } : {}, signal)) as {
-        tools: { name: string; description?: string; inputSchema: Record<string, unknown> }[];
+        tools: {
+          name: string;
+          description?: string;
+          inputSchema: Record<string, unknown>;
+          _meta?: {
+            ui?: { resourceUri?: string; visibility?: ('model' | 'app')[] };
+            'ui/resourceUri'?: string;
+          };
+        }[];
         nextCursor?: string;
       };
       if (!Array.isArray(result.tools)) throw new Error('Invalid MCP tools list.');
@@ -133,6 +169,27 @@ export class McpClient {
         if (Object.keys(tools).length >= 200) throw new Error('MCP tool limit exceeded.');
         tools[tool.name] = {
           description: tool.description ?? tool.name,
+          visibility: tool._meta?.ui?.visibility,
+          app:
+            (tool._meta?.ui?.resourceUri ?? tool._meta?.['ui/resourceUri'])
+              ? {
+                  resource: (signal) =>
+                    this.resource(
+                      tool._meta?.ui?.resourceUri ?? tool._meta!['ui/resourceUri']!,
+                      signal,
+                    ),
+                  call: async (name, input, signal) => {
+                    if (
+                      !tools[name] ||
+                      (tools[name].visibility && !tools[name].visibility.includes('app'))
+                    )
+                      throw new Error('Tool is not available to this app.');
+                    const validate = new Ajv({ strict: false }).compile(tools[name].inputSchema);
+                    if (!validate(input)) throw new Error('Invalid app tool arguments.');
+                    return this.call(name, input, signal);
+                  },
+                }
+              : undefined,
           inputSchema: tool.inputSchema,
           execute: (input, context) => this.call(tool.name, input, context.signal),
         };

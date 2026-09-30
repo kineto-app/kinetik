@@ -2,7 +2,7 @@
 
 Status: accepted target design, with a local prototype implemented 2026-09-30. See [README.md](README.md) for the shipped scope and commands.
 
-This document records the accepted product behavior. Interface sketches and implementation choices are proposals. [RESEARCH.md](RESEARCH.md) records evidence and feasibility gaps. No authentication, deployment, or production changes have been performed.
+This document records the accepted product behavior. Interface sketches and implementation choices are proposals. [RESEARCH.md](RESEARCH.md) records evidence and feasibility gaps. No live authentication, deployment, or production changes have been performed. The owner reaffirmed mandatory launcher exit and deferred ChatGPT integration during implementation.
 
 ## Objective and release boundary
 
@@ -40,7 +40,7 @@ Official ChatGPT subscription support remains a requirement, but the selected on
 | Skill refresh    | Check before processing every incoming message, including steering messages. Update files/catalog when changed.                               |
 | Sync failure     | Continue using cached skills, with a brief warning. On first use without a cache, continue without that plugin's skills.                      |
 
-Deferred: MCP Apps/iframe UI, goals, routines/jobs/monitors, general external-event scheduling, a VM agent host, native host execution, and a full background-task product. Existing remote tool jobs still need enough tracking to support cancellation and recovery. Native skills were brought back into v1 during the interview.
+The initial prototype deferred MCP Apps, goals, routines and external events. The current implementation adds the protocol subset and durable browser scheduling described in README. A VM agent host and native host execution remain deferred. Existing remote tool jobs still need enough tracking to support cancellation and recovery. Native skills were brought back into v1 during the interview.
 
 ## Small architecture
 
@@ -193,4 +193,4 @@ These are target acceptance checks. The prototype automates the local filesystem
 8. Prove local static startup can exit and reopen offline, and that installed plugins can load in the chosen background host.
 9. Authenticate and stream one real ChatGPT-plan response only after resolving the documented storage conflict; then verify refresh, logout, and account switching.
 
-The present deliverable includes the local prototype, tests, build scripts, package launcher, and OSS documentation. It uses a deterministic mock model; real ChatGPT login and the provider-specific Charms integration remain pending.
+The deliverable includes the browser runtime, MCP App subset, tasks/goals/routines, Charms adapter, tests, build scripts, package launcher, and OSS documentation. It uses a deterministic mock model; real ChatGPT login and live Charms acceptance remain pending. See README for the exact shipped behavior; interface sketches above are design context.

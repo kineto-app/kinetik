@@ -1,4 +1,5 @@
 import { icon } from './icons';
+import { automationDialog } from './automations';
 
 export const shell = `
 <a class="skip-link" href="#prompt">Skip to message</a>
@@ -9,7 +10,7 @@ export const shell = `
     <div class="history"><h2 class="eyebrow">Conversations</h2><nav id="conversations" aria-label="Conversation list"></nav></div>
     <div class="sidebar-footer">
       <div class="nav-tools"><button id="plugins-open">${icon('plug')}<span>Plugins</span><span class="nav-count" id="plugin-count">0</span></button><button id="files-open">${icon('folder')}<span>Local files</span></button></div>
-      <div class="appearance"><label for="appearance">${icon('monitor')}<span>Appearance</span></label><select id="appearance" aria-label="Appearance"><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select></div>
+      <button id="automations-open">${icon('terminal')}<span>Background work</span></button><div class="appearance"><label for="appearance">${icon('monitor')}<span>Appearance</span></label><select id="appearance" aria-label="Appearance"><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select></div>
       <div class="storage-note"><span class="status-dot"></span><span>Stored in this browser</span></div>
     </div>
   </aside>
@@ -40,4 +41,4 @@ export const shell = `
   <section class="panel"><h3 class="section-label">Import a file</h3><div class="section-body upload-zone"><input type="file" id="upload" class="sr-only" aria-describedby="upload-hint" /><label for="upload" class="upload-pick">${icon('upload')}<span>Choose a file</span></label><p id="upload-hint" class="field-hint">Up to 4 MiB · Saved in /workspace</p></div></section>
   <section class="panel"><h3 class="section-label">Download a file</h3><form id="download-form" class="section-body"><label for="download-path">Workspace path</label><div class="download-row"><input id="download-path" value="/workspace/note.txt" required spellcheck="false" /><button class="primary">${icon('download')}<span>Download</span></button></div></form></section>
   <p id="file-result" class="feedback" role="status"></p>
-</dialog>`;
+</dialog>${automationDialog}`;

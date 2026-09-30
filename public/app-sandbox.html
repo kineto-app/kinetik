@@ -1,0 +1,26 @@
+<!doctype html><meta charset="utf-8" />
+<script>
+  let frame;
+  if (parent === window) throw new Error('Sandbox must be embedded.');
+  addEventListener('message', (event) => {
+    if (event.source === parent) {
+      const data = event.data;
+      if (data?.method === 'ui/notifications/sandbox-resource-ready' && !frame) {
+        frame = document.createElement('iframe');
+        frame.setAttribute('sandbox', 'allow-scripts allow-same-origin');
+        frame.style.cssText = 'border:0;width:100%;height:100%;position:absolute;inset:0';
+        frame.srcdoc = data.params.html;
+        document.body.append(frame);
+      } else if (!data?.method?.startsWith('ui/notifications/sandbox-'))
+        frame?.contentWindow.postMessage(data, '*');
+    } else if (
+      frame &&
+      event.source === frame.contentWindow &&
+      !event.data?.method?.startsWith('ui/notifications/sandbox-')
+    ) {
+      parent.postMessage(event.data, '*');
+    }
+  });
+  parent.postMessage({ jsonrpc: '2.0', method: 'ui/notifications/sandbox-proxy-ready' }, '*');
+</script>
+<body></body>

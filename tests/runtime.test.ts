@@ -192,3 +192,22 @@ test('resolving while provider cancellation finishes resumes the conversation', 
   await running;
   expect((await read(store, c.id)).status).toBe('idle');
 });
+
+test('local SKILL.md metadata refreshes before the next message', async () => {
+  const store = new Store(crypto.randomUUID());
+  const runtime = new Runtime(store);
+  const conversation = await runtime.create();
+  await runtime.submit(
+    conversation.id,
+    '/exec mkdir -p /workspace/skills/test; printf "---\\nname: test\\ndescription: Local instructions\\n---\\nDo useful work" > /workspace/skills/test/SKILL.md',
+  );
+  await runtime.run(conversation.id);
+  await runtime.submit(conversation.id, '/skills');
+  await runtime.run(conversation.id);
+  expect((await read(store, conversation.id)).messages.at(-1)?.text).toContain(
+    'test: Local instructions',
+  );
+  await runtime.submit(conversation.id, '/read_skill /workspace/skills/test/SKILL.md');
+  await runtime.run(conversation.id);
+  expect((await read(store, conversation.id)).messages.at(-1)?.text).toContain('Do useful work');
+});

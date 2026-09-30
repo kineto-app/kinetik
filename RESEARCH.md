@@ -67,7 +67,7 @@ Inspected `kineto-app/kineto` at commit `abfb798cbfacd5d74b7985faf1a736298bce181
 
 Keep discovery/loading internal to plugin synchronization. The model sees the native skill index and uses `read_skill`. Existing skill text can still reference `charms_*` tools and remote paths; preserve usable aliases or supply explicit environment mapping.
 
-Some skills depend on `charms_render` and interactive connection UIs. Importing all skills does not implement MCP Apps, which are deferred. Make unavailable capabilities visible rather than silently expanding v1 or claiming all skill workflows function.
+Some skills depend on `charms_render` and interactive connection UIs. Importing all skills alone does not implement MCP Apps. The browser runtime now implements a tested subset of MCP Apps; live Charms rendering remains unverified. Make unavailable capabilities visible rather than silently expanding v1 or claiming all skill workflows function.
 
 ## 4. Plugin loading and background execution
 
