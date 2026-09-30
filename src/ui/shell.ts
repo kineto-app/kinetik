@@ -8,16 +8,16 @@ export const shell = `
 <div class="layout">
   <aside class="sidebar" id="sidebar" aria-label="Chats">
     <div class="brand"><img src="./icon.svg" width="32" height="32" alt="" /><span>Kinetik</span><button id="menu-close" class="icon-button" aria-label="Close chats">${icon('close')}</button></div>
-    <button class="new-chat" id="new-chat">${icon('plus')}<span>New chat</span></button>
+    <button class="new-chat" id="new-chat">${icon('compose')}<span>New chat</span></button>
     <div class="history"><h2 class="eyebrow">Recent chats</h2><nav id="conversations" aria-label="Chat list"></nav></div>
     <div class="sidebar-footer"><button id="install-open" class="secondary" hidden>${icon('download')}<span>Install Kinetik</span></button>
-      <div class="nav-tools"><button id="files-open">${icon('folder')}<span>Files</span></button><button id="automations-open">${icon('clock')}<span>Routines</span></button><button id="settings-open">${icon('settings')}<span>Settings</span></button></div>
+      <div class="nav-tools"><button id="connections-open">${icon('plug')}<span class="connection-nav-text"><span>Connections</span><small id="connections-summary">Manage services</small></span><span id="connections-dot" class="status-dot" aria-hidden="true" hidden></span></button><button id="files-open">${icon('folder')}<span>Files</span></button><button id="automations-open">${icon('clock')}<span>Routines</span></button><button id="settings-open">${icon('settings')}<span>Settings</span></button></div>
       <div class="storage-note"><span class="status-dot"></span><span>Saved on this device</span></div>
     </div>
   </aside>
   <button id="drawer-scrim" class="drawer-scrim" aria-label="Close chats" tabindex="-1" hidden></button>
   <main class="main" id="main">
-    <header class="topbar"><button id="menu" class="icon-button" aria-label="Toggle chats" aria-expanded="false" aria-controls="sidebar">${icon('menu')}</button><div class="heading"><img src="./icon.svg" width="26" height="26" alt="" /><h1 id="title">New chat</h1></div><button id="connection-status" hidden aria-label="Manage connections"></button><span class="status sr-only" id="status" role="status">Getting ready</span><button id="top-new-chat" class="icon-button" aria-label="New chat">${icon('plus')}</button></header>
+    <header class="topbar"><button id="menu" class="icon-button" aria-label="Toggle chats" aria-expanded="false" aria-controls="sidebar">${icon('menu')}</button><div class="heading"><img src="./icon.svg" width="26" height="26" alt="" /><h1 id="title">New chat</h1></div><button id="connection-status" hidden aria-label="Connection needs attention"></button><span class="status sr-only" id="status" role="status">Getting ready</span><button id="top-new-chat" class="icon-button" aria-label="New chat" title="New chat">${icon('compose')}</button></header>
     <div id="app-update" class="app-update" role="status" hidden><div><strong>Update available</strong><span id="app-update-feedback" class="field-hint"></span></div><button id="app-update-apply" class="primary">Update</button></div>
     <div class="conversation-stage"><section id="timeline" aria-label="Conversation" aria-live="polite" aria-relevant="additions text"></section><button id="jump-latest" class="jump-latest" type="button" hidden>Latest message ${icon('download')}</button></div>
     <section class="composer-area">
