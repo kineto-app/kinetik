@@ -234,6 +234,11 @@ test('updates stay reachable inside setup, dialogs and the mobile chat drawer', 
     await page.getByRole('button', { name: 'Toggle chats' }).click();
     await expect(page.locator('#sidebar #app-update')).toBeVisible();
     await update.click({ trial: true });
+    await update.focus();
+    await page.keyboard.press('Shift+Tab');
+    await expect(page.locator('#settings-open')).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(update).toBeFocused();
     await page.getByRole('button', { name: 'Close chats', exact: true }).first().click();
   }
   await expect(page.locator('#main #app-update')).toBeVisible();
