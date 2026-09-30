@@ -213,3 +213,13 @@ test('MCP requests advertise embedded app support on each tool call', async () =
     ].mimeTypes,
   ).toEqual(['text/html;profile=mcp-app']);
 });
+
+test('installation is opt-in deployment configuration', () => {
+  expect(parseConfiguration({}, base).installation?.required).not.toBe(true);
+  expect(
+    parseConfiguration({ installation: { required: true } }, base).installation?.required,
+  ).toBe(true);
+  expect(() => parseConfiguration({ installation: { required: 'true' } }, base)).toThrow(
+    'installation',
+  );
+});

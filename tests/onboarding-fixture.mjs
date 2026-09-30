@@ -4,6 +4,7 @@ import { extname, resolve, sep } from 'node:path';
 
 const base = 'http://127.0.0.1:4174';
 const prefix = '/onboarding/';
+let installRequired = false;
 let connected = false,
   revoked = false;
 const flows = new Map();
@@ -29,7 +30,12 @@ export async function onboardingFixture(req, res) {
     for await (const part of req) text += part;
     return text;
   };
+  if (url.pathname === prefix + 'require-install') {
+    installRequired = true;
+    return reply({});
+  }
   if (url.pathname === prefix + 'reset') {
+    installRequired = false;
     connected = false;
     revoked = false;
     flows.clear();
@@ -41,6 +47,7 @@ export async function onboardingFixture(req, res) {
   }
   if (url.pathname === prefix + 'config.json')
     return reply({
+      installation: { required: installRequired },
       connections: {
         charms: {
           url: base + prefix + 'connections/charms/mcp',

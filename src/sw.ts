@@ -176,7 +176,7 @@ sw.addEventListener('message', (event) => {
                 case 'connectionPrepare':
                   return connections.prepare();
                 case 'connectionBegin':
-                  return connections.begin();
+                  return connections.begin(data.handoff === true);
                 case 'connectionActivate':
                   return connections.activate();
                 case 'connectionDisconnect':

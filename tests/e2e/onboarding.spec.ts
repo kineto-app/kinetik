@@ -31,16 +31,28 @@ test('guided setup authorizes Charms, loads native skills, connects ChatGPT and 
   );
   await page.goto(base + '?connect=charms');
   await expect(
-    page.getByRole('heading', { name: 'Give your assistant the tools to help.' }),
-  ).toBeVisible();
-  expect((await rpc(page, 'state')).plugins[0].enabledAt).toBeNull();
-  await page.getByRole('button', { name: 'Connect Charms', exact: true }).click();
-  await page.getByRole('link', { name: 'Allow Charms' }).click();
-  await expect(
     page.getByRole('heading', { name: 'Bring your ChatGPT subscription.' }),
   ).toBeVisible();
+  expect((await rpc(page, 'state')).plugins[0].enabledAt).toBeNull();
+  const popup = page.waitForEvent('popup');
+  await page.getByRole('button', { name: 'Continue with ChatGPT' }).click();
+  const signInPage = await popup;
+  await expect(signInPage.getByRole('heading', { name: 'ChatGPT sign-in fixture' })).toBeVisible();
+  await signInPage.close();
+  await page.getByLabel('Return link from your browser').fill('https://chatgpt.com/');
+  await page.getByRole('button', { name: 'Connect ChatGPT', exact: true }).click();
+  await expect(page.locator('#setup-error')).toContainText('entire address');
+  await page
+    .getByLabel('Return link from your browser')
+    .fill('http://127.0.0.1:1455/auth/callback?code=fixture&state=fixture');
+  await page.getByRole('button', { name: 'Connect ChatGPT', exact: true }).click();
+  await expect(
+    page.getByRole('heading', { name: 'Give your assistant the tools to help.' }),
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'Connect Charms', exact: true }).click();
+  await page.getByRole('link', { name: 'Allow Charms' }).click();
+  await expect(page.getByRole('button', { name: 'Start chatting' })).toBeVisible();
   expect(page.url()).not.toContain('code=');
-  expect((await rpc(page, 'state')).plugins[0].enabledAt).not.toBeNull();
   const skills = await page.evaluate(
     async () =>
       new Promise<string>((resolve) => {
@@ -56,18 +68,6 @@ test('guided setup authorizes Charms, loads native skills, connects ChatGPT and 
       }),
   );
   expect(skills).toContain('A native fixture skill');
-  const popup = page.waitForEvent('popup');
-  await page.getByRole('button', { name: 'Continue with ChatGPT' }).click();
-  const signInPage = await popup;
-  await expect(signInPage.getByRole('heading', { name: 'ChatGPT sign-in fixture' })).toBeVisible();
-  await signInPage.close();
-  await page.getByLabel('Return link from your browser').fill('https://chatgpt.com/');
-  await page.getByRole('button', { name: 'Connect ChatGPT', exact: true }).click();
-  await expect(page.locator('#setup-error')).toContainText('entire address');
-  await page
-    .getByLabel('Return link from your browser')
-    .fill('http://127.0.0.1:1455/auth/callback?code=fixture&state=fixture');
-  await page.getByRole('button', { name: 'Connect ChatGPT', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Start chatting' })).toBeVisible();
   await page.getByRole('button', { name: 'Start chatting' }).click();
   await page.getByRole('textbox', { name: 'Message', exact: true }).fill('Hello');

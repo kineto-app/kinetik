@@ -24,6 +24,7 @@ export interface ConnectionState {
   status: 'not-connected' | 'connected' | 'disabled' | 'reconnect';
 }
 export interface SetupState {
+  installation: { required: boolean };
   charms: ConnectionState;
   chatgpt: { available: boolean; connected: boolean; apiBase?: string };
 }
@@ -121,6 +122,7 @@ export class Connections {
       }
     }
     return {
+      installation: { required: this.config.installation?.required === true },
       charms: {
         available: Boolean(preset),
         status: valid
@@ -151,7 +153,7 @@ export class Connections {
     if (enabled && plugin?.settings.connection === id) await this.activate();
     else await this.plugins.enable(id, enabled);
   }
-  async begin(): Promise<string> {
+  async begin(handoff = false): Promise<string> {
     await this.prepare();
     const { plugin, connection } = await this.assertManaged();
     const preset = this.preset();
@@ -206,7 +208,8 @@ export class Connections {
       await this.store.put(recordKey, { ...connection, clientId });
     }
     const verifier = random();
-    const state = random();
+    // The prefix selects return instructions only; the full random value is still verified.
+    const state = (handoff ? 'app.' : '') + random();
     const challenge = encode(
       new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier))),
     );

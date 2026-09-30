@@ -8,6 +8,7 @@ export interface ConnectionPreset {
   metadataUrl: string;
 }
 export interface Configuration {
+  installation?: { required: boolean };
   connections: { charms?: ConnectionPreset };
   chatgpt?: { apiBase: string };
 }
@@ -18,6 +19,11 @@ export function parseConfiguration(value: unknown, base: URL): Configuration {
     throw new Error('Invalid connection configuration.');
   const input = value as Record<string, any>;
   const config: Configuration = { connections: {} };
+  if (input.installation !== undefined) {
+    if (typeof input.installation?.required !== 'boolean')
+      throw new Error('Invalid installation configuration.');
+    config.installation = { required: input.installation.required };
+  }
   const address = (value: unknown) => {
     if (typeof value !== 'string' || !value) throw new Error('Missing connection address.');
     const url = allowedURL(new URL(value, base).href);

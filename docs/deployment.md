@@ -39,7 +39,7 @@ Serve deployment-owned `config.json` beside `index.html` with `Cache-Control: no
 
 `resource` is the canonical OAuth resource identifier, even when `url` is a same-origin relay. `metadataUrl` must return the configured issuer, S256 PKCE support, public-client authentication (`none`), code responses, and authorization, registration, and token endpoints. Backchannel endpoints may use the app’s origin for a fixed-endpoint relay; the authorization page must belong to the issuer’s origin. Use HTTPS outside localhost. Direct requests need CORS; a relay must strip cookies, restrict upstream targets and methods, reject redirects, and preserve relevant MCP headers. The callback returns to the app root with `connection_callback=charms`; the app consumes the code and removes callback parameters from the address bar. Neither OAuth endpoints nor plugin source URLs come from deep-link parameters.
 
-The guided flow prepares Charms, obtains authorization, verifies its tools, loads native skills, and then offers ChatGPT sign-in. Existing connections skip completed steps. A manually disabled connection requires an explicit Enable action. If the deployment configuration changes, existing settings are preserved rather than silently redirecting credentials to a new service.
+The guided flow offers ChatGPT sign-in, prepares Charms, obtains authorization, verifies its tools, and loads native skills. Existing connections skip completed steps. A manually disabled connection requires an explicit Enable action. If the deployment configuration changes, existing settings are preserved rather than silently redirecting credentials to a new service.
 
 For an existing credential helper, add:
 
@@ -50,3 +50,23 @@ For an existing credential helper, add:
 The same-origin helper contract is `GET status` returning `{connected, model, account?}`, plus `POST login` returning `{url}`, `POST callback` accepting `{url}`, `POST logout`, and `POST responses` accepting `{account, request}` and streaming Responses API SSE. Mutations carry `X-Kinetik-Request: 1`; the helper must enforce the exact request origin, authenticate its own session, validate OAuth state/PKCE and the callback, and retain OpenAI credentials outside the browser. The UI accepts only `https://auth.openai.com` sign-in destinations. Do not expose a generic unauthenticated model proxy.
 
 Helper paths belong under `connections/` so the service worker never returns cached app HTML for them. No helper is included or started automatically. Configuring one changes the host’s model provider, not the launcher’s mandatory-exit behavior. An offline worker reuses its last valid public configuration; it does not turn failed authenticated requests into mock responses.
+
+## Required installation on a hosted app
+
+Set `"installation": { "required": true }` in deployment-owned `config.json` to require
+users to install and open the PWA before account setup. The repository's default
+configuration omits this flag, so local runs do not require installation, including
+local runs served under a subpath. Query parameters cannot disable the requirement.
+
+The hosted flow is Install → ChatGPT → Charms → Ready. An accepted install prompt
+only changes the instructions; setup continues when the app runs in standalone mode.
+Chrome and Edge receive the native prompt when available. iPhone and iPad get Home
+Screen instructions, and Safari on Mac gets Add to Dock instructions. Unsupported
+browsers get a supported-browser path rather than a button that cannot install.
+
+Launching the installed app resumes account setup without requiring the original
+deep link or browser storage. Authorization from the installed app keeps it open and
+uses a separate tab. The Charms return page offers a link to copy back into the app;
+the full state and PKCE verifier are still checked by the worker. A return-link entry
+remains available after reopening the app, without starting a new authorization.
+ChatGPT offers the same resume-paste path through the configured helper.
