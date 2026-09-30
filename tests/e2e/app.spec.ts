@@ -367,3 +367,53 @@ test('background app results appear immediately with tool activity hidden and su
   await expect(app.locator('#result')).toHaveText('Ready');
   await expect(page.locator('.tool-group')).toHaveCount(0);
 });
+
+test('closing the browser worker recovers a Charms job and its widget without another message', async ({
+  page,
+  context,
+  request,
+}) => {
+  const base = 'http://127.0.0.1:4174/onboarding/';
+  await request.get(base + 'reset');
+  await request.post(base + 'connections/chatgpt/callback', { data: {} });
+  await request.get(base + 'background-model');
+  await page.goto(base);
+  await expect(page.locator('#status')).toHaveText('Ready');
+  await rpc(page, 'install', {
+    source: base + 'plugins/charms/plugin.json',
+    settings: JSON.stringify({
+      url: base + 'connections/charms/mcp',
+      token: 'charms-fixture-token',
+    }),
+  });
+  await rpc(page, 'enable', { id: 'charms', enabled: true });
+  await send(page, 'Create my result');
+  await expect(page.locator('[data-role=assistant]').last()).toContainText(
+    'Working in the background.',
+  );
+  await expect
+    .poll(async () => (await (await request.get(base + 'stats')).json()).remoteRuns)
+    .toBe(1);
+  const devtools = await context.newCDPSession(page);
+  await devtools.send('ServiceWorker.enable');
+  await devtools.send('ServiceWorker.stopAllWorkers');
+  await devtools.detach();
+  await page.close();
+  await request.get(base + 'finish-job');
+  const reopened = await context.newPage();
+  await reopened.goto(base);
+  await expect(reopened.locator('[data-role=assistant]').last()).toContainText(
+    'Your result is ready.',
+  );
+  await expect(
+    reopened.frameLocator('iframe.mcp-app').frameLocator('iframe').locator('#result'),
+  ).toHaveText('Recovered result');
+  await expect(reopened.locator('.tool-group')).toHaveCount(0);
+  await expect(reopened.locator('#timeline')).not.toContainText('remote result');
+  expect((await (await request.get(base + 'stats')).json()).remoteRuns).toBe(1);
+  await reopened.reload();
+  await expect(
+    reopened.frameLocator('iframe.mcp-app').frameLocator('iframe').locator('#result'),
+  ).toHaveText('Recovered result');
+  expect((await (await request.get(base + 'stats')).json()).remoteRuns).toBe(1);
+});
