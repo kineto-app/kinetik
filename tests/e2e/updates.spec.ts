@@ -186,3 +186,63 @@ test('failed downloads leave the current version usable and can be retried', asy
   await expect(page.locator('#app-update')).toBeVisible();
   expect(await rpc(page, 'version')).toBe('release-1');
 });
+
+test('updates stay reachable inside setup, dialogs and the mobile chat drawer', async ({
+  page,
+}, info) => {
+  await page.goto(origin + prefix);
+  await expect(page.locator('#status')).toHaveText('Ready');
+  await page.evaluate(() =>
+    document.querySelector<HTMLDialogElement>('#connection-setup')!.showModal(),
+  );
+  revision = 2;
+  await checkUpdate(page);
+  const update = page.locator('#app-update-apply');
+  await expect(page.locator('#connection-setup #app-update')).toBeVisible();
+  await update.click({ trial: true });
+  for (const theme of ['light', 'dark']) {
+    await page.evaluate((theme) => (document.documentElement.dataset.theme = theme), theme);
+    await expect(page.locator('#connection-setup')).toBeVisible();
+    expect(
+      (await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze())
+        .violations,
+    ).toEqual([]);
+    await page.screenshot({ path: info.outputPath(`setup-update-${theme}.png`) });
+  }
+  await page.evaluate(() => {
+    const dialog = document.querySelector<HTMLDialogElement>('#connection-setup')!;
+    dialog.querySelector<HTMLElement>('.setup-body')!.style.minHeight = '200vh';
+    dialog.scrollTop = dialog.scrollHeight;
+  });
+  expect((await update.boundingBox())!.y).toBeGreaterThanOrEqual(0);
+  expect((await update.boundingBox())!.y).toBeLessThan(page.viewportSize()!.height);
+  await update.click({ trial: true });
+  await page.evaluate(() =>
+    document.querySelector<HTMLDialogElement>('#connection-setup')!.close(),
+  );
+
+  for (const id of ['settings-dialog', 'files-dialog', 'plugins-dialog', 'automations-dialog']) {
+    await page.evaluate(
+      (id) => document.querySelector<HTMLDialogElement>('#' + id)!.showModal(),
+      id,
+    );
+    await expect(page.locator('#' + id + ' #app-update')).toBeVisible();
+    await update.click({ trial: true });
+    await page.evaluate((id) => document.querySelector<HTMLDialogElement>('#' + id)!.close(), id);
+  }
+  if (info.project.name === 'mobile-chromium') {
+    await page.getByRole('button', { name: 'Toggle chats' }).click();
+    await expect(page.locator('#sidebar #app-update')).toBeVisible();
+    await update.click({ trial: true });
+    await page.getByRole('button', { name: 'Close chats', exact: true }).first().click();
+  }
+  await expect(page.locator('#main #app-update')).toBeVisible();
+  await page.evaluate(() =>
+    document.querySelector<HTMLDialogElement>('#connection-setup')!.showModal(),
+  );
+  const reloaded = page.waitForEvent('framenavigated', (frame) => frame === page.mainFrame());
+  await update.click();
+  await reloaded;
+  await expect(page.locator('#status')).toHaveText('Ready');
+  expect(await rpc(page, 'version')).toBe('release-2');
+});
