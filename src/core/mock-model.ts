@@ -1,3 +1,4 @@
+import { demoTasks } from './demo-tasks';
 import type { Model, ModelRequest, ModelStep } from './types';
 export function delay(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -17,15 +18,50 @@ export function delay(ms: number, signal: AbortSignal): Promise<void> {
 export class MockModel implements Model {
   async next(request: ModelRequest, signal: AbortSignal): Promise<ModelStep> {
     await delay(80, signal);
-    if (request.result !== undefined) return { type: 'text', text: request.result || 'Done.' };
+    const example = demoTasks.find((task) => task.prompt === request.message.trim());
+    if (example)
+      return request.result === undefined
+        ? {
+            type: 'tool',
+            name: 'write',
+            input: { path: '/workspace/' + example.filename, content: example.content },
+          }
+        : { type: 'text', text: example.reply };
+    if (request.message.trim() === 'Show my saved files.')
+      return request.result === undefined
+        ? { type: 'tool', name: 'list', input: { path: '/workspace' } }
+        : {
+            type: 'text',
+            text: request.result
+              ? 'Your saved files:\n\n' +
+                request.result
+                  .split('\n')
+                  .map((name) => '• ' + name)
+                  .join('\n') +
+                '\n\nOpen Files to view or download them.'
+              : 'You haven’t saved any files yet. Try creating a note or adding a file.',
+          };
+    if (request.result !== undefined) {
+      if (request.message.startsWith('/bg ') || request.message.startsWith('/tool background ')) {
+        const receipt = JSON.parse(request.result);
+        if (receipt.id && receipt.state === 'running')
+          return { type: 'text', text: 'Started a background task.' };
+      }
+      return { type: 'text', text: request.result || 'Done.' };
+    }
     if (request.message.startsWith('Background job '))
-      return { type: 'text', text: request.message };
+      return {
+        type: 'text',
+        text: request.message.split('\n')[0].endsWith('completed.')
+          ? 'Background task completed.'
+          : 'Background task was interrupted. Check its effects before retrying.',
+      };
     const [line, ...lines] = request.message.split('\n');
     const match = /^\/(\w+)\s*([\s\S]*)$/.exec(line.trim());
     if (!match)
       return {
         type: 'text',
-        text: 'This is the local test model. Try /exec echo hello, /read /workspace/note.txt, /write /workspace/note.txt followed by a new line and its content, /skills, or /tool name {"key":"value"}.',
+        text: 'You’re trying the Kinetik preview. I can create a sample note or packing list, or show your saved files. Try one of those examples to get started. Open-ended AI chat will be available when ChatGPT sign-in is connected.',
       };
     const [, command, arg] = match;
     if (command === 'skills') return { type: 'text', text: request.instructions };

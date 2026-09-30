@@ -113,3 +113,13 @@ Localhost is a potentially trustworthy context for service workers; plain HTTP o
 6. Validate mobile suspension, offline reopening after complete process exit, and shared-origin deployment.
 
 Initial feasibility probes used no account credentials. The subsequent live subscription check above used authorized OAuth tokens only in a temporary Node process and then revoked its session. No live MCP tool command or deployment was performed. The local prototype has been built and tested. Temporary probe processes were stopped. The repository uses its existing MIT license and the unpublished package name kinetik-oss. The final model SDK, broader browser support matrix, and credential architecture remain unresolved.
+
+## 7. A simple interface for everyday tasks
+
+Reviewed current first-party agent UI guidance on 2026-09-30. These are design references, not evidence that Kinetik has their model capabilities.
+
+- [Claude Cowork’s getting-started flow](https://support.claude.com/en/articles/13345190-get-started-with-claude-cowork) centers on describing a task, following progress, steering mid-task, and receiving usable results. Kinetik adopts plain task starters, unobtrusive progress, and file cards with Open/Download actions. Its preview starters are explicitly fixed examples.
+- [OpenAI’s UI guidelines](https://developers.openai.com/plugins/concepts/ui-guidelines) favor focused inline cards for actions and results. Kinetik keeps files and interactive MCP results in the conversation; verbose tool output sits behind an expandable step.
+- [Microsoft’s agent design foundations](https://learn.microsoft.com/en-us/agents/design-guidelines/design-foundations) cover the whole interaction, including first use, control, and recovery. [HAX guidance](https://www.microsoft.com/en-us/haxtoolkit/ai-guidelines/) emphasizes making capabilities and limits clear. Kinetik labels the preview and pending ChatGPT connection, keeps Stop and recovery actions available, and puts connection configuration under Settings.
+
+The UI/UX Pro Max skill’s AI-native UI and loading-feedback guidance informed the minimal chrome, visible composer, and accessible progress indicators. Existing Charms design tokens, action rows, panels, and light/dark themes remain the visual source. These changes have automated accessibility and interaction coverage; they have not yet been usability-tested with nontechnical participants or on physical mobile devices.
