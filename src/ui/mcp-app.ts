@@ -1,5 +1,7 @@
 import type { AppView } from '../core/types';
 import { rpc } from '../browser/client';
+import { icon } from './icons';
+import './mcp-app.css';
 
 // MCP Apps standard style names, mapped to the same tokens as the chat.
 function hostStyles() {
@@ -57,20 +59,90 @@ export function appHTML(view: AppView): string {
     view.html
   );
 }
+let exitFullscreen: (() => void) | undefined;
+
 export function mountApp(
   container: HTMLElement,
   view: AppView,
   conversationId: string,
+  composer: HTMLElement,
 ): () => void {
   const frame = document.createElement('iframe');
   frame.title = 'MCP App';
   frame.className = 'mcp-app';
   frame.sandbox.add('allow-scripts', 'allow-same-origin');
   frame.src = new URL('app-sandbox.html', document.baseURI).href;
+  // Keep the iframe connected while promoting its container to the top layer.
+  // Moving an iframe into a separate dialog reloads it and loses the selected view.
+  const panel = document.createElement('dialog');
+  panel.className = 'mcp-app-panel';
+  panel.open = true;
+  panel.setAttribute('role', 'presentation');
+  const header = document.createElement('div');
+  header.className = 'mcp-app-header';
+  header.hidden = true;
+  const title = document.createElement('strong');
+  title.textContent = 'Widget';
+  const close = document.createElement('button');
+  close.type = 'button';
+  close.className = 'icon-button';
+  close.setAttribute('aria-label', 'Close fullscreen');
+  close.title = 'Close fullscreen';
+  close.innerHTML = icon('close');
+  header.append(title, close);
+  panel.append(header, frame);
+  let mode: 'inline' | 'fullscreen' = 'inline';
+  let supportedModes = ['inline', 'fullscreen'];
+  let inlineHeight = '320px';
+  const composerHome = document.createComment('composer position');
+  const dimensions = () => ({
+    width: frame.clientWidth,
+    ...(mode === 'fullscreen' ? { height: frame.clientHeight } : {}),
+  });
   const send = (data: unknown) => frame.contentWindow?.postMessage(data, '*');
   const notify = (method: string, params: unknown) => send({ jsonrpc: '2.0', method, params });
   let ready = false;
   let busy = false;
+  const context = () => ({
+    ...hostStyles(),
+    displayMode: mode,
+    availableDisplayModes: supportedModes,
+    containerDimensions: dimensions(),
+  });
+  const setMode = (next: 'inline' | 'fullscreen') => {
+    if (mode === next) return;
+    if (next === 'fullscreen') exitFullscreen?.();
+    panel.close();
+    mode = next;
+    header.hidden = mode === 'inline';
+    panel.classList.toggle('is-fullscreen', mode === 'fullscreen');
+    panel.setAttribute('role', mode === 'fullscreen' ? 'dialog' : 'presentation');
+    frame.style.height = mode === 'fullscreen' ? '100%' : inlineHeight;
+    if (mode === 'fullscreen') {
+      panel.setAttribute('aria-label', 'Widget fullscreen');
+      composer.before(composerHome);
+      panel.append(composer);
+      exitFullscreen = leaveFullscreen;
+      panel.showModal();
+      close.focus();
+    } else {
+      panel.removeAttribute('aria-label');
+      composerHome.replaceWith(composer);
+      if (exitFullscreen === leaveFullscreen) exitFullscreen = undefined;
+      panel.open = true;
+      frame.focus({ preventScroll: true });
+    }
+    if (ready) notify('ui/notifications/host-context-changed', context());
+  };
+  const leaveFullscreen = () => setMode('inline');
+  close.onclick = leaveFullscreen;
+  panel.addEventListener('cancel', (event) => {
+    event.preventDefault();
+    setMode('inline');
+  });
+  panel.addEventListener('close', () => {
+    if (!panel.open && panel.isConnected) setMode('inline');
+  });
   const listener = async (event: MessageEvent) => {
     if (event.source !== frame.contentWindow || event.origin !== 'null') return;
     const data = event.data;
@@ -82,16 +154,16 @@ export function mountApp(
         return;
       }
       if (data.method === 'ui/initialize') {
+        const declared = data.params?.appCapabilities?.availableDisplayModes;
+        if (Array.isArray(declared))
+          supportedModes = ['inline', 'fullscreen'].filter((value) => declared.includes(value));
         reply({
           protocolVersion: '2026-01-26',
           hostInfo: { name: 'kinetik-oss', version: '0.1.0' },
           hostCapabilities: { serverTools: {}, message: {} },
           hostContext: {
-            ...hostStyles(),
-            displayMode: 'inline',
-            availableDisplayModes: ['inline'],
+            ...context(),
             locale: navigator.language,
-            containerDimensions: { width: container.clientWidth },
           },
         });
         return;
@@ -99,15 +171,17 @@ export function mountApp(
       if (data.method === 'ui/notifications/initialized') {
         ready = true;
         // Catch a theme change between initialize and initialized.
-        notify('ui/notifications/host-context-changed', hostStyles());
+        notify('ui/notifications/host-context-changed', context());
         notify('ui/notifications/tool-input', { arguments: view.input });
         notify('ui/notifications/tool-result', view.result);
         return;
       }
       if (!ready) throw new Error('App has not initialized.');
       if (data.method === 'ui/notifications/size-changed') {
-        frame.style.height =
-          Math.min(900, Math.max(120, Number(data.params?.height) || 300)) + 'px';
+        if (mode === 'inline') {
+          inlineHeight = Math.min(900, Math.max(120, Number(data.params?.height) || 300)) + 'px';
+          frame.style.height = inlineHeight;
+        }
         return;
       }
       if (data.method === 'ping') {
@@ -115,7 +189,13 @@ export function mountApp(
         return;
       }
       if (data.method === 'ui/request-display-mode') {
-        reply({ mode: 'inline' });
+        const requested = data.params?.mode;
+        if (
+          (requested === 'inline' || requested === 'fullscreen') &&
+          supportedModes.includes(requested)
+        )
+          setMode(requested);
+        reply({ mode });
         return;
       }
       if (data.method === 'tools/call') {
@@ -165,12 +245,21 @@ export function mountApp(
   };
   window.addEventListener('message', listener);
   const themeObserver = new MutationObserver(() => {
-    if (ready) notify('ui/notifications/host-context-changed', hostStyles());
+    if (ready) notify('ui/notifications/host-context-changed', context());
   });
   themeObserver.observe(document.documentElement, {
     attributes: true,
     attributeFilter: ['data-theme'],
   });
+  let lastDimensions = '';
+  const resizeObserver = new ResizeObserver(() => {
+    const current = JSON.stringify(dimensions());
+    if (ready && current !== lastDimensions) {
+      lastDimensions = current;
+      notify('ui/notifications/host-context-changed', context());
+    }
+  });
+  resizeObserver.observe(frame);
   const loading = new AbortController();
   // The response CSP applies the opaque-origin sandbox after navigation, allowing
   // the navigation itself to be served by our worker while fully offline.
@@ -182,7 +271,7 @@ export function mountApp(
         !policy.split(';').some((directive) => directive.trim() === 'sandbox allow-scripts')
       )
         throw new Error('App sandbox security header is missing.');
-      if (!loading.signal.aborted) container.append(frame);
+      if (!loading.signal.aborted) container.append(panel);
     })
     .catch((error) => {
       if (!loading.signal.aborted) {
@@ -194,8 +283,11 @@ export function mountApp(
     });
   return () => {
     loading.abort();
+    if (mode === 'fullscreen') leaveFullscreen();
     themeObserver.disconnect();
+    resizeObserver.disconnect();
     window.removeEventListener('message', listener);
-    frame.remove();
+    panel.close();
+    panel.remove();
   };
 }

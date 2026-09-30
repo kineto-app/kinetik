@@ -1,0 +1,74 @@
+dialog.mcp-app-panel {
+  position: static;
+  display: block;
+  width: 100%;
+  max-width: none;
+  height: auto;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  overflow: visible;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  animation: none;
+}
+.mcp-app-panel .mcp-app {
+  display: block;
+}
+dialog.mcp-app-panel.is-fullscreen {
+  position: fixed;
+  inset: var(--app-top, 0px) 0 auto;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: var(--app-height, 100dvh);
+  max-height: none;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom)
+    env(safe-area-inset-left);
+  background: var(--ground);
+  overflow: hidden;
+}
+.mcp-app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex: none;
+  gap: var(--space-inline);
+  padding: var(--space-inline) var(--space-section);
+  border-bottom: 1px solid var(--line);
+  background: var(--glass);
+}
+.mcp-app-header[hidden] {
+  display: none;
+}
+.mcp-app-header .icon-button {
+  width: var(--target);
+  min-height: var(--target);
+}
+.mcp-app-panel.is-fullscreen .mcp-app {
+  flex: 1;
+  min-height: 0;
+  border-radius: 0;
+}
+.mcp-app-panel > .app-update {
+  flex: none;
+}
+body:has(.mcp-app-panel:modal) {
+  overflow: hidden;
+}
+
+.mcp-app-panel.is-fullscreen > .composer-area {
+  flex: none;
+  width: 100%;
+  max-width: var(--content-width);
+  align-self: center;
+  padding: var(--space-inline) var(--space-section);
+}
+
+.mcp-app-panel .composer textarea {
+  font-family: var(--font-sans);
+}
