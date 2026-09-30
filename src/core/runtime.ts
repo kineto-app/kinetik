@@ -297,7 +297,11 @@ export class Runtime {
               state: 'pending',
             },
           }));
-          const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(30000)]);
+          const requestedTimeout = binding.tool.timeoutMs ?? 30000;
+          const timeout = Number.isFinite(requestedTimeout)
+            ? Math.min(60000, Math.max(1000, Math.trunc(requestedTimeout)))
+            : 30000;
+          const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(timeout)]);
           try {
             signal.throwIfAborted();
             const response = await abortable(

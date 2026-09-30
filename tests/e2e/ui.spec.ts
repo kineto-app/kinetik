@@ -80,7 +80,9 @@ test('light and dark workspace, dialogs and messages are accessible', async ({ p
   await page.getByRole('button', { name: 'Create a note' }).click();
   await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeEnabled();
   await page.getByRole('button', { name: 'Send', exact: true }).click();
-  await expect(page.locator('[data-role="assistant"] pre')).toContainText('Your note is ready.');
+  await expect(page.locator('[data-role="assistant"] .message-content')).toContainText(
+    'Your note is ready.',
+  );
   await accessible(page);
   await page.screenshot({ path: info.outputPath('conversation-dark.png') });
 });
@@ -116,7 +118,7 @@ test('mobile drawer traps focus and narrow or landscape layouts keep controls re
     await expect(page.locator('#send')).toBeInViewport();
   }
   await page.getByRole('button', { name: 'Send', exact: true }).click();
-  await expect(page.locator('[data-role="assistant"] pre')).toHaveText('reachable\n');
+  await expect(page.locator('[data-role="assistant"] .message-content')).toHaveText('reachable\n');
 });
 
 test('plugin and file dialogs complete their visible workflows', async ({ page }) => {
@@ -134,7 +136,7 @@ test('plugin and file dialogs complete their visible workflows', async ({ page }
   await page.getByRole('button', { name: 'Close connections', exact: true }).click();
   await page.getByRole('textbox', { name: 'Message', exact: true }).fill('/exec from the UI');
   await page.getByRole('button', { name: 'Send', exact: true }).click();
-  await expect(page.locator('[data-role="assistant"] pre')).toHaveText(
+  await expect(page.locator('[data-role="assistant"] .message-content')).toHaveText(
     'Example plugin received: from the UI',
   );
   await page.getByRole('button', { name: 'Add or open files' }).click();

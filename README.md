@@ -2,7 +2,7 @@
 
 A small browser agent runtime with a persistent workspace, just-bash, native skills, background work, MCP Apps, and JavaScript plugins that can replace its tools. The chat interface reuses Kinetik Charms colors, panels, action rows, and icons.
 
-**This version uses a deterministic local test model, not an LLM.** No prompts go to OpenAI. Official ChatGPT subscription authentication remains intentionally pending: the launcher must exit completely, and OpenAI requires tokens to stay out of browser storage. A remote OAuth callback does not resolve that storage constraint.
+**By default, this version uses a deterministic local test model.** A host can configure an external, same-origin credential helper to enable ChatGPT subscription sign-in and inference. No OpenAI credentials are stored in the browser. The included launcher still exits completely and does not supply that helper; standalone subscription sign-in remains pending a supported browser-only flow. See [hosting configuration](docs/deployment.md#connections-and-guided-setup).
 
 | Light                                       | Dark                                            |
 | ------------------------------------------- | ----------------------------------------------- |
@@ -55,7 +55,9 @@ For a local installation, pull the new source, run `npm ci && npm run build`, th
 
 Open **Settings** and choose **Use device setting**, **Light**, or **Dark**. The preference is saved in this browser, shared across app tabs, and applied before the interface loads. On mobile, open the chat menu to find Settings. The drawer supports Escape and keyboard focus stays inside it while open.
 
-The interface uses the Charms renderer’s tinted panels, compact action rows, upload controls, and icon strokes. Small button text uses a slightly deeper purple for readable contrast. All theme values live in [the design tokens](src/ui/tokens.css).
+The interface uses the Charms renderer’s tinted panels, compact action rows, upload controls, and icon strokes. Small button text uses a slightly deeper purple for readable contrast. All theme values live in [the design tokens](src/ui/tokens.css). New messages and dialogs use brief transitions; the device’s reduced-motion preference disables them.
+
+Replies format headings, lists, tables, links, and code. Copy a complete reply or an individual code block. Raw HTML and remote images remain inactive. When you scroll up, new content leaves your reading position in place; **Latest message** returns you to the end. You can send another message while Kinetik works to steer the current turn.
 
 ## Try it
 
@@ -90,7 +92,7 @@ Plugins are trusted JavaScript. They can access the app's origin storage and net
 
 Supported install sources are direct HTTPS manifest/folder/entry URLs and public GitHub repository/folder/file links. HTTP is accepted only for loopback development. GitHub refs resolve to a commit, then installed source bytes and their digest are stored locally. Private repository authentication and runtime npm/TypeScript compilation are not implemented.
 
-See [the plugin contract](docs/plugins.md) and [the bundled example](public/plugins/example/plugin.js). A minimal [HTTP MCP plugin](public/plugins/mcp/plugin.js) is also included. It uses a supplied endpoint and optional bearer token. MCP Apps render in isolated iframes and can call app-visible tools on their own server. OAuth login and legacy SSE transport are not included. No live Charms connection has been validated; localhost-to-Charms still needs server CORS support.
+See [the plugin contract](docs/plugins.md) and [the bundled example](public/plugins/example/plugin.js). A minimal [HTTP MCP plugin](public/plugins/mcp/plugin.js) is also included. It uses a supplied endpoint and optional bearer token. MCP Apps render in isolated iframes and can call app-visible tools on their own server. The bundled Charms connection supports OAuth authorization code with PKCE and guided setup. Legacy SSE transport is not included. Direct browser connections need server CORS support; a host may provide a fixed-endpoint relay. Protocol fixtures do not prove every live Charms workflow.
 
 ## Background processes
 
@@ -150,9 +152,23 @@ npm run check
 
 `check` runs formatting validation, strict TypeScript checking, unit/integration tests, a production build, and browser tests. CI installs Chromium's system dependencies too. The browser suite exercises persistence/offline reload, URL plugins, skills, updates, parallel turns, steering, Stop, and recovery after forced service-worker termination. It does not prove continuous background execution on mobile or real model authentication.
 
-Browser suspension is normal. Work resumes when the browser activates the app; there is no guaranteed closed-app scheduler. VM runners, guaranteed background execution, and real model login remain outside this release. A separate temporary helper has verified real ChatGPT subscription sign-in, streamed inference, and the core runtime’s file tools and background completion with `gpt-6-astra`. The test session was revoked afterward. This does not connect the PWA to OpenAI; its adapter remains unwired.
+Browser suspension is normal. Work resumes when the browser activates the app; there is no guaranteed closed-app scheduler. VM runners and guaranteed background execution remain outside this release. A separate temporary helper has verified real ChatGPT subscription sign-in, streamed inference, and the core runtime’s file tools and background completion with `gpt-6-astra`. The test session was revoked afterward. A configured same-origin credential helper now wires this adapter into the PWA; the default standalone build continues to use the test model.
 
 [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md)
+
+## Connection-screen UI
+
+`bin/connect-page.mjs` renders an optional connection screen for a separate credential helper.
+It guides users through opening ChatGPT, copying the final localhost address, and pasting it
+back. Its assets are in `bin/ui/`; pass the app stylesheet, theme script, UI asset base, API
+base, and workspace URL to `renderConnectPage`. All URLs should be supplied by the host,
+not user input. Serve the page and API on the same origin, with `Cache-Control: no-store`.
+
+The view expects `GET status` and `POST claim`, `login`, `callback`, and `logout` under the
+API base. Mutations send `X-Kinetik-Request: 1`; the helper must authenticate the session,
+validate the request origin, and own the OAuth exchange and tokens. No authentication
+server is included or enabled by this UI. Browser tests use simulated responses and do
+not establish live sign-in or inference support.
 
 ## License
 

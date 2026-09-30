@@ -3,8 +3,8 @@ import { icon } from './icons';
 
 export const filesDialog = `
 <dialog id="files-dialog" aria-labelledby="files-heading" aria-describedby="files-description">
-  <div class="dialog-head"><span class="glyph">${icon('folder')}</span><div><h2 id="files-heading">Files</h2><p id="files-description" class="small muted">Saved in this browser, ready when you need them.</p></div><button data-close="files-dialog" class="icon-button" aria-label="Close files">${icon('close')}</button></div>
-  <div class="upload-zone"><input type="file" id="upload" class="sr-only" aria-describedby="upload-hint" /><label for="upload" class="upload-pick">${icon('upload')}<span>Add a file</span></label><p id="upload-hint" class="field-hint">Choose a file from your device, up to 4 MB.</p></div>
+  <div class="dialog-head"><span class="glyph">${icon('folder')}</span><div><h2 id="files-heading">Files</h2><p id="files-description" class="small muted">Saved in this browser.</p></div><button data-close="files-dialog" class="icon-button" aria-label="Close files">${icon('close')}</button></div>
+  <div class="upload-zone"><input type="file" id="upload" class="sr-only" aria-describedby="upload-hint" /><label for="upload" class="upload-pick">${icon('upload')}<span>Add a file</span></label><p id="upload-hint" class="field-hint">Up to 4 MB.</p></div>
   <div id="file-list" class="file-list" aria-live="polite"></div>
   <section id="file-preview" class="file-preview" hidden><div class="file-preview-heading"><h3 id="file-preview-name"></h3><button id="file-preview-download" class="secondary">${icon('download')}Download</button></div><pre id="file-preview-text"></pre></section>
   <p id="file-result" class="feedback" role="status"></p>
@@ -42,7 +42,7 @@ export async function refreshFiles() {
   if (!files.length) {
     const empty = document.createElement('p');
     empty.className = 'muted';
-    empty.textContent = 'No files yet. Add one above or try creating a note in chat.';
+    empty.textContent = 'No files yet.';
     list.append(empty);
   }
   for (const file of files) {

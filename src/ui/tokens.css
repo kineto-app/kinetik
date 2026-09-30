@@ -26,6 +26,10 @@
   --scrim: light-dark(rgba(25, 22, 22, 0.3), rgba(0, 0, 0, 0.6));
   --shadow: 0 16px 64px var(--scrim);
   --duration: 160ms;
+  --duration-enter: 240ms;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --content-width: 760px;
+  --chat-shadow: 0 4px 24px color-mix(in srgb, var(--ink) 5%, transparent);
   --icon-size: 20px;
   --radius: 18px;
   --radius-inner: 12px;

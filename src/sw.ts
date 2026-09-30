@@ -4,6 +4,9 @@ import { Runtime } from './core/runtime';
 import { errorText, type Conversation } from './core/types';
 import { Store } from './browser/store';
 import type { BackgroundProcess } from './core/background';
+import { loadConfiguration } from './connections/config';
+import { Connections } from './connections/manager';
+import { OpenAIModel } from './core/openai-model';
 declare const __PRECACHE__: string[];
 declare const __BUILD_ID__: string;
 const sw = globalThis as unknown as ServiceWorkerGlobalScope;
@@ -14,14 +17,33 @@ const store = new Store();
 const updateKey = 'app-update:' + scope.pathname;
 const operationLock = 'kinetik-runtime:' + scope.pathname;
 let runtime: Runtime;
+let connections: Connections;
 let initialized: Promise<void> | undefined;
 function initialize() {
   return (initialized ??= (async () => {
-    runtime = new Runtime(store, () => {
-      void sw.clients
-        .matchAll()
-        .then((clients) => clients.forEach((client) => client.postMessage({ type: 'changed' })));
-    });
+    const config = await loadConfiguration(scope, store);
+    const helper = config.chatgpt?.apiBase;
+    runtime = new Runtime(
+      store,
+      () => {
+        void sw.clients
+          .matchAll()
+          .then((clients) => clients.forEach((client) => client.postMessage({ type: 'changed' })));
+      },
+      helper
+        ? new OpenAIModel(new URL('responses', helper).href, async () => {
+            const response = await fetch(new URL('status', helper), {
+              cache: 'no-store',
+              signal: AbortSignal.timeout(5000),
+            });
+            if (!response.ok) throw new Error('Connect ChatGPT in Connections to continue.');
+            const status = await response.json();
+            if (!status.connected) throw new Error('Connect ChatGPT in Connections to continue.');
+            return { account: status.account ?? 'default', model: status.model };
+          })
+        : undefined,
+    );
+    connections = new Connections(store, runtime.plugins, config, scope);
     await runtime.recover();
   })());
 }
@@ -82,6 +104,7 @@ sw.addEventListener('fetch', (event) => {
   )
     return;
   const relative = url.pathname.slice(scope.pathname.length);
+  if (relative === 'config.json' || relative.startsWith('connections/')) return;
   // Plugin sources and API requests must never be trapped in the app-shell cache.
   if (!__PRECACHE__.includes(relative) && event.request.mode !== 'navigate') return;
   event.respondWith(
@@ -140,6 +163,34 @@ sw.addEventListener('message', (event) => {
         const data = event.data as Record<string, unknown>;
         let result: unknown;
         switch (data.op) {
+          case 'setupState':
+            result = await connections.state();
+            break;
+          case 'connectionPrepare':
+          case 'connectionBegin':
+          case 'connectionFinish':
+          case 'connectionActivate':
+          case 'connectionDisconnect':
+            result = await navigator.locks.request('kinetik-connection:charms', async () => {
+              switch (data.op) {
+                case 'connectionPrepare':
+                  return connections.prepare();
+                case 'connectionBegin':
+                  return connections.begin(data.handoff === true);
+                case 'connectionActivate':
+                  return connections.activate();
+                case 'connectionDisconnect':
+                  return connections.disconnect();
+                case 'connectionFinish':
+                  return connections.finish({
+                    state: string(data.state),
+                    code: data.code ? string(data.code) : undefined,
+                    error: data.error ? string(data.error) : undefined,
+                    issuer: data.issuer ? string(data.issuer) : undefined,
+                  });
+              }
+            });
+            break;
           case 'state':
             result = {
               automations: await runtime.automations.list(),
@@ -215,7 +266,11 @@ sw.addEventListener('message', (event) => {
             break;
           }
           case 'enable':
-            await runtime.plugins.enable(string(data.id), data.enabled === true);
+            if (data.id === 'charms')
+              await navigator.locks.request('kinetik-connection:charms', () =>
+                connections.setEnabled(data.enabled === true),
+              );
+            else await runtime.plugins.enable(string(data.id), data.enabled === true);
             break;
           case 'update': {
             const plugin = (await runtime.plugins.list()).find((p) => p.manifest.id === data.id);

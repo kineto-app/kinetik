@@ -21,7 +21,7 @@ test('Charms imports all skill pages and continuations, refreshes dynamic skills
       {
         description: name,
         inputSchema: { type: 'object' },
-        execute: async () => ({ structuredContent: { status: 'running', job_id: 'job-1' } }),
+        execute: vi.fn(async () => ({ structuredContent: { status: 'running', job_id: 'job-1' } })),
       },
     ]),
   );
@@ -70,4 +70,10 @@ test('Charms imports all skill pages and continuations, refreshes dynamic skills
   const checkpoint = vi.fn();
   await plugin.tools.charms_exec.execute({}, { checkpoint });
   expect(checkpoint).toHaveBeenCalledWith('job-1');
+  expect(plugin.tools.charms_exec.timeoutMs).toBe(60000);
+  await plugin.tools.charms_exec.execute({ command: 'long job' }, { checkpoint, background: true });
+  expect(definitions.charms_exec.execute).toHaveBeenLastCalledWith(
+    { command: 'long job', background: true },
+    expect.objectContaining({ background: true }),
+  );
 });

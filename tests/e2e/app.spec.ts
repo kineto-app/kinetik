@@ -43,10 +43,12 @@ test('chat shell, native skill, binary import/export and offline reload', async 
   await page.screenshot({ path: testInfo.outputPath('welcome.png') });
   await send(page, '/exec printf "hello\\n" > note.txt; cat note.txt');
   await settled(page);
-  await expect(page.locator('[data-role="assistant"] pre')).toContainText('hello');
+  await expect(page.locator('[data-role="assistant"] .message-content')).toContainText('hello');
   await send(page, '/read_skill skills/local/workspace/SKILL.md');
   await settled(page);
-  await expect(page.locator('[data-role="assistant"] pre').last()).toContainText('Local workspace');
+  await expect(page.locator('[data-role="assistant"] .message-content').last()).toContainText(
+    'Local workspace',
+  );
   await rpc(page, 'import', { name: 'bytes.bin', bytes: new Uint8Array([0, 255, 128]) });
   expect(
     Array.from(await rpc<Uint8Array>(page, 'export', { path: '/workspace/bytes.bin' })),
@@ -57,7 +59,7 @@ test('chat shell, native skill, binary import/export and offline reload', async 
   await expect(page.locator('#status')).toHaveText('Ready');
   await send(page, '/read /workspace/note.txt');
   await settled(page);
-  await expect(page.locator('[data-role="assistant"] pre').last()).toHaveText(/hello/);
+  await expect(page.locator('[data-role="assistant"] .message-content').last()).toHaveText(/hello/);
   await expect(page.locator('body')).not.toHaveJSProperty('scrollWidth', 0);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
@@ -70,30 +72,40 @@ test('install from URL, replace tools, refresh skills, cache on failure, explici
   await rpc(page, 'enable', { id: 'fixture', enabled: true });
   await send(page, '/exec hello');
   await settled(page);
-  await expect(page.locator('[data-role="assistant"] pre').last()).toHaveText('code-1: hello');
+  await expect(page.locator('[data-role="assistant"] .message-content').last()).toHaveText(
+    'code-1: hello',
+  );
   await request.post('http://127.0.0.1:4174/control', { data: { revision: 2 } });
   await send(page, '/skills');
   await settled(page);
-  await expect(page.locator('[data-role="assistant"] pre').last()).toContainText('Description 2');
+  await expect(page.locator('[data-role="assistant"] .message-content').last()).toContainText(
+    'Description 2',
+  );
   await send(page, '/exec still cached');
   await settled(page);
-  await expect(page.locator('[data-role="assistant"] pre').last()).toHaveText(
+  await expect(page.locator('[data-role="assistant"] .message-content').last()).toHaveText(
     'code-1: still cached',
   );
   await request.post('http://127.0.0.1:4174/control', { data: { fail: true } });
   await send(page, '/read_skill skills/fixture/fixture/SKILL.md');
   await settled(page);
-  await expect(page.locator('[data-role="assistant"] pre').last()).toHaveText('# Revision 2');
+  await expect(page.locator('[data-role="assistant"] .message-content').last()).toHaveText(
+    'Revision 2',
+  );
   await expect(page.locator('[data-role="notice"]').last()).toContainText('using cached skills');
   await request.post('http://127.0.0.1:4174/control', { data: { fail: false } });
   await rpc(page, 'update', { id: 'fixture' });
   await send(page, '/exec updated');
   await settled(page);
-  await expect(page.locator('[data-role="assistant"] pre').last()).toHaveText('code-2: updated');
+  await expect(page.locator('[data-role="assistant"] .message-content').last()).toHaveText(
+    'code-2: updated',
+  );
   await rpc(page, 'enable', { id: 'fixture', enabled: false });
   await send(page, '/exec echo local');
   await settled(page);
-  await expect(page.locator('[data-role="assistant"] pre').last()).toHaveText('local\n');
+  await expect(page.locator('[data-role="assistant"] .message-content').last()).toHaveText(
+    'local\n',
+  );
 });
 
 test('parallel turns, steering and cancellation', async ({ page }) => {
@@ -249,7 +261,7 @@ test('background process releases the turn and later wakes it with output withou
     '/bg sleep 2; echo background-finished > /workspace/bg-result; cat /workspace/bg-result',
   );
   await settled(page);
-  await expect(page.locator('[data-role="assistant"] pre').last()).toContainText(
+  await expect(page.locator('[data-role="assistant"] .message-content').last()).toContainText(
     'Started a background task.',
   );
   await expect(page.locator('#background-activity')).toContainText('1 background task running');
@@ -258,10 +270,10 @@ test('background process releases the turn and later wakes it with output withou
   // The originating model turn is done. A second foreground command can run meanwhile.
   await send(page, '/exec echo foreground-finished');
   await settled(page);
-  await expect(page.locator('[data-role="assistant"] pre').last()).toContainText(
+  await expect(page.locator('[data-role="assistant"] .message-content').last()).toContainText(
     'foreground-finished',
   );
-  await expect(page.locator('[data-role="assistant"] pre').last()).toContainText(
+  await expect(page.locator('[data-role="assistant"] .message-content').last()).toContainText(
     'Background task completed.',
   );
   await expect(page.locator('#background-activity')).toBeHidden();
