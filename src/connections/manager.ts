@@ -28,7 +28,13 @@ export interface SetupState {
   native?: boolean;
   installation: { required: boolean };
   charms: ConnectionState;
-  chatgpt: { available: boolean; connected: boolean; apiBase?: string; browser?: boolean };
+  chatgpt: {
+    available: boolean;
+    connected: boolean;
+    apiBase?: string;
+    browser?: boolean;
+    model?: string;
+  };
 }
 const id = 'charms';
 const recordKey = 'connection:' + id;
@@ -66,7 +72,7 @@ export class Connections {
     private plugins: Plugins,
     private config: Configuration,
     private base: URL,
-    private browserStatus?: () => Promise<{ connected: boolean }>,
+    private browserStatus?: () => Promise<{ connected: boolean; model?: string }>,
   ) {}
 
   private async installed() {
@@ -112,8 +118,11 @@ export class Connections {
       plugin.settings.connectionRevision === credential.revision,
     );
     let connected = false;
+    let model: string | undefined;
     if (this.config.chatgpt?.mode === 'browser') {
-      connected = (await this.browserStatus?.())?.connected === true;
+      const status = await this.browserStatus?.();
+      connected = status?.connected === true;
+      model = status?.model;
     } else if (this.config.chatgpt) {
       try {
         const response = await fetch(new URL('status', this.config.chatgpt.apiBase), {
@@ -144,6 +153,7 @@ export class Connections {
         connected,
         apiBase: this.config.chatgpt?.apiBase,
         browser: this.config.chatgpt?.mode === 'browser',
+        model,
       },
     };
   }

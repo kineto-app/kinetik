@@ -248,7 +248,9 @@ test.each([
     );
     await begin();
     await expect(client.callback(callback())).rejects.toThrow(
-      `Could not reach ChatGPT (${stage}). Check your connection, then restart sign-in.`,
+      stage === 'model list'
+        ? 'Could not load models. Check your connection and try again.'
+        : `Could not reach ChatGPT (${stage}). Check your connection, then restart sign-in.`,
     );
     expect((await client.status()).connected).toBe(false);
   },
@@ -397,4 +399,80 @@ test('unavailable preferred model does not silently fall back or discard an exis
     model: 'older-model',
   });
   expect(fetcher.mock.calls.some(([url]) => String(url).endsWith('/responses'))).toBe(false);
+});
+
+test('model picker preserves catalog order and names and excludes hidden models', async () => {
+  await begin();
+  await client.callback(callback());
+  const request = fetcher.getMockImplementation()!;
+  fetcher.mockImplementation((input, init) =>
+    String(input).endsWith('/models')
+      ? Promise.resolve(
+          Response.json({
+            models: [
+              { slug: 'first', display_name: 'First model', visibility: 'list' },
+              { slug: 'hidden', visibility: 'hidden' },
+              null,
+              { slug: 'gpt-6.1-sol', display_name: 'GPT-6.1 Sol', visibility: 'list' },
+              { slug: 'first', display_name: 'Duplicate', visibility: 'list' },
+            ],
+          }),
+        )
+      : request(input, init),
+  );
+  expect(await client.models()).toEqual({
+    selected: 'gpt-6.1-sol',
+    models: [
+      { slug: 'first', name: 'First model' },
+      { slug: 'gpt-6.1-sol', name: 'GPT-6.1 Sol' },
+    ],
+  });
+});
+
+test('chosen model survives reopening and token refresh and controls inference', async () => {
+  await begin();
+  await client.callback(callback());
+  await client.chooseModel('another-model');
+  await store.update<any>('session', (session) => ({ ...session, expires: 1 }));
+  const request = fetcher.getMockImplementation()!;
+  let sent: any;
+  fetcher.mockImplementation((input, init) => {
+    if (String(input).endsWith('/responses')) {
+      sent = JSON.parse(String(init?.body));
+      return Promise.resolve(new Response('data: test\n\n'));
+    }
+    return request(input, init);
+  });
+  const reopened = new BrowserChatGPT(base + 'connections/chatgpt/keys', store, fetcher);
+  await reopened.responses(
+    { account: 'person', request: { model: 'stale-model', reasoning: { effort: 'high' } } },
+    new AbortController().signal,
+  );
+  expect(refreshes).toBe(1);
+  expect(sent).toMatchObject({ model: 'another-model', store: false, stream: true });
+  expect(sent.reasoning).toBeUndefined();
+  expect(await reopened.status()).toMatchObject({ model: 'another-model' });
+  await reopened.chooseModel('gpt-6.1-sol');
+  await reopened.responses({ account: 'person', request: {} }, new AbortController().signal);
+  expect(sent).toMatchObject({ model: 'gpt-6.1-sol', reasoning: { effort: 'medium' } });
+});
+
+test('unavailable model selection preserves current model and login', async () => {
+  await begin();
+  await client.callback(callback());
+  await expect(client.chooseModel('unlisted')).rejects.toThrow('not available');
+  expect(await client.status()).toMatchObject({ connected: true, model: 'gpt-6.1-sol' });
+});
+
+test('model selection cannot overwrite a session changed while the catalog loads', async () => {
+  await begin();
+  await client.callback(callback());
+  const request = fetcher.getMockImplementation()!;
+  fetcher.mockImplementation(async (input, init) => {
+    const response = await request(input, init);
+    if (String(input).endsWith('/models')) await store.put('session', null);
+    return response;
+  });
+  await expect(client.chooseModel('another-model')).rejects.toThrow('account changed');
+  expect(await store.get('session')).toBeNull();
 });

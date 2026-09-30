@@ -1,4 +1,5 @@
 import { MessageBubble } from './ui/message';
+import { ModelPicker } from './ui/model-picker';
 import { setupDataTransfer } from './ui/data-transfer';
 import { createSignal } from 'solid-js';
 import { ConversationList, PluginList } from './ui/lists';
@@ -42,7 +43,22 @@ setupViewport();
 const byId = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 let state: State = { conversations: [], plugins: [], automations: [], background: [] };
 let connectionState: SetupState | undefined;
-let selected = sessionStorage.getItem('kinetik-conversation') ?? '';
+const [modelState, setModelState] = createSignal({ enabled: false, model: '' });
+renderSolid(
+  () =>
+    ModelPicker({
+      get enabled() {
+        return modelState().enabled;
+      },
+      get model() {
+        return modelState().model;
+      },
+      onSelected: () => connectionSetup.refresh(),
+    }),
+  byId('model-picker'),
+);
+const uiStorage = isNative ? localStorage : sessionStorage;
+let selected = uiStorage.getItem('kinetik-conversation') ?? '';
 let refreshGeneration = 0;
 let lastMessages = '';
 let followNextMessage = false;
@@ -50,7 +66,7 @@ let disposeContent: (() => void)[] = [];
 let timelineConversation = '';
 const renderedMessages = new Set<string>();
 const draftKey = 'kinetik-composer';
-byId<HTMLTextAreaElement>('prompt').value = sessionStorage.getItem(draftKey) ?? '';
+byId<HTMLTextAreaElement>('prompt').value = uiStorage.getItem(draftKey) ?? '';
 const isBackgroundTurn = (c: Conversation) => {
   if (c.turn) return c.turn === 'background';
   const active = c.messages.find((m) => m.id === (c.activeMessage ?? c.pending[0]));
@@ -76,7 +92,7 @@ function button(
 }
 function choose(id: string) {
   selected = id;
-  sessionStorage.setItem('kinetik-conversation', id);
+  uiStorage.setItem('kinetik-conversation', id);
   lastMessages = '';
   render();
   closeDrawer(false);
@@ -248,7 +264,7 @@ async function refresh() {
   if (generation !== refreshGeneration) return;
   state = next;
   if (!current() && state.conversations.length) selected = state.conversations[0].id;
-  sessionStorage.setItem('kinetik-conversation', selected);
+  uiStorage.setItem('kinetik-conversation', selected);
   render();
 }
 let submitting = false;
@@ -307,7 +323,7 @@ function updateComposer() {
     : submitting && hasAttachments
       ? 'Sending files…'
       : '';
-  sessionStorage.setItem(draftKey, input.value);
+  uiStorage.setItem(draftKey, input.value);
   input.style.height = 'auto';
   input.style.height = Math.min(input.scrollHeight, 144) + 'px';
 }
@@ -592,6 +608,10 @@ const connectionSetup = setupConnections((value) => {
     (value.chatgpt.connected && !connectionState?.chatgpt.connected) ||
     (value.charms.status === 'connected' && connectionState?.charms.status !== 'connected');
   connectionState = value;
+  setModelState({
+    enabled: Boolean(value.chatgpt.connected && value.chatgpt.browser),
+    model: value.chatgpt.model ?? '',
+  });
   if (becameConnected) void resumeWork();
   const configured = value.charms.available || value.chatgpt.available;
   const attention =

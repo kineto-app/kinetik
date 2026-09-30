@@ -129,6 +129,12 @@ export class RuntimeHost {
         case 'chatgpt':
           if (!chatgpt) throw new Error('Browser ChatGPT sign-in is not configured.');
           switch (data.action) {
+            case 'models':
+              result = await chatgpt.models();
+              break;
+            case 'model':
+              result = await chatgpt.chooseModel(string(data.model));
+              break;
             case 'login':
               result = await chatgpt.login(
                 this.configuration?.native && data.redirectUri

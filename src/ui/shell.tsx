@@ -161,6 +161,7 @@ export function Shell() {
             <div id="error" class="feedback" role="alert"></div>
             <div id="attachments" class="attachment-list" aria-label="Attached files" hidden></div>
             <div id="attachment-status" class="field-hint" role="status"></div>
+            <div id="model-picker"></div>
             <form id="composer" class="composer">
               <button
                 type="button"

@@ -6,6 +6,10 @@ const tokenEndpoint = issuer + '/api/accounts/oauth/token';
 const redirectUri = 'http://127.0.0.1:1455/auth/callback';
 const resource = 'https://api.openai.com/v1';
 const defaultModel = 'gpt-6.1-sol';
+export interface ChatGPTModel {
+  slug: string;
+  name: string;
+}
 const encode = (bytes: Uint8Array) =>
   btoa(String.fromCharCode(...bytes))
     .replaceAll('+', '-')
@@ -33,6 +37,7 @@ interface Session {
   refresh: string;
   expires: number;
   model: string;
+  modelSelected?: boolean;
   account: string;
 }
 
@@ -71,12 +76,16 @@ export class BrowserChatGPT {
     } catch {
       // Browser fetch errors hide whether DNS, TLS, CORS or connectivity failed.
       // Identify the request without leaking callback codes or token responses.
+      if (stage === 'model list')
+        throw new Error('Could not load models. Check your connection and try again.');
       throw new Error(
         `Could not reach ChatGPT (${stage}). Check your connection, then restart sign-in.`,
       );
     }
     if (!response.ok)
-      throw new Error(`ChatGPT returned HTTP ${response.status} (${stage}). Restart sign-in.`);
+      throw new Error(
+        `ChatGPT returned HTTP ${response.status} (${stage}). ${stage === 'model list' ? 'Try again.' : 'Restart sign-in.'}`,
+      );
     if (text.length > 1024 * 1024) throw new Error('ChatGPT response was too large.');
     return text ? JSON.parse(text) : {};
   }
@@ -199,7 +208,7 @@ export class BrowserChatGPT {
       return { ok: true };
     });
   }
-  private async selectModel(session: Session, signal?: AbortSignal) {
+  private async catalog(session: Session, signal?: AbortSignal): Promise<ChatGPTModel[]> {
     const catalog = await this.json(
       this.modelRelay ? this.modelRelay + 'models' : resource + '/models',
       {
@@ -213,15 +222,43 @@ export class BrowserChatGPT {
       },
       'model list',
     );
-    if (
-      !Array.isArray(catalog.models) ||
-      !catalog.models.some(
-        (model: { visibility?: string; slug?: string } | null) =>
-          model?.visibility === 'list' && model.slug === defaultModel,
-      )
-    )
+    if (!Array.isArray(catalog.models)) throw new Error('ChatGPT returned an invalid model list.');
+    const models = new Map<string, ChatGPTModel>();
+    for (const model of catalog.models) {
+      if (model?.visibility !== 'list' || typeof model.slug !== 'string' || !model.slug) continue;
+      if (!models.has(model.slug))
+        models.set(model.slug, {
+          slug: model.slug,
+          name:
+            typeof model.display_name === 'string' && model.display_name
+              ? model.display_name
+              : model.slug,
+        });
+    }
+    return [...models.values()];
+  }
+  private async selectModel(session: Session, signal?: AbortSignal) {
+    if (!(await this.catalog(session, signal)).some((model) => model.slug === defaultModel))
       throw new Error('GPT-6.1 Sol is not available for this ChatGPT account.');
     return defaultModel;
+  }
+  async models() {
+    const status = await this.status();
+    const session = await this.access(status.account, AbortSignal.timeout(30000), false);
+    return { models: await this.catalog(session), selected: session.model };
+  }
+  async chooseModel(slug: string) {
+    const status = await this.status();
+    const session = await this.access(status.account, AbortSignal.timeout(30000), false);
+    if (!(await this.catalog(session)).some((model) => model.slug === slug))
+      throw new Error('This model is not available. Refresh the list and choose another.');
+    return navigator.locks.request('kinetik-chatgpt', async () => {
+      const current = await this.storedSession();
+      if (!current || current.account !== session.account)
+        throw new Error('ChatGPT account changed. Choose the model again.');
+      await this.store.put('session', { ...current, model: slug, modelSelected: true });
+      return { model: slug };
+    });
   }
   private session(tokens: Record<string, unknown>, account: string, previous?: Session): Session {
     if (
@@ -247,6 +284,7 @@ export class BrowserChatGPT {
       expires: Date.now() + tokens.expires_in * 1000,
       account,
       model: previous?.model ?? '',
+      modelSelected: previous?.modelSelected,
     };
   }
   private async identity(raw: unknown, clientId: string, nonce?: string) {
@@ -296,7 +334,7 @@ export class BrowserChatGPT {
       throw new Error('ChatGPT identity validation failed.');
     return claims;
   }
-  private async access(account: string, signal: AbortSignal) {
+  private async access(account: string, signal: AbortSignal, migrateModel = true) {
     return navigator.locks.request('kinetik-chatgpt', async () => {
       let session = await this.storedSession();
       if (!session) throw new SignInRequired('Connect ChatGPT in Connections to continue.');
@@ -341,7 +379,7 @@ export class BrowserChatGPT {
         session = this.session(tokens, session.account, session);
         await this.store.put('session', session);
       }
-      if (session.model !== defaultModel) {
+      if (migrateModel && !session.modelSelected && session.model !== defaultModel) {
         session.model = await this.selectModel(session, signal);
         await this.store.put('session', session);
       }
@@ -362,7 +400,7 @@ export class BrowserChatGPT {
       body: JSON.stringify({
         ...body.request,
         model: session.model,
-        reasoning: { effort: 'medium' },
+        reasoning: session.model === defaultModel ? { effort: 'medium' } : undefined,
         store: false,
         stream: true,
       }),

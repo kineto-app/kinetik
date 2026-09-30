@@ -53,7 +53,7 @@ The default target is ARM64. `KINETIK_ANDROID_TARGET` selects another Tauri Andr
 
 ## Authentication and storage
 
-The built-in ChatGPT connection uses GPT-6.1 Sol with medium reasoning. Sign-in checks the account model catalog; an existing login switches on its next request without reauthorization. If the model is unavailable, the app reports this instead of selecting another model.
+The built-in ChatGPT connection defaults to GPT-6.1 Sol with medium reasoning. The model pill above the composer lists the signed-in account's available models. A selection is saved with that account's local credentials and applies to the next model request, including after reopening or token renewal. Other models use their provider's default reasoning settings. Existing logins without an explicit choice migrate to GPT-6.1 Sol; an unavailable model is reported instead of silently replaced.
 
 ChatGPT sign-in opens the system browser on Android and desktop. iOS uses `ASWebAuthenticationSession` to present system sign-in over the app, keeping the loopback listener in the foreground. The iOS sheet is implemented but still requires simulator and physical-device validation. A listener binds a random loopback port before opening the authorization page. The app validates the returned state, exchanges the code using PKCE, validates the ID token and granted scope, and returns through a token-free app link. Authorization codes and tokens never enter that app link. Cancelling closes the listener.
 
@@ -62,6 +62,8 @@ Android encrypts credentials using an Android Keystore key. iOS stores them in t
 Workspace data remains in the app's local IndexedDB. Keep the app identifier and WebView origin stable across upgrades. Uninstalling the app, clearing app data, or losing OS storage can remove local data. Settings offers explicit workspace export/import. Exports contain chats, files, plugin code, and routines; treat them as private. Connection settings and stored credentials are excluded. Imported plugins are disabled and routines paused until reviewed. Imported widget snapshots can display their original content; run the provider tool again after reconnecting to restore live interaction.
 
 The composer stages selected files locally and sends them to the active workspace with the message. Failed uploads keep the message and selected files for retry. Enter inserts a newline; the Send button submits.
+
+Native apps also retain unsent text and the selected chat across process restarts. Browser tabs keep separate drafts for each tab.
 
 ## Background work
 
