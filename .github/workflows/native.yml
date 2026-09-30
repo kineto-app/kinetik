@@ -1,0 +1,166 @@
+name: Native builds
+on:
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'src-tauri/**'
+      - 'native-plugin/**'
+      - 'public/**'
+      - 'scripts/**'
+      - 'package*.json'
+      - 'vite.config.ts'
+      - '.github/workflows/native.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  desktop:
+    # Windows remains experimental; preserve diagnostics without blocking web/Android releases.
+    continue-on-error: true
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - run: npm ci
+      - run: npm run tauri -- build --bundles nsis
+      - name: Launch Windows app
+        shell: powershell
+        run: ./scripts/verify-windows-launch.ps1
+      - name: Upload Windows launch evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-launch
+          path: |
+            windows-launch.txt
+            windows-launch.png
+            windows-webview.json
+            windows-webview.png
+            windows-processes.json
+          if-no-files-found: ignore
+      - run: cargo test --manifest-path src-tauri/Cargo.toml
+      - run: cargo test --manifest-path native-plugin/Cargo.toml
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: src-tauri/target/release/bundle/nsis/*.exe
+          if-no-files-found: error
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - run: sdkmanager 'ndk;28.2.13676358' 'platforms;android-37.0' 'build-tools;37.0.0'
+      - run: echo "NDK_HOME=$ANDROID_HOME/ndk/28.2.13676358" >> "$GITHUB_ENV"
+      - run: npm ci
+      - run: npm run android:build -- --debug --target aarch64 --apk --ci
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-debug
+          path: src-tauri/gen/android/app/build/outputs/apk/universal/debug/*.apk
+          if-no-files-found: error
+  ios:
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios-sim
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - run: npm ci
+      - run: npm run tauri -- ios init --ci
+      - name: Prepare simulator Keychain identity
+        run: |
+          # Simulator entitlements belong in Mach-O sections, not the macOS signature.
+          # Device releases use Apple's provisioning profile instead.
+          cat > /tmp/kinetik-simulator-entitlements.plist <<'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>application-identifier</key><string>SIMULATOR.app.kinetik.oss</string>
+            <key>keychain-access-groups</key><array><string>SIMULATOR.app.kinetik.oss</string></array>
+          </dict></plist>
+          PLIST
+          /usr/bin/derq query -f xml -i /tmp/kinetik-simulator-entitlements.plist -o /tmp/kinetik-simulator-entitlements.der --raw
+          python3 scripts/configure-ios-simulator.py \
+            src-tauri/gen/apple/kinetik.xcodeproj/project.pbxproj \
+            /tmp/kinetik-simulator-entitlements
+      - run: npm run ios:build -- --debug --target aarch64-sim --no-sign --ci
+      - name: Verify simulator identity sections
+        run: |
+          python3 - <<'PYTHON'
+          import subprocess
+          headers = subprocess.check_output(['xcrun', 'otool', '-l', 'src-tauri/gen/apple/build/arm64-sim/Kinetik.app/Kinetik'], text=True)
+          assert 'sectname __entitlements' in headers
+          assert 'sectname __ents_der' in headers
+          PYTHON
+      - name: Launch iOS simulator app
+        run: |
+          KINETIK_SIMULATOR=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; data=json.load(sys.stdin); print(next(device["udid"] for runtime, devices in data["devices"].items() if "iOS" in runtime for device in devices if device["name"].startswith("iPhone")))')
+          xcrun simctl boot "$KINETIK_SIMULATOR"
+          xcrun simctl bootstatus "$KINETIK_SIMULATOR" -b
+          xcrun simctl install "$KINETIK_SIMULATOR" src-tauri/gen/apple/build/arm64-sim/Kinetik.app
+          # SpringBoard can still reject the first launch after a fresh simulator boot.
+          for attempt in 1 2 3; do
+            if xcrun simctl launch "$KINETIK_SIMULATOR" app.kinetik.oss; then
+              launched=1
+              break
+            fi
+            sleep 3
+          done
+          if [ "${launched:-0}" != 1 ]; then
+            xcrun simctl spawn "$KINETIK_SIMULATOR" log show --last 3m --style compact --predicate 'process == "Kinetik" OR process == "securityd" OR process == "SpringBoard"'
+            exit 1
+          fi
+          sleep 8
+          xcrun simctl io "$KINETIK_SIMULATOR" screenshot ios-launch.png
+          swift scripts/verify-ios-launch.swift ios-launch.png
+      - name: Upload launch screenshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-launch
+          path: ios-launch.png
+          if-no-files-found: ignore
+      - name: Package simulator app
+        run: ditto -c -k --keepParent src-tauri/gen/apple/build/arm64-sim/Kinetik.app ios-simulator.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios-simulator
+          path: |
+            ios-simulator.zip
+            ios-launch.png
+          if-no-files-found: error

@@ -471,3 +471,8 @@ dialog::backdrop,
     transform: none;
   }
 }
+
+/* Trusted SVG slots preserve the existing button layout. */
+.icon-slot {
+  display: contents;
+}

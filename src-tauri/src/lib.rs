@@ -1,0 +1,35 @@
+mod auth;
+
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+    let mut context = tauri::generate_context!();
+    let updates = tauri_plugin_hot_update::install(&mut context);
+    let builder = tauri::Builder::default();
+    #[cfg(target_os = "android")]
+    let builder = builder.invoke_system(include_str!("android-ipc.js"));
+    builder
+        .plugin(tauri_plugin_hot_update::init(updates))
+        .manage(auth::AuthState::default())
+        .plugin(tauri_plugin_native::init())
+        .plugin(tauri_plugin_http::init())
+        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_deep_link::init())
+        .invoke_handler(tauri::generate_handler![auth::auth_prepare, auth::auth_wait, auth::auth_open, auth::auth_cancel])
+         .setup(|app| {
+            let config = app.config().app.windows.first().expect("main window configuration");
+            tauri::WebviewWindowBuilder::from_config(app, config)?
+                .on_web_resource_request(|request, response| {
+                    if request.uri().path().ends_with("/app-sandbox.html") {
+                        response.headers_mut().insert("Content-Security-Policy", tauri::http::HeaderValue::from_static(
+                            "default-src 'none'; script-src 'unsafe-inline' https:; style-src 'unsafe-inline' https:; img-src data: https:; font-src https:; media-src data: https:; connect-src https: wss:; frame-src about: https:; base-uri https:; object-src 'none'; form-action 'none'; sandbox allow-scripts"
+                        ));
+                    }
+                })
+                .build()?;
+            Ok(())
+        })
+        .run(context)
+        .expect("Kinetik could not start");
+}

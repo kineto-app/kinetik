@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import AxeBuilder from '@axe-core/playwright';
 import { generateKeyPairSync, sign, createHash } from 'node:crypto';
 const base = 'http://127.0.0.1:4174/onboarding/';
 for (const relay of [false, true]) {
@@ -12,6 +13,7 @@ for (const relay of [false, true]) {
     const { publicKey, privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
     let flow: URL;
     let requests = 0;
+    let modelListUnavailable = false;
     await context.route(base + 'connections/chatgpt/keys', (route) =>
       route.fulfill({
         json: { keys: [{ ...publicKey.export({ format: 'jwk' }), kid: 'test', use: 'sig' }] },
@@ -72,14 +74,27 @@ for (const relay of [false, true]) {
         }
         expect(route.request().headers().authorization).toBe('Bearer placeholder-browser-access');
         if (route.request().url().endsWith('/models')) {
-          await route.fulfill({ json: { models: [{ slug: 'test-model', visibility: 'list' }] } });
+          if (modelListUnavailable) {
+            await route.fulfill({ status: 503, json: { error: 'Unavailable' } });
+            return;
+          }
+          await route.fulfill({
+            json: {
+              models: [
+                { slug: 'test-model', display_name: 'Test model', visibility: 'list' },
+                { slug: 'gpt-6.1-sol', display_name: 'GPT-6.1 Sol', visibility: 'list' },
+                { slug: 'hidden-model', display_name: 'Hidden model', visibility: 'hidden' },
+              ],
+            },
+          });
           return;
         }
         requests++;
         const body = route.request().postDataJSON();
         expect(body.store).toBe(false);
         expect(body.stream).toBe(true);
-        expect(body.model).toBe('test-model');
+        expect(body.model).toBe(requests === 1 ? 'gpt-6.1-sol' : 'test-model');
+        expect(body.reasoning).toEqual(requests === 1 ? { effort: 'medium' } : undefined);
         await route.fulfill({
           contentType: 'text/event-stream',
           body:
@@ -152,6 +167,30 @@ for (const relay of [false, true]) {
     );
     expect(saved).toContain('placeholder-browser-access');
     expect(saved).toContain('placeholder-browser-refresh');
+    const picker = page.getByRole('button', { name: 'Choose model, GPT-6.1 Sol' });
+    await picker.click();
+    await expect(
+      page.getByRole('menuitemradio', { name: 'Test model', exact: true }),
+    ).toBeVisible();
+    await expect(page.getByRole('menuitemradio', { name: 'Hidden model' })).toHaveCount(0);
+    expect((await new AxeBuilder({ page }).include('.model-menu').analyze()).violations).toEqual(
+      [],
+    );
+    await page.screenshot({ path: test.info().outputPath('model-picker-light.png') });
+    await page.evaluate(() => (document.documentElement.dataset.theme = 'dark'));
+    await page.screenshot({ path: test.info().outputPath('model-picker-dark.png') });
+    await page.keyboard.press('Escape');
+    await expect(picker).toBeFocused();
+    await picker.click();
+    const otherModel = page.getByRole('menuitemradio', { name: 'Test model', exact: true });
+    await expect(otherModel).toBeEnabled();
+    if (test.info().project.use.isMobile) await otherModel.tap();
+    else {
+      await page.keyboard.press('Home');
+      await expect(otherModel).toBeFocused();
+      await page.keyboard.press('Enter');
+    }
+    await expect(page.getByRole('button', { name: 'Choose model, Test model' })).toBeVisible();
     const devtools = await context.newCDPSession(page);
     await devtools.send('ServiceWorker.enable');
     await devtools.send('ServiceWorker.stopAllWorkers');
@@ -159,6 +198,7 @@ for (const relay of [false, true]) {
     const reopened = await context.newPage();
     await page.close();
     await reopened.goto(base);
+    await expect(reopened.getByRole('button', { name: 'Choose model, Test model' })).toBeVisible();
     await reopened.getByRole('textbox', { name: 'Message', exact: true }).fill('Hello again');
     await reopened.getByRole('button', { name: 'Send', exact: true }).click();
     await expect(reopened.locator('[data-role=assistant]')).toHaveCount(2);
@@ -167,6 +207,14 @@ for (const relay of [false, true]) {
     );
     expect(requests).toBe(2);
     expect(await reopened.locator('body').innerText()).not.toContain('browser-secret');
+    modelListUnavailable = true;
+    await reopened.getByRole('button', { name: 'Choose model, Test model' }).click();
+    await expect(reopened.getByRole('alert')).toContainText('Try again.');
+    modelListUnavailable = false;
+    await reopened.getByRole('menuitem', { name: 'Try again' }).click();
+    await expect(
+      reopened.getByRole('menuitemradio', { name: 'Test model', exact: true }),
+    ).toBeEnabled();
   });
 }
 

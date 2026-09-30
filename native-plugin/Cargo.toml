@@ -1,0 +1,25 @@
+[package]
+name = "tauri-plugin-native"
+version = "0.1.0"
+authors = [ "Kinetik contributors" ]
+description = "Native credentials and lifecycle for Kinetik"
+license = "MIT"
+edition = "2024"
+rust-version = "1.90"
+exclude = ["/examples", "/dist-js", "/guest-js", "/node_modules"]
+links = "tauri-plugin-native"
+
+[dependencies]
+tauri = { version = "2.12.0" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "2"
+
+[build-dependencies]
+tauri-plugin = { version = "2.7.0", features = ["build"] }
+
+[target.'cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))'.dependencies]
+keyring = { version = "3", features = ["apple-native", "windows-native", "linux-native"] }
+aes-gcm = "0.10"
+base64 = "0.22"
+sha2 = "0.10"

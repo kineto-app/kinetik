@@ -8,6 +8,7 @@ export interface ConnectionPreset {
   metadataUrl: string;
 }
 export interface Configuration {
+  native?: boolean;
   /** Legacy hosted-setup flag. Installing the PWA is always optional. */
   installation?: { required: boolean };
   connections: { charms?: ConnectionPreset };

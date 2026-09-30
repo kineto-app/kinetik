@@ -1,0 +1,94 @@
+.model-picker {
+  display: flex;
+  margin-bottom: var(--space-inline);
+}
+.model-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-inline);
+  min-height: var(--target);
+  max-width: 100%;
+  padding: var(--space-inline) var(--space-content);
+  color: var(--ink);
+  background: var(--glass-panel);
+  border: 1px solid var(--control-line);
+  box-shadow: var(--chat-shadow);
+  border-radius: var(--radius-pill);
+  font-size: 0.8125rem;
+}
+.model-trigger > span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.model-trigger svg {
+  transform: rotate(90deg);
+}
+.model-menu {
+  z-index: 100;
+  width: min(calc(var(--target) * 6), calc(100vw - var(--space-section) * 2));
+  max-height: min(calc(var(--target) * 8), 60dvh);
+  overflow-y: auto;
+  padding: var(--space-inline);
+  border: 1px solid var(--control-line);
+  border-radius: var(--radius);
+  color: var(--ink);
+  background: var(--glass-panel);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  box-shadow: var(--shadow);
+  transform-origin: var(--kb-menu-content-transform-origin);
+  animation: model-menu-in var(--duration) var(--ease-out);
+}
+.model-menu-label,
+.model-menu-note,
+.model-menu-error {
+  margin: var(--space-inline) var(--space-content);
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+.model-menu-error {
+  color: var(--bad);
+}
+.model-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-inline);
+  min-height: var(--target);
+  padding: var(--space-inline) var(--space-content);
+  border-radius: var(--radius-inner);
+  cursor: pointer;
+  font-size: 0.875rem;
+  overflow-wrap: anywhere;
+  outline-offset: -2px;
+}
+.model-option[data-highlighted] {
+  background: var(--hover);
+}
+.model-option:focus-visible {
+  outline: 2px solid var(--accent-ink);
+}
+.model-option[data-checked] {
+  color: var(--accent-ink);
+  background: var(--panel);
+}
+.model-option[data-disabled] {
+  opacity: 0.55;
+  cursor: wait;
+}
+@keyframes model-menu-in {
+  from {
+    opacity: 0;
+    transform: translateY(var(--space-inline));
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .model-menu {
+    animation: none;
+  }
+}

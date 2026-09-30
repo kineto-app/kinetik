@@ -1,5 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
+import { attachmentPath } from './rpc';
 
 async function send(page: Page, text: string) {
   const replies = page.locator('[data-role=assistant]');
@@ -68,8 +69,9 @@ test('images preview inline; unsupported files remain compact and downloadable',
       'base64',
     ),
   });
-  await expect(page.locator('#error')).toContainText('Added pixel.png');
-  await send(page, '/show_file /workspace/pixel.png');
+  await expect(page.locator('#attachments')).toContainText('pixel.png');
+  await send(page, 'Use the attached image.');
+  await send(page, '/show_file ' + (await attachmentPath(page, 'pixel.png')));
   const image = page.getByRole('img', { name: 'pixel.png', exact: true });
   await expect(image).toBeVisible();
   await expect.poll(() => image.evaluate((img) => (img as HTMLImageElement).naturalWidth)).toBe(1);
@@ -78,8 +80,9 @@ test('images preview inline; unsupported files remain compact and downloadable',
     mimeType: 'application/pdf',
     buffer: Buffer.from('%PDF-test-fixture'),
   });
-  await expect(page.locator('#error')).toContainText('Added report.pdf');
-  await send(page, '/show_file /workspace/report.pdf');
+  await expect(page.locator('#attachments')).toContainText('report.pdf');
+  await send(page, 'Use the attached document.');
+  await send(page, '/show_file ' + (await attachmentPath(page, 'report.pdf')));
   const row = page.getByRole('button', { name: 'Open report.pdf', exact: true });
   await expect(row).toContainText('PDF · 17 B');
   await row.click();

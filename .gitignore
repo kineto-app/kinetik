@@ -11,3 +11,12 @@ playwright-report/
 !.env.example
 .DS_Store
 *.log
+
+dist-native/
+*.local.json
+*.jks
+*.keystore
+*.p12
+*.p8
+*.mobileprovision
+*.signing.properties
