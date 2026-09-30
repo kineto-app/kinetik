@@ -9,7 +9,7 @@ export interface Message {
   app?: AppView;
   file?: { path: string; name: string };
 }
-export type RunStatus = 'idle' | 'running' | 'stopped' | 'needs_review' | 'queued';
+export type RunStatus = 'idle' | 'running' | 'stopped' | 'needs_review' | 'queued' | 'waiting';
 export interface ToolCall {
   id: string;
   name: string;
@@ -26,6 +26,7 @@ export interface Conversation {
   messages: Message[];
   pending: string[];
   status: RunStatus;
+  waitingFor?: 'connection' | 'signin';
   activeMessage?: string;
   turn?: 'foreground' | 'background';
   plugins?: InstalledPlugin[];

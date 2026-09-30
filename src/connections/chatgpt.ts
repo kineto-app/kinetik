@@ -1,3 +1,4 @@
+import { ConnectionError, SignInRequired } from '../core/connection-error';
 import { Store } from '../browser/store';
 
 const issuer = 'https://auth.openai.com';
@@ -268,7 +269,7 @@ export class BrowserChatGPT {
     await this.prepare();
     return navigator.locks.request('kinetik-chatgpt', async () => {
       let session = this.current;
-      if (!session) throw new Error('Connect ChatGPT in Connections to continue.');
+      if (!session) throw new SignInRequired('Connect ChatGPT in Connections to continue.');
       if (session.expires < Date.now() + 60000) {
         const registration = await this.registration();
         const response = await this.request(tokenEndpoint, {
@@ -285,8 +286,11 @@ export class BrowserChatGPT {
           }),
         });
         if (!response.ok) {
-          if ([400, 401, 403].includes(response.status)) this.current = undefined;
-          throw new Error('ChatGPT session could not be renewed. Try again or reconnect.');
+          if ([400, 401, 403].includes(response.status)) {
+            this.current = undefined;
+            throw new SignInRequired('Reconnect ChatGPT to continue.');
+          }
+          throw new ConnectionError('ChatGPT session could not be renewed.');
         }
         session = this.session(await response.json(), session.account, session);
         this.current = session;

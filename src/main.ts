@@ -1,5 +1,8 @@
+import { setupViewport } from './browser/viewport';
+import { renderToolActivity } from './ui/tool-activity';
 import './ui/styles.css';
 import './ui/chat.css';
+import './ui/islands.css';
 import { renderMessageContent, copyButton } from './ui/message-content';
 import { mountApp } from './ui/mcp-app';
 import { setupAutomations, renderAutomations } from './ui/automations';
@@ -16,13 +19,14 @@ import { setupConnections } from './ui/onboarding';
 import type { SetupState } from './connections/manager';
 
 type State = {
-  background: { id: string; conversationId: string; tool: string }[];
+  background: { id: string; conversationId: string; tool: string; state: string }[];
   automations: Automation[];
   conversations: Conversation[];
   plugins: Pick<InstalledPlugin, 'manifest' | 'source' | 'enabledAt' | 'digest'>[];
 };
 const root = document.querySelector<HTMLDivElement>('#app')!;
 root.innerHTML = shell;
+setupViewport();
 const byId = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 let state: State = { conversations: [], plugins: [], automations: [], background: [] };
 let connectionState: SetupState | undefined;
@@ -111,14 +115,17 @@ function render() {
   byId('composer-hint').textContent = foreground
     ? 'Send another message to guide Kinetik as it works.'
     : 'Enter to send · Shift + Enter for a new line';
-  byId('stop').hidden =
-    c?.status !== 'running' && !jobs.some((job) => job.conversationId === selected);
+  byId('connection-wait').hidden = c?.status !== 'waiting';
+  byId('connection-wait-label').textContent =
+    c?.waitingFor === 'signin' ? 'Sign in to continue' : 'Connection interrupted';
+  byId('resume-work').textContent = c?.waitingFor === 'signin' ? 'Sign in' : 'Retry';
+  updateComposer();
   byId('status').dataset.state = c?.status ?? 'idle';
   byId('activity').hidden = !foreground;
   byId('activity-label').textContent =
     c?.call?.state === 'pending' ? taskLabel(c.call.name) : 'Working on your message';
   byId('recovery').hidden = c?.status !== 'needs_review';
-  const serialized = JSON.stringify([selected, c?.messages, c?.draft]);
+  const serialized = JSON.stringify([selected, c?.messages, c?.draft, c?.call, c?.status]);
   if (serialized !== lastMessages) {
     const forceScroll = !lastMessages || followNextMessage;
     followNextMessage = false;
@@ -175,6 +182,7 @@ function render() {
       const article = document.createElement('article');
       article.className = 'message message-enter';
       article.dataset.role = item.role;
+      article.dataset.messageId = item.id;
       const label = document.createElement('div');
       label.className = 'message-label';
       label.textContent =
@@ -260,6 +268,7 @@ function render() {
         text.appendData(c.draft.slice(text.data.length));
       } else content.textContent = c.draft;
     }
+    renderToolActivity(timeline, c);
     timeline.scrollTop = !c?.messages.length
       ? 0
       : forceScroll || nearBottom
@@ -321,10 +330,18 @@ async function refresh() {
 let submitting = false;
 function updateComposer() {
   const input = byId<HTMLTextAreaElement>('prompt');
+  const busy =
+    ['running', 'queued', 'waiting'].includes(current()?.status ?? '') ||
+    state.background.some((job) => job.conversationId === selected);
+  const stopping = busy && !input.value.trim();
+  byId('stop').hidden = !stopping;
+  byId('send').hidden = stopping;
+  byId('work-options').hidden = !busy;
+  if (!busy) byId<HTMLDetailsElement>('work-options').open = false;
   byId<HTMLButtonElement>('send').disabled = submitting || !input.value.trim();
   sessionStorage.setItem(draftKey, input.value);
   input.style.height = 'auto';
-  input.style.height = Math.min(input.scrollHeight, 200) + 'px';
+  input.style.height = Math.min(input.scrollHeight, 144) + 'px';
 }
 byId('prompt').addEventListener('input', updateComposer);
 const narrow = matchMedia('(max-width: 700px)');
@@ -381,6 +398,7 @@ byId('new-chat').onclick = () => {
     byId('prompt').focus();
   })().catch(showError);
 };
+byId('top-new-chat').onclick = () => byId('new-chat').click();
 byId('composer').onsubmit = (event) => {
   event.preventDefault();
   void (async () => {
@@ -417,7 +435,8 @@ byId('prompt').onkeydown = (event) => {
     byId<HTMLFormElement>('composer').requestSubmit();
   }
 };
-byId('stop').onclick = () => {
+byId('stop').onclick = byId('cancel-work').onclick = () => {
+  byId<HTMLDetailsElement>('work-options').open = false;
   void rpc('stop', { id: selected }).then(refresh).catch(showError);
 };
 for (const [id, retry] of [
@@ -499,6 +518,7 @@ async function start() {
   const updatesReady = setupUpdates(registration);
   await refresh();
   await connectionSetup.initialize();
+  await rpc('resume');
   await rpc('tick');
   await updatesReady;
   // The build is complete before the one-shot local launcher is allowed to exit.
@@ -531,12 +551,19 @@ setupFiles();
 setupAutomations(refresh);
 const connectionSetup = setupConnections((value) => {
   if (JSON.stringify(connectionState) === JSON.stringify(value)) return;
+  const becameConnected =
+    (value.chatgpt.connected && !connectionState?.chatgpt.connected) ||
+    (value.charms.status === 'connected' && connectionState?.charms.status !== 'connected');
   connectionState = value;
+  if (becameConnected) void resumeWork();
   const configured = value.charms.available || value.chatgpt.available;
   byId('connection-status').hidden = !configured;
   byId('managed-section').hidden = !configured;
-  byId('connection-status').innerHTML =
-    icon('plug') + (value.charms.status === 'connected' ? 'Charms connected' : 'Connections');
+  byId('connection-status').innerHTML = icon('plug');
+  byId('connection-status').classList.add('icon-button');
+  byId('connection-status').title =
+    value.charms.status === 'connected' ? 'Charms connected' : 'Connections';
+  byId('connection-status').dataset.connected = String(value.charms.status === 'connected');
   byId('charms-state').textContent =
     value.charms.status === 'connected'
       ? 'Connected · cloud workspace'
@@ -598,3 +625,32 @@ window.addEventListener('online', () => {
   void rpc('tick').then(refresh).catch(showError);
 });
 void start().catch(showError);
+
+let resuming: Promise<void> | undefined;
+function resumeWork() {
+  return (resuming ??= rpc('resume')
+    .then(refresh)
+    .catch(showError)
+    .finally(() => {
+      resuming = undefined;
+    }));
+}
+byId('resume-work').onclick = () => {
+  if (current()?.waitingFor === 'signin') connectionSetup.open();
+  else void resumeWork();
+};
+window.addEventListener('online', () => {
+  void resumeWork();
+});
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') void resumeWork();
+});
+setInterval(() => {
+  if (
+    document.visibilityState === 'visible' &&
+    navigator.onLine &&
+    (state.background.length ||
+      state.conversations.some((c) => c.status === 'waiting' && c.waitingFor !== 'signin'))
+  )
+    void resumeWork();
+}, 30000);

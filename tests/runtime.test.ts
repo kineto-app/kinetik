@@ -295,3 +295,45 @@ test('foreground tools can request a longer bounded response budget', async () =
     timeout.mockRestore();
   }
 });
+
+test('returning to the app leaves a live embedded-app call alone', async () => {
+  const store = new Store(crypto.randomUUID());
+  const runtime = new Runtime(store);
+  const c = await runtime.create();
+  const installed = plugin('widget', 1, 'return {}');
+  await store.put('plugins', [installed]);
+  await store.put('app:widget', {
+    plugins: [installed],
+    tool: 'widget',
+    conversationId: c.id,
+    provider: 'widget',
+  });
+  let finish!: (result: unknown) => void;
+  vi.spyOn(runtime.plugins, 'snapshot').mockResolvedValue({
+    bindings: {
+      widget: {
+        provider: 'widget',
+        tool: {
+          description: 'Widget',
+          inputSchema: {},
+          execute: async () => ({}),
+          app: {
+            resource: async () => ({ html: '' }),
+            call: () =>
+              new Promise((resolve) => {
+                finish = resolve;
+              }),
+          },
+        },
+      },
+    },
+    sources: [],
+  });
+  const call = runtime.appCall('widget', 'save', {});
+  await waitFor(async () => Boolean(finish));
+  await Promise.all([runtime.recover(), runtime.recover()]);
+  expect((await read(store, c.id)).messages).toEqual([]);
+  finish('Saved');
+  await call;
+  expect((await read(store, c.id)).messages.map((m) => m.text)).toEqual(['Saved']);
+});

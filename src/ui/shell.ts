@@ -7,7 +7,7 @@ export const shell = `
 <a class="skip-link" href="#prompt">Skip to message</a>
 <div class="layout">
   <aside class="sidebar" id="sidebar" aria-label="Chats">
-    <div class="brand"><img src="./icon.svg" width="32" height="32" alt="" /><span>Kinetik</span><span class="badge">OSS</span><button id="menu-close" class="icon-button" aria-label="Close chats">${icon('close')}</button></div>
+    <div class="brand"><img src="./icon.svg" width="32" height="32" alt="" /><span>Kinetik</span><button id="menu-close" class="icon-button" aria-label="Close chats">${icon('close')}</button></div>
     <button class="new-chat" id="new-chat">${icon('plus')}<span>New chat</span></button>
     <div class="history"><h2 class="eyebrow">Recent chats</h2><nav id="conversations" aria-label="Chat list"></nav></div>
     <div class="sidebar-footer">
@@ -17,16 +17,18 @@ export const shell = `
   </aside>
   <button id="drawer-scrim" class="drawer-scrim" aria-label="Close chats" tabindex="-1" hidden></button>
   <main class="main" id="main">
-    <header class="topbar"><button id="menu" class="icon-button" aria-label="Toggle chats" aria-expanded="false" aria-controls="sidebar">${icon('menu')}</button><div class="heading"><h1 id="title">New chat</h1></div><button id="connection-status" hidden aria-label="Manage connections"></button><span class="status" id="status" role="status">Getting ready</span></header>
+    <header class="topbar"><button id="menu" class="icon-button" aria-label="Toggle chats" aria-expanded="false" aria-controls="sidebar">${icon('menu')}</button><div class="heading"><img src="./icon.svg" width="26" height="26" alt="" /><h1 id="title">New chat</h1></div><button id="connection-status" hidden aria-label="Manage connections"></button><span class="status sr-only" id="status" role="status">Getting ready</span><button id="top-new-chat" class="icon-button" aria-label="New chat">${icon('plus')}</button></header>
     <div id="app-update" class="app-update" role="status" hidden><div><strong>Update available</strong><span id="app-update-feedback" class="field-hint"></span></div><button id="app-update-apply" class="primary">Update</button></div>
     <div class="conversation-stage"><section id="timeline" aria-label="Conversation" aria-live="polite" aria-relevant="additions text"></section><button id="jump-latest" class="jump-latest" type="button" hidden>Latest message ${icon('download')}</button></div>
     <section class="composer-area">
-      <div id="background-activity" class="activity background-activity" role="status" hidden><span class="spinner" aria-hidden="true"></span><span id="background-label"></span></div>
+      <div class="work-status"><div id="background-activity" class="activity background-activity" role="status" hidden><span class="spinner" aria-hidden="true"></span><span id="background-label"></span></div>
       <div id="activity" class="activity" role="status" hidden><span class="thinking-dots" aria-hidden="true"><i></i><i></i><i></i></span><span id="activity-label">Working</span></div>
+      <div id="connection-wait" class="activity" role="status" hidden><span id="connection-wait-label"></span><button id="resume-work" class="secondary">Retry</button></div>
+      <details id="work-options" class="work-options" hidden><summary aria-label="Work options">${icon('more')}</summary><div><button id="cancel-work">${icon('stop')}Stop work</button></div></details></div>
       <div id="recovery" class="panel" hidden><p>A step was interrupted. Check what changed before trying it again.</p><div class="actions"><button class="secondary" id="resolve">Continue without repeating</button><button id="retry">Try that step again</button></div></div>
       <div id="error" class="feedback" role="alert"></div>
-      <form id="composer" class="composer"><label class="sr-only" for="prompt">Message</label><textarea id="prompt" aria-describedby="composer-hint" placeholder="Message Kinetik…" rows="2" maxlength="16384"></textarea><div class="composer-actions"><div class="composer-tools"><button type="button" id="attach" class="icon-button" aria-label="Add or open files" title="Files">${icon('plus')}</button><span class="model-label">${icon('spark')}<span id="model-label">Preview</span></span></div><div class="actions"><button type="button" id="stop" class="secondary" hidden><span class="stop-mark"></span>Stop</button><button class="primary" id="send" type="submit" disabled aria-label="Send" title="Send"><span class="sr-only">Send</span>${icon('send')}</button></div></div></form>
-      <div class="composer-foot"><span id="composer-hint">Enter to send · Shift + Enter for a new line</span><span id="model-status">Preview · ChatGPT is not connected</span></div>
+      <form id="composer" class="composer"><button type="button" id="attach" class="icon-button" aria-label="Add or open files" title="Files">${icon('plus')}</button><label class="sr-only" for="prompt">Message</label><textarea id="prompt" aria-describedby="composer-hint" placeholder="Message Kinetik…" rows="1" maxlength="16384"></textarea><div class="composer-actions"><button type="button" id="stop" class="primary" hidden aria-label="Stop" title="Stop">${icon('stop')}</button><button class="primary" id="send" type="submit" disabled aria-label="Send" title="Send">${icon('arrowUp')}</button></div><span class="sr-only" id="model-label">Preview</span></form>
+      <div class="composer-foot sr-only"><span id="composer-hint">Enter to send · Shift + Enter for a new line</span><span id="model-status">Preview · ChatGPT is not connected</span></div>
     </section>
   </main>
 </div>

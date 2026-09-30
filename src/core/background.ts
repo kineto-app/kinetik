@@ -1,4 +1,5 @@
 import Ajv from 'ajv';
+import { isConnectionError, SignInRequired } from './connection-error';
 import { Store } from '../browser/store';
 import { errorText, type Binding, type Conversation, type InstalledPlugin } from './types';
 
@@ -9,7 +10,7 @@ export interface BackgroundProcess {
   provider: string;
   input: Record<string, unknown>;
   plugins: InstalledPlugin[];
-  state: 'running' | 'completed' | 'interrupted' | 'cancelled';
+  state: 'running' | 'waiting' | 'completed' | 'interrupted' | 'cancelled';
   operationId?: string;
   result?: string;
   delivered?: boolean;
@@ -19,6 +20,7 @@ export interface BackgroundProcess {
 interface Host {
   resolve(job: BackgroundProcess): Promise<Binding>;
   wake(job: BackgroundProcess): Promise<void>;
+  changed(): void;
 }
 const key = (id: string) => 'background:' + id;
 const output = (value: unknown) =>
@@ -96,7 +98,9 @@ export class BackgroundProcesses {
           if (!new Ajv({ strict: false }).compile(binding.tool.inputSchema)(args))
             throw new Error('Invalid background tool arguments.');
           if (
-            (await this.list(conversationId)).filter((job) => job.state === 'running').length >= 8
+            (await this.list(conversationId)).filter((job) =>
+              ['running', 'waiting'].includes(job.state),
+            ).length >= 8
           )
             throw new Error('Maximum eight background jobs per conversation.');
           const conversation = await this.store.get<Conversation>('conversation:' + conversationId);
@@ -136,13 +140,20 @@ export class BackgroundProcesses {
     const controller = new AbortController();
     const timeout = setTimeout(
       () => controller.abort(new Error('Background job timed out.')),
-      Math.max(1, job.deadline - Date.now()),
+      Math.max(recovering ? 10000 : 1, job.deadline - Date.now()),
     );
     const signal = controller.signal;
     // Defer execution until the active entry exists, including for synchronous tools.
     const promise = Promise.resolve()
       .then(async () => {
         try {
+          const saved = await this.store.update<BackgroundProcess>(key(job.id), (previous) =>
+            previous!.cancelRequested || !['running', 'waiting'].includes(previous!.state)
+              ? previous!
+              : { ...previous!, state: 'running' },
+          );
+          if (saved.cancelRequested || saved.state !== 'running') return;
+          this.host.changed();
           signal.throwIfAborted();
           const work = async () => {
             if (recovering) {
@@ -150,6 +161,7 @@ export class BackgroundProcesses {
                 throw new Error('Execution was interrupted; it was not restarted.');
               const status = await binding.tool.recover(job.operationId, signal);
               if (status.done) return status.result;
+              if (job.deadline <= Date.now()) throw new Error('Background job timed out.');
               if (!binding.tool.wait)
                 throw new Error('Provider cannot wait for the existing job. It was not restarted.');
               return binding.tool.wait(job.operationId, signal);
@@ -179,6 +191,19 @@ export class BackgroundProcesses {
           });
           await this.finish(job, 'completed', output(result));
         } catch (error) {
+          if (
+            !signal.aborted &&
+            job.operationId &&
+            (isConnectionError(error) || error instanceof SignInRequired)
+          ) {
+            const saved = await this.store.update<BackgroundProcess>(key(job.id), (previous) =>
+              previous!.cancelRequested ? previous! : { ...previous!, state: 'waiting' },
+            );
+            if (saved.cancelRequested)
+              await this.finish(job, 'cancelled', 'Cancelled. Effects may already have occurred.');
+            this.host.changed();
+            return;
+          }
           if (signal.aborted && job.operationId && binding.tool.cancel) {
             // Cancellation cannot keep a worker alive indefinitely.
             await Promise.race([
@@ -203,7 +228,7 @@ export class BackgroundProcesses {
 
   private async finish(job: BackgroundProcess, state: BackgroundProcess['state'], result: string) {
     const saved = await this.store.update<BackgroundProcess>(key(job.id), (previous) =>
-      previous!.state !== 'running'
+      !['running', 'waiting'].includes(previous!.state)
         ? previous!
         : {
             ...previous!,
@@ -222,7 +247,7 @@ export class BackgroundProcesses {
     }));
   }
   async cancel(job: BackgroundProcess) {
-    if (job.state !== 'running') return;
+    if (!['running', 'waiting'].includes(job.state)) return;
     await this.store.update<BackgroundProcess>(key(job.id), (previous) => ({
       ...previous!,
       cancelRequested: true,
@@ -247,7 +272,7 @@ export class BackgroundProcesses {
   async recover() {
     for (const [, job] of await this.store.entries<BackgroundProcess>('background:')) {
       if (this.active.has(job.id)) continue;
-      if (job.state !== 'running') {
+      if (!['running', 'waiting'].includes(job.state)) {
         await this.deliver(job);
         continue;
       }
@@ -266,6 +291,7 @@ export class BackgroundProcesses {
       try {
         this.launch(job, await this.host.resolve(job), true);
       } catch (error) {
+        if (isConnectionError(error) || error instanceof SignInRequired) continue;
         await this.finish(job, 'interrupted', errorText(error) + ' The job was not restarted.');
       }
     }

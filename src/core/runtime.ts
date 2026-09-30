@@ -1,4 +1,5 @@
 import Ajv from 'ajv';
+import { isConnectionError, SignInRequired } from './connection-error';
 import { localSkills } from './skills';
 import { Automations } from './automation';
 import { BackgroundProcesses, type BackgroundProcess } from './background';
@@ -73,6 +74,7 @@ export class Runtime {
         return binding;
       },
       wake: (job) => this.backgroundCompleted(job),
+      changed,
     });
   }
   async conversations(): Promise<Conversation[]> {
@@ -167,7 +169,12 @@ export class Runtime {
       let c = await this.store.get<Conversation>(key(id));
       if (!c || c.status === 'needs_review' || c.status === 'stopped') return;
       const pinned = c.plugins ?? (await this.plugins.list());
-      await this.update(id, (value) => ({ ...value, plugins: pinned }));
+      await this.update(id, (value) => ({
+        ...value,
+        plugins: pinned,
+        status: value.status === 'stopped' ? value.status : 'running',
+        waitingFor: undefined,
+      }));
       let skills: Skill[] = [];
       const { bindings, sources } = await this.plugins.snapshot(
         {
@@ -203,6 +210,7 @@ export class Runtime {
             pending: [],
             call: undefined,
             status: 'running',
+            waitingFor: undefined,
           }));
         }
         const activeMessage = c.messages.find((m) => m.id === c!.activeMessage)!;
@@ -416,6 +424,17 @@ export class Runtime {
         );
       else await work();
     } catch (error) {
+      if (
+        !controller.signal.aborted &&
+        (isConnectionError(error) || error instanceof SignInRequired)
+      ) {
+        await this.update(id, (c) => ({
+          ...c,
+          status: 'waiting',
+          waitingFor: error instanceof SignInRequired ? 'signin' : 'connection',
+        }));
+        return;
+      }
       await this.update(id, (c) => ({
         ...c,
         status: 'stopped',
@@ -466,13 +485,20 @@ export class Runtime {
     }));
     await this.background.cancelConversation(id);
   }
-  async recover(): Promise<void> {
+  private activeAppCalls = new Set<string>();
+  private recovery?: Promise<void>;
+  recover(): Promise<void> {
+    return (this.recovery ??= this.recoverWork().finally(() => {
+      this.recovery = undefined;
+    }));
+  }
+  private async recoverWork(): Promise<void> {
     for (const [key, call] of await this.store.entries<{
       state: string;
       conversationId: string;
       name: string;
     }>('app-call:')) {
-      if (call.state !== 'pending') continue;
+      if (call.state !== 'pending' || this.activeAppCalls.has(key)) continue;
       await this.update(call.conversationId, (value) => ({
         ...value,
         messages: [
@@ -486,8 +512,9 @@ export class Runtime {
       await this.store.put(key, { ...call, state: 'unknown' });
     }
     for (const c of await this.conversations()) {
+      if (this.active.has(c.id)) continue;
       if (
-        !['running', 'queued'].includes(c.status) &&
+        !['running', 'queued', 'waiting'].includes(c.status) &&
         !(c.status === 'stopped' && c.call?.state === 'pending')
       )
         continue;
@@ -645,14 +672,15 @@ export class Runtime {
     const tool = snapshot.bindings[record.tool]?.tool;
     if (!tool?.app) throw new Error('App tool unavailable.');
     const callId = crypto.randomUUID();
-    await this.store.put('app-call:' + callId, {
-      appId: id,
-      conversationId: record.conversationId,
-      name,
-      input,
-      state: 'pending',
-    });
+    this.activeAppCalls.add('app-call:' + callId);
     try {
+      await this.store.put('app-call:' + callId, {
+        appId: id,
+        conversationId: record.conversationId,
+        name,
+        input,
+        state: 'pending',
+      });
       const result = await tool.app.call(name, input, AbortSignal.timeout(30000));
       await this.store.put('app-call:' + callId, {
         appId: id,
@@ -679,6 +707,8 @@ export class Runtime {
         ],
       }));
       throw error;
+    } finally {
+      this.activeAppCalls.delete('app-call:' + callId);
     }
   }
   async importFile(name: string, bytes: Uint8Array): Promise<void> {

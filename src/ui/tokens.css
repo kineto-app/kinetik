@@ -47,3 +47,13 @@
 :root[data-theme='dark'] {
   color-scheme: dark;
 }
+
+/* Frosted controls derive from the shared Charms palette. */
+:root {
+  --radius-pill: 999px;
+  --radius-island: 28px;
+  --glass: color-mix(in srgb, var(--ground) 88%, transparent);
+  --glass-panel: color-mix(in srgb, var(--sidebar-fill) 94%, transparent);
+  --glass-blur: 18px;
+  --space-island: 12px;
+}

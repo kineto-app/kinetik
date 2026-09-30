@@ -74,3 +74,121 @@ test('long replies keep the composer reachable and offer a jump back to latest',
   ).toBe('none');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
+
+test('compact composer switches between stop and steering, with stop in work options', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await expect(page.locator('#status')).toHaveText('Ready');
+  expect((await page.locator('#composer').boundingBox())!.height).toBeLessThan(80);
+  await send(page, '/bg sleep 8; echo done');
+  await expect(page.locator('#stop')).toBeVisible();
+  await expect(page.locator('#send')).toBeHidden();
+  await page.locator('#prompt').fill('Use a warmer tone');
+  await expect(page.locator('#send')).toBeVisible();
+  await expect(page.locator('#stop')).toBeHidden();
+  await page.getByLabel('Work options').click();
+  await expect(page.getByRole('button', { name: 'Stop work', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Stop work', exact: true }).click();
+  await expect(page.locator('#background-activity')).toBeHidden();
+  await expect(page.locator('#prompt')).toHaveValue('Use a warmer tone');
+});
+
+test('keyboard visual viewport keeps header and composer in the visible area', async ({
+  page,
+}, info) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+  await expect(page.locator('#status')).toHaveText('Ready');
+  await send(page, '/exec echo A short useful reply');
+  await expect(page.locator('[data-role=assistant]')).toContainText('A short useful reply');
+  await page.locator('#prompt').focus();
+  await page.evaluate(() => {
+    Object.defineProperty(window.visualViewport, 'height', { configurable: true, value: 390 });
+    Object.defineProperty(window.visualViewport, 'offsetTop', { configurable: true, value: 50 });
+    window.visualViewport!.dispatchEvent(new Event('resize'));
+  });
+  await expect
+    .poll(
+      async () =>
+        (await page.locator('#composer').boundingBox())!.y +
+        (await page.locator('#composer').boundingBox())!.height,
+    )
+    .toBeLessThanOrEqual(440);
+  expect((await page.locator('.topbar').boundingBox())!.y).toBeGreaterThanOrEqual(50);
+  await page.screenshot({ path: info.outputPath('keyboard-viewport.png') });
+  await page.evaluate(() => {
+    Object.defineProperty(window.visualViewport, 'height', { configurable: true, value: 844 });
+    Object.defineProperty(window.visualViewport, 'offsetTop', { configurable: true, value: 0 });
+    window.visualViewport!.dispatchEvent(new Event('resize'));
+  });
+  await expect
+    .poll(async () => (await page.locator('#composer').boundingBox())!.y)
+    .toBeGreaterThan(600);
+});
+
+test('tool activity is collapsed while result files remain visible', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.locator('#status')).toHaveText('Ready');
+  await send(page, '/write /workspace/note.txt\nA useful note');
+  await expect(page.locator('.file-card')).toBeVisible();
+  const group = page.locator('.tool-group');
+  await expect(group).toHaveCount(1);
+  await expect(group).not.toHaveAttribute('open');
+  await expect(group.locator('.tool-group-label')).toContainText('Created a file');
+  await group.locator(':scope > summary').click();
+  await expect(group.locator('.tool-details')).toBeVisible();
+  await group.locator('.tool-details > summary').click();
+  await expect(group.locator('.tool-details pre')).toBeVisible();
+});
+
+test('returning online resumes a persisted reply without rerunning its tool', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.locator('#status')).toHaveText('Ready');
+  await send(page, '/exec echo original');
+  await expect(page.locator('[data-role=assistant]')).toHaveText(/original/);
+  await page.evaluate(async () => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open('kinetik-oss-v1', 1);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction('records', 'readwrite');
+      const records = tx.objectStore('records');
+      const request = records.openCursor();
+      request.onsuccess = () => {
+        const cursor = request.result;
+        if (!cursor) return;
+        if (String(cursor.key).startsWith('conversation:')) {
+          const c = cursor.value;
+          c.status = 'waiting';
+          c.waitingFor = 'connection';
+          c.activeMessage = c.messages.find((m: { role: string }) => m.role === 'user').id;
+          c.call = {
+            id: 'completed',
+            name: 'exec',
+            provider: 'local',
+            input: {},
+            state: 'completed',
+            result: 'Recovered saved result',
+          };
+          cursor.update(c);
+        }
+        cursor.continue();
+      };
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+    db.close();
+    window.dispatchEvent(new Event('online'));
+  });
+  await expect(page.locator('[data-role=assistant]').last()).toContainText(
+    'Recovered saved result',
+  );
+  await expect(page.locator('#connection-wait')).toBeHidden();
+  await expect(page.locator('[data-role=assistant]')).toHaveCount(2);
+  expect(
+    await page.locator('.composer').evaluate((el) => getComputedStyle(el).backdropFilter),
+  ).not.toBe('none');
+});

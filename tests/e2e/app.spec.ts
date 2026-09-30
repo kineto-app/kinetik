@@ -204,6 +204,7 @@ test('MCP Apps handshake, tool interaction, visibility and origin isolation', as
   await expect(app.locator('#result')).toHaveText('Denied');
   await app.getByRole('button', { name: 'Increment' }).click();
   const action = page.locator('.tool-details').filter({ hasText: 'App · increment' });
+  await page.locator('.tool-group').filter({ has: action }).locator(':scope > summary').click();
   await action.locator('summary').click();
   await expect(action).toContainText('App · increment');
   await expect(app.locator('#result')).toHaveText('Incremented');

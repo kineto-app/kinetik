@@ -1,4 +1,5 @@
 import type { Model, ModelRequest, ModelStep } from './types';
+import { ConnectionError, SignInRequired } from './connection-error';
 
 async function toolName(name: string): Promise<string> {
   const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(name));
@@ -14,6 +15,10 @@ export async function readResponse(
   onText?: (text: string) => void,
 ): Promise<Record<string, unknown>[]> {
   if (!response.ok) {
+    if ([401, 403].includes(response.status))
+      throw new SignInRequired('Reconnect ChatGPT to continue.');
+    if ([408, 429, 500, 502, 503, 504].includes(response.status))
+      throw new ConnectionError('The model connection was interrupted.');
     const error = (await response.json().catch(() => ({}))) as { error?: { message?: string } };
     throw new Error(error.error?.message ?? `Model request failed: HTTP ${response.status}`);
   }
@@ -80,10 +85,7 @@ export async function readResponse(
           return [...finished.entries()].sort(([a], [b]) => a - b).map(([, item]) => item);
         }
       }
-      if (done)
-        throw new Error(
-          'Model stream interrupted before completion. Send another message to retry.',
-        );
+      if (done) throw new ConnectionError('Model stream interrupted before completion.');
     }
   } finally {
     await reader.cancel().catch(() => {});
@@ -99,7 +101,7 @@ export class OpenAIModel implements Model {
   async next(request: ModelRequest, signal: AbortSignal): Promise<ModelStep> {
     const config = await this.configuration();
     if (!config.account || !config.model)
-      throw new Error('Connect ChatGPT and choose a model in Account.');
+      throw new SignInRequired('Connect ChatGPT and choose a model in Account.');
     const names = new Map<string, string>();
     const tools = await Promise.all(
       Object.entries(request.definitions ?? {}).map(async ([name, definition]) => {
