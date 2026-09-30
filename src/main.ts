@@ -176,18 +176,22 @@ function render() {
       timeline.append(empty);
     }
     for (const item of c?.messages ?? []) {
-      if (
+      const hiddenActivity =
         item.visibility === 'internal' ||
         item.id.startsWith('background-completed:') ||
-        item.tool?.startsWith('background ·') ||
-        renderedMessages.has(item.id)
-      )
-        continue;
+        item.tool?.startsWith('background ·');
+      if ((hiddenActivity && !item.app) || renderedMessages.has(item.id)) continue;
       renderedMessages.add(item.id);
       const article = document.createElement('article');
       article.className = 'message message-enter';
       article.dataset.role = item.role;
       article.dataset.messageId = item.id;
+      if (hiddenActivity && item.app && c) {
+        // A rendered result is user-facing even when its producing tool call is internal.
+        timeline.insertBefore(article, timeline.querySelector('[data-draft]'));
+        disposeApps.push(mountApp(article, item.app, c.id));
+        continue;
+      }
       const label = document.createElement('div');
       label.className = 'message-label';
       label.textContent =
