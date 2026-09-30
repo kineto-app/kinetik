@@ -140,7 +140,7 @@ npm run check
 
 `check` runs formatting validation, strict TypeScript checking, unit/integration tests, a production build, and browser tests. CI installs Chromium's system dependencies too. The browser suite exercises persistence/offline reload, URL plugins, skills, updates, parallel turns, steering, Stop, and recovery after forced service-worker termination. It does not prove continuous background execution on mobile or real model authentication.
 
-Browser suspension is normal. Work resumes when the browser activates the app; there is no guaranteed closed-app scheduler. VM runners, guaranteed background execution, and real model login remain outside this release. The unconnected OpenAI adapter has stream/history tests, but no account has authenticated and no live model response has been verified.
+Browser suspension is normal. Work resumes when the browser activates the app; there is no guaranteed closed-app scheduler. VM runners, guaranteed background execution, and real model login remain outside this release. A separate temporary helper has verified real ChatGPT subscription sign-in, streamed inference, and the core runtime’s file tools and background completion with `gpt-6-astra`. The test session was revoked afterward. This does not connect the PWA to OpenAI; its adapter remains unwired. See [the live test findings](RESEARCH.md#live-subscription-check).
 
 [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [Design](DESIGN.md) · [Research](RESEARCH.md)
 
