@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="referrer" content="no-referrer" />
+    <title>Connect ChatGPT · Kinetik</title>
+    <link rel="stylesheet" href="{{appStyles}}" />
+    <link rel="stylesheet" href="{{uiBase}}connect.css" />
+    <script src="{{themeScript}}"></script>
+    <script src="{{uiBase}}connect.js" defer></script>
+  </head>
+  <body class="connect-page" data-api-base="{{apiBase}}">
+    <header class="connect-header">
+      <a class="connect-brand" href="{{appUrl}}" aria-label="Kinetik home"
+        ><span class="connect-mark" aria-hidden="true">k</span>kinetik<span class="connect-preview"
+          >Preview</span
+        ></a
+      >
+      <label class="connect-theme"
+        >Appearance<select id="appearance">
+          <option value="system">System</option>
+          <option value="light">Light</option>
+          <option value="dark">Dark</option>
+        </select></label
+      >
+    </header>
+    <main class="connect-main">
+      <div class="connect-intro">
+        <h1>Connect ChatGPT</h1>
+        <p>Sign in, then paste the return link here.</p>
+      </div>
+      <section class="connect-card" aria-labelledby="connect-title">
+        <div class="connect-card-heading">
+          <div>
+            <h2 id="connect-title">Sign in</h2>
+          </div>
+          <span class="connect-badge" id="progress">Getting ready</span>
+        </div>
+        <p id="status" class="connect-status" role="status">Checking your connection…</p>
+        <div id="connection-error" class="connect-error" role="alert" hidden></div>
+        <button id="retry" class="secondary" type="button" hidden>Try again</button>
+        <div id="setup" hidden>
+          <ol class="connect-steps">
+            <li id="step-signin" aria-current="step">
+              <span class="connect-number" aria-hidden="true">1</span>
+              <div class="connect-step-body">
+                <h3>Sign in to ChatGPT</h3>
+                <button id="login" class="primary connect-action" type="button">
+                  Continue with ChatGPT <span aria-hidden="true">↗</span></button
+                ><a
+                  id="authorize"
+                  class="connect-reopen"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  hidden
+                  >Open sign-in page again <span aria-hidden="true">↗</span></a
+                ><span class="connect-caption">Opens in a new tab.</span>
+              </div>
+            </li>
+            <li id="step-copy">
+              <span class="connect-number" aria-hidden="true">2</span>
+              <div class="connect-step-body">
+                <h3>Copy the final address</h3>
+                <div class="connect-browser" aria-label="Example address, not a link to open">
+                  <div class="connect-browser-top">
+                    <span aria-hidden="true">○ ○ ○</span><span>Example address bar</span>
+                  </div>
+                  <div class="connect-address">
+                    <span>http://127.0.0.1:1455/auth/callback?code=…</span>
+                  </div>
+                </div>
+                <p class="connect-note">
+                  The final page may not load. <strong>Copy the address anyway</strong>.
+                </p>
+              </div>
+            </li>
+            <li id="step-paste">
+              <span class="connect-number" aria-hidden="true">3</span>
+              <div class="connect-step-body">
+                <h3>Paste it here to connect</h3>
+                <form id="callback-form" novalidate>
+                  <label for="callback">Link from the address bar</label
+                  ><textarea
+                    id="callback"
+                    rows="3"
+                    placeholder="http://127.0.0.1:1455/auth/callback?…"
+                    autocomplete="off"
+                    autocapitalize="off"
+                    spellcheck="false"
+                    aria-describedby="callback-hint callback-error"
+                    disabled
+                  ></textarea>
+                  <p id="callback-hint" class="connect-caption">
+                    Paste the full link, including everything after “?”.
+                  </p>
+                  <p id="callback-error" class="connect-error" role="alert" hidden></p>
+                  <button id="connect" class="primary connect-action" type="submit" disabled>
+                    Connect &amp; start chatting <span aria-hidden="true">→</span>
+                  </button>
+                </form>
+              </div>
+            </li>
+          </ol>
+        </div>
+        <div id="success" class="connect-success" hidden>
+          <span class="connect-success-icon" aria-hidden="true">✓</span>
+          <h3>You’re connected.</h3>
+          <p>Your ChatGPT account is ready.</p>
+          <a id="open" class="primary connect-action" href="{{appUrl}}"
+            >Start chatting <span aria-hidden="true">→</span></a
+          ><button id="logout" type="button">Disconnect account</button>
+        </div>
+        <footer class="connect-footer">
+          <svg aria-hidden="true" viewBox="0 0 24 24">
+            <rect x="5" y="10" width="14" height="11" rx="3" />
+            <path d="M8 10V7a4 4 0 0 1 8 0v3" />
+          </svg>
+          <p>This preview connection is temporary.</p>
+        </footer>
+      </section>
+    </main>
+  </body>
+</html>

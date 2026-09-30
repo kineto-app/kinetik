@@ -9,6 +9,7 @@ import {
   type SkillSnapshot,
 } from '../core/types';
 import { McpClient } from './mcp';
+import { connectionToken, invalidateToken } from '../connections/credentials';
 
 const safeName = /^[a-z][a-z0-9_-]{0,63}$/i;
 const forbidden = new Set(['__proto__', 'prototype', 'constructor']);
@@ -169,12 +170,38 @@ export class Plugins {
       );
     });
   }
-  async instantiate(installed: InstalledPlugin): Promise<Plugin> {
+  async configure(id: string, settings: Record<string, string>): Promise<void> {
+    await this.store.update<InstalledPlugin[]>('plugins', (previous) => {
+      if (!previous?.some((p) => p.manifest.id === id)) throw new Error('Unknown plugin.');
+      return previous.map((p) => (p.manifest.id === id ? { ...p, settings } : p));
+    });
+  }
+  async instantiate(installed: InstalledPlugin, validatingConnection = false): Promise<Plugin> {
     const plugin: Plugin = await new Function('host', '"use strict";\n' + installed.code)({
       emit: this.emit,
       settings: Object.freeze({ ...installed.settings }),
       baseURL: new URL('.', installed.resolvedSource).href,
-      mcp: (url: string, token?: string) => new McpClient(allowedURL(url).href, token),
+      mcp: (url: string, token?: string) => {
+        const address = allowedURL(url).href;
+        const managed =
+          installed.settings.connection === installed.manifest.id &&
+          address === installed.settings.url;
+        return new McpClient(
+          address,
+          managed
+            ? () =>
+                connectionToken(
+                  this.store,
+                  installed.manifest.id,
+                  installed.settings.connectionRevision,
+                  validatingConnection,
+                )
+            : token,
+          managed
+            ? (value) => invalidateToken(this.store, installed.manifest.id, value)
+            : undefined,
+        );
+      },
     });
     if (!plugin || typeof plugin !== 'object')
       throw new Error(`${installed.manifest.id}: factory must return a plugin object.`);

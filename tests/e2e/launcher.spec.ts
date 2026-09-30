@@ -45,7 +45,7 @@ test('packaged static launcher exits and app reopens at a subpath with no server
       .getByRole('textbox', { name: 'Message', exact: true })
       .fill('/exec echo offline launcher');
     await reopened.getByRole('button', { name: 'Send', exact: true }).click();
-    await expect(reopened.locator('[data-role="assistant"] pre').last()).toHaveText(
+    await expect(reopened.locator('[data-role="assistant"] .message-content').last()).toHaveText(
       'offline launcher\n',
     );
   } finally {

@@ -34,14 +34,14 @@ return (async () => {
     return result;
   };
   // Skill discovery is native synchronization, never an extra model tool.
-  const tools = { ...remote };
+  const tools = Object.fromEntries(Object.entries(remote).map(([name, tool]) => [name, { ...tool, timeoutMs: 60000 }]));
   delete tools.charms_skill_find;
   delete tools.charms_skill_load;
   const exec = tools.charms_exec;
   tools.charms_exec = {
     ...exec,
     async execute(input, context) {
-      const result = await exec.execute(input, context);
+      const result = await exec.execute(context.background ? { ...input, background: true } : input, context);
       const data = payload(result);
       if (data.job_id) await context.checkpoint(String(data.job_id));
       return result;

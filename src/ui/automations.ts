@@ -3,8 +3,8 @@ import { rpc } from '../browser/client';
 import { icon } from './icons';
 export const automationDialog = `
 <dialog id="automations-dialog" aria-labelledby="automations-heading">
-  <div class="dialog-head"><span class="glyph">${icon('clock')}</span><div><h2 id="automations-heading">Routines</h2><p class="small muted">A little help on repeat</p></div><button data-close="automations-dialog" class="icon-button" aria-label="Close routines">${icon('close')}</button></div>
-  <p class="field-hint">Keep Kinetik open for the best chance of running on time. If your browser pauses it, routines catch up once when you return.</p>
+  <div class="dialog-head"><span class="glyph">${icon('clock')}</span><div><h2 id="automations-heading">Routines</h2></div><button data-close="automations-dialog" class="icon-button" aria-label="Close routines">${icon('close')}</button></div>
+  <p class="field-hint">Keep Kinetik open. Paused routines catch up once when you return.</p>
   <section class="panel"><h3 class="section-label">Scheduled work</h3><div id="automation-list" class="section-body"></div></section>
   <section class="panel"><h3 class="section-label">Create</h3><form id="automation-form" class="section-body">
     <label for="automation-kind">Routine type</label><select id="automation-kind"><option value="task">One-time task</option><option value="goal">Goal</option><option value="job">Scheduled task</option><option value="monitor">Watch a file</option></select>

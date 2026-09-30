@@ -1,4 +1,6 @@
 import './ui/styles.css';
+import './ui/chat.css';
+import { renderMessageContent, copyButton } from './ui/message-content';
 import { mountApp } from './ui/mcp-app';
 import { setupAutomations, renderAutomations } from './ui/automations';
 import type { Automation } from './core/automation';
@@ -10,6 +12,8 @@ import { setupFiles, refreshFiles, previewFile, downloadFile } from './ui/files'
 import { setupUpdates } from './browser/updates';
 import { connect, rpc } from './browser/client';
 import type { Conversation, InstalledPlugin } from './core/types';
+import { setupConnections } from './ui/onboarding';
+import type { SetupState } from './connections/manager';
 
 type State = {
   background: { id: string; conversationId: string; tool: string }[];
@@ -21,9 +25,12 @@ const root = document.querySelector<HTMLDivElement>('#app')!;
 root.innerHTML = shell;
 const byId = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 let state: State = { conversations: [], plugins: [], automations: [], background: [] };
+let connectionState: SetupState | undefined;
 let selected = sessionStorage.getItem('kinetik-conversation') ?? '';
 let refreshGeneration = 0;
 let lastMessages = '';
+let lastNavigation = '';
+let followNextMessage = false;
 let disposeApps: (() => void)[] = [];
 let timelineConversation = '';
 const renderedMessages = new Set<string>();
@@ -62,21 +69,28 @@ function choose(id: string) {
 }
 function render() {
   const nav = byId('conversations');
-  nav.replaceChildren();
-  for (const c of state.conversations) {
-    const entry = button(
-      (c.status === 'running' && !isBackgroundTurn(c) ? '• ' : '') + c.title,
-      () => choose(c.id),
-      'conversation',
-    );
-    entry.setAttribute('aria-current', String(c.id === selected));
-    nav.append(entry);
-  }
-  if (!state.conversations.length) {
-    const hint = document.createElement('p');
-    hint.className = 'history-empty';
-    hint.textContent = 'A little space for each idea.';
-    nav.append(hint);
+  const navigation = JSON.stringify([
+    selected,
+    state.conversations.map((c) => [c.id, c.title, c.status, isBackgroundTurn(c)]),
+  ]);
+  if (navigation !== lastNavigation) {
+    lastNavigation = navigation;
+    nav.replaceChildren();
+    for (const c of state.conversations) {
+      const entry = button(
+        (c.status === 'running' && !isBackgroundTurn(c) ? '• ' : '') + c.title,
+        () => choose(c.id),
+        'conversation',
+      );
+      entry.setAttribute('aria-current', String(c.id === selected));
+      nav.append(entry);
+    }
+    if (!state.conversations.length) {
+      const hint = document.createElement('p');
+      hint.className = 'history-empty';
+      hint.textContent = 'No chats yet.';
+      nav.append(hint);
+    }
   }
   const c = current();
   const foreground = c?.status === 'running' && !isBackgroundTurn(c);
@@ -94,6 +108,9 @@ function render() {
     : c?.status === 'needs_review'
       ? 'Needs review'
       : 'Ready';
+  byId('composer-hint').textContent = foreground
+    ? 'Send another message to guide Kinetik as it works.'
+    : 'Enter to send · Shift + Enter for a new line';
   byId('stop').hidden =
     c?.status !== 'running' && !jobs.some((job) => job.conversationId === selected);
   byId('status').dataset.state = c?.status ?? 'idle';
@@ -103,7 +120,8 @@ function render() {
   byId('recovery').hidden = c?.status !== 'needs_review';
   const serialized = JSON.stringify([selected, c?.messages, c?.draft]);
   if (serialized !== lastMessages) {
-    const forceScroll = !lastMessages;
+    const forceScroll = !lastMessages || followNextMessage;
+    followNextMessage = false;
     lastMessages = serialized;
     const timeline = byId('timeline');
     const oldScroll = timeline.scrollTop;
@@ -116,21 +134,21 @@ function render() {
       timelineConversation = selected;
     }
     if (c?.messages.length) timeline.querySelector('.empty')?.remove();
-    timeline.querySelector('[data-draft]')?.remove();
+    if (!c?.draft || isBackgroundTurn(c)) timeline.querySelector('[data-draft]')?.remove();
     if (!c?.messages.length) {
       const empty = document.createElement('div');
       empty.className = 'empty';
-      empty.innerHTML = `<h2>What would you like a hand with?</h2><p>Try a sample task. Make a file you can keep.<br class="desktop-break" /> Your chats and files stay in this browser.</p><div class="panel starter"><h3 class="section-label">Try an example</h3><div class="suggestions section-body"></div></div><p class="preview-note">This preview uses sample replies. Open-ended AI chat and ChatGPT sign-in are not connected yet.</p>`;
-      const examples: [string, string, IconName, string][] = [
-        ...demoTasks.map((task): [string, string, IconName, string] => [
-          task.title,
-          task.description,
-          'file',
-          task.prompt,
-        ]),
-        ['Find my files', 'See what you’ve saved here', 'folder', 'Show my saved files.'],
+      empty.innerHTML = `<div class="welcome-mark" aria-hidden="true">${icon('spark')}</div><h2>What can we get done today?</h2><div class="starter"><div class="suggestions"></div></div><p class="preview-note">Preview uses sample replies. ChatGPT is not connected.</p>`;
+      if (connectionState?.chatgpt.available) {
+        empty.querySelector('.preview-note')!.textContent = connectionState.chatgpt.connected
+          ? ''
+          : 'Connect ChatGPT to start a conversation.';
+      }
+      const examples: [string, IconName, string][] = [
+        ...demoTasks.map((task): [string, IconName, string] => [task.title, 'file', task.prompt]),
+        ['Find my files', 'folder', 'Show my saved files.'],
       ];
-      for (const [label, description, glyph, text] of examples) {
+      for (const [label, glyph, text] of examples) {
         const action = button(
           '',
           () => {
@@ -138,9 +156,9 @@ function render() {
             updateComposer();
             byId('prompt').focus();
           },
-          'action-row',
+          'action-row starter-card',
         );
-        action.innerHTML = `<span class="glyph">${icon(glyph)}</span><span class="action-main"><span class="action-title">${label}</span><span class="field-hint">${description}</span></span>${icon('chevron')}`;
+        action.innerHTML = `<span class="glyph">${icon(glyph)}</span><span class="action-main"><span class="action-title">${label}</span></span>${icon('chevron')}`;
         empty.querySelector('.suggestions')!.append(action);
       }
       timeline.append(empty);
@@ -155,7 +173,7 @@ function render() {
         continue;
       renderedMessages.add(item.id);
       const article = document.createElement('article');
-      article.className = 'message';
+      article.className = 'message message-enter';
       article.dataset.role = item.role;
       const label = document.createElement('div');
       label.className = 'message-label';
@@ -165,8 +183,10 @@ function render() {
           : item.role === 'assistant'
             ? 'Kinetik'
             : (item.tool ?? 'Workspace notice');
-      const content = document.createElement('pre');
-      content.textContent = item.text;
+      const content =
+        item.role === 'assistant' ? renderMessageContent(item.text) : document.createElement('pre');
+      content.classList.add('message-content');
+      if (item.role !== 'assistant') content.textContent = item.text;
       if (item.role === 'assistant') {
         const avatar = document.createElement('img');
         avatar.src = './icon.svg';
@@ -207,19 +227,38 @@ function render() {
             ),
             button('Download', () => downloadFile(file.path)),
           );
-          card.append(name, actions);
+          const fileIcon = document.createElement('span');
+          fileIcon.className = 'glyph';
+          fileIcon.innerHTML = icon('file');
+          card.append(fileIcon, name, actions);
           article.append(card);
         }
-      } else article.append(label, content);
-      timeline.append(article);
+      } else {
+        article.append(label, content);
+        if (item.role === 'assistant') {
+          const actions = document.createElement('div');
+          actions.className = 'message-actions';
+          actions.append(copyButton(item.text, 'Copy reply'));
+          article.append(actions);
+        }
+      }
+      timeline.insertBefore(article, timeline.querySelector('[data-draft]'));
       if (item.app && c) disposeApps.push(mountApp(article, item.app, c.id));
     }
     if (c?.draft && !isBackgroundTurn(c)) {
-      const draft = document.createElement('pre');
-      draft.className = 'message';
-      draft.dataset.draft = 'true';
-      draft.textContent = c.draft;
-      timeline.append(draft);
+      let draft = timeline.querySelector<HTMLElement>('[data-draft]');
+      if (!draft) {
+        draft = document.createElement('article');
+        draft.className = 'message streaming-message';
+        draft.dataset.draft = 'true';
+        draft.innerHTML = `<div class="message-label"><img src="./icon.svg" width="24" height="24" alt="" />Kinetik<span class="streaming-label">Writing</span></div><div class="message-content streaming-content"></div>`;
+        timeline.append(draft);
+      }
+      const content = draft.querySelector('.message-content')!;
+      const text = content.firstChild;
+      if (text instanceof Text && c.draft.startsWith(text.data)) {
+        text.appendData(c.draft.slice(text.data.length));
+      } else content.textContent = c.draft;
     }
     timeline.scrollTop = !c?.messages.length
       ? 0
@@ -227,6 +266,7 @@ function render() {
         ? timeline.scrollHeight
         : oldScroll;
   }
+  updateJumpButton();
   renderAutomations(state.automations, refresh, choose);
   byId('plugin-count').textContent = String(
     state.plugins.filter((p) => p.enabledAt !== null).length,
@@ -234,7 +274,7 @@ function render() {
   const list = byId('plugin-list');
   list.replaceChildren();
   if (!state.plugins.length)
-    list.innerHTML = `<div class="plugins-empty">${icon('plug')}<div><strong>No connections yet</strong><p class="field-hint">Add a service when you need more help.</p></div></div>`;
+    list.innerHTML = `<div class="plugins-empty">${icon('plug')}<div><strong>No connections yet</strong></div></div>`;
   for (const plugin of state.plugins) {
     const row = document.createElement('div');
     row.className = 'plugin-row';
@@ -347,10 +387,15 @@ byId('composer').onsubmit = (event) => {
     const input = byId<HTMLTextAreaElement>('prompt');
     const text = input.value;
     if (!text.trim() || submitting) return;
+    if (connectionState?.chatgpt.available && !connectionState.chatgpt.connected) {
+      connectionSetup.open();
+      return;
+    }
     submitting = true;
     updateComposer();
     try {
       if (!current()) selected = (await rpc<Conversation>('create')).id;
+      followNextMessage = true;
       await rpc('submit', { id: selected, text });
       input.value = '';
       updateComposer();
@@ -422,6 +467,21 @@ byId('plugin-form').onsubmit = (event) => {
     }
   })().catch((error) => showError(error, 'plugin-error'));
 };
+function updateJumpButton() {
+  const timeline = byId('timeline');
+  byId('jump-latest').hidden =
+    !timeline.querySelector('.message') ||
+    timeline.scrollHeight - timeline.scrollTop - timeline.clientHeight < 100;
+}
+byId('timeline').addEventListener('scroll', updateJumpButton, { passive: true });
+new ResizeObserver(updateJumpButton).observe(byId('timeline'));
+byId('jump-latest').onclick = () => {
+  const timeline = byId('timeline');
+  timeline.scrollTo({
+    top: timeline.scrollHeight,
+    behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth',
+  });
+};
 let refreshTimer: ReturnType<typeof setTimeout>;
 navigator.serviceWorker?.addEventListener('message', (event) => {
   if (event.data?.type === 'changed') {
@@ -435,6 +495,7 @@ async function start() {
   const registration = await connect();
   const updatesReady = setupUpdates(registration);
   await refresh();
+  await connectionSetup.initialize();
   await rpc('tick');
   await updatesReady;
   // The build is complete before the one-shot local launcher is allowed to exit.
@@ -465,6 +526,64 @@ async function start() {
 }
 setupFiles();
 setupAutomations(refresh);
+const connectionSetup = setupConnections((value) => {
+  if (JSON.stringify(connectionState) === JSON.stringify(value)) return;
+  connectionState = value;
+  const configured = value.charms.available || value.chatgpt.available;
+  byId('connection-status').hidden = !configured;
+  byId('managed-section').hidden = !configured;
+  byId('connection-status').innerHTML =
+    icon('plug') + (value.charms.status === 'connected' ? 'Charms connected' : 'Connections');
+  byId('charms-state').textContent =
+    value.charms.status === 'connected'
+      ? 'Connected · cloud workspace'
+      : value.charms.status === 'disabled'
+        ? 'Disabled'
+        : value.charms.status === 'reconnect'
+          ? 'Reconnect to continue'
+          : 'Not connected';
+  byId('chatgpt-state').textContent = value.chatgpt.connected
+    ? 'Connected'
+    : value.chatgpt.available
+      ? 'Not connected'
+      : 'Unavailable on this host';
+  byId('connection-disconnect').hidden = !['connected', 'disabled', 'reconnect'].includes(
+    value.charms.status,
+  );
+  byId('chatgpt-disconnect').hidden = !value.chatgpt.connected;
+  if (value.chatgpt.available) {
+    byId('model-label').textContent = 'ChatGPT';
+    byId('model-status').textContent = value.chatgpt.connected
+      ? 'ChatGPT subscription'
+      : 'Connect ChatGPT to chat';
+    byId('model-settings-title').textContent = 'ChatGPT subscription';
+    byId('model-settings-description').textContent =
+      'Your account connection is managed by this host’s credential helper. Your agent and tools run in this browser.';
+  }
+  if (!current()?.messages.length) lastMessages = '';
+  render();
+});
+for (const id of ['connection-status', 'connection-open', 'chatgpt-open'])
+  byId(id).onclick = () => {
+    for (const dialog of document.querySelectorAll<HTMLDialogElement>('dialog[open]'))
+      dialog.close();
+    connectionSetup.open();
+  };
+byId('connection-disconnect').onclick = () => {
+  void connectionSetup
+    .disconnectCharms()
+    .then(refresh)
+    .catch((e) => showError(e, 'error'));
+};
+byId('chatgpt-disconnect').onclick = () => {
+  void connectionSetup.disconnectChatGPT().catch((e) => showError(e, 'error'));
+};
+window.addEventListener('focus', () => {
+  void connectionSetup.refresh().catch(() => {});
+});
+setInterval(() => {
+  void connectionSetup.refresh().catch(() => {});
+}, 30000);
 updateComposer();
 setInterval(() => {
   void rpc('tick')
