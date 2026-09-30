@@ -3,11 +3,18 @@ export function connect(): Promise<ServiceWorkerRegistration> {
   if (!('serviceWorker' in navigator) || !('locks' in navigator))
     throw new Error('This browser needs Service Workers and Web Locks in a secure context.');
   return (ready ??= navigator.serviceWorker
-    .register(new URL('sw.js', document.baseURI), { scope: './' })
+    .register(new URL('sw.js', document.baseURI), { scope: './', updateViaCache: 'none' })
     .then(() => navigator.serviceWorker.ready));
 }
 export async function rpc<T = void>(op: string, data: Record<string, unknown> = {}): Promise<T> {
   const registration = await connect();
+  return workerRPC<T>(registration.active!, op, data);
+}
+export function workerRPC<T = void>(
+  worker: ServiceWorker,
+  op: string,
+  data: Record<string, unknown> = {},
+): Promise<T> {
   return new Promise((resolve, reject) => {
     const channel = new MessageChannel();
     const timer = setTimeout(() => {
@@ -20,6 +27,6 @@ export async function rpc<T = void>(op: string, data: Record<string, unknown> = 
       if (event.data.ok) resolve(event.data.result as T);
       else reject(new Error(event.data.error));
     };
-    registration.active!.postMessage({ op, ...data }, [channel.port2]);
+    worker.postMessage({ op, ...data }, [channel.port2]);
   });
 }
