@@ -10,7 +10,7 @@ A small browser agent runtime with a persistent workspace, just-bash, native ski
 
 ## Native apps
 
-The SolidJS interface also builds with Tauri 2 for Android, iOS, and Windows. Native adapters provide system-browser sign-in, protected credentials, native file pickers, and Android foreground work. See [native build and release instructions](docs/native.md). Device acceptance testing is separate from the browser test suite.
+The SolidJS interface also builds with Tauri 2. Android is available for testing; iOS needs physical-device acceptance testing. Windows remains experimental because native onboarding currently fails its startup check. Native adapters provide system-browser sign-in, protected credentials, native file pickers, and Android foreground work. See [native build and release instructions](docs/native.md). Device acceptance testing is separate from the browser test suite.
 
 ## Run locally
 

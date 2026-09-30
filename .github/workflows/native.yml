@@ -15,6 +15,8 @@ permissions:
   contents: read
 jobs:
   desktop:
+    # Windows remains experimental; preserve diagnostics without blocking web/Android releases.
+    continue-on-error: true
     runs-on: windows-latest
     timeout-minutes: 45
     steps:
