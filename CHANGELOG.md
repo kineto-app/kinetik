@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Add background tool processes that release the agent turn and wake the same conversation with a durable completion result. Include cancellation, plugin completion hooks, remote recovery and interruption reporting without replay.
+
 ## 0.1.0 - Unreleased
 
 - Browser-worker prototype with a deterministic mock model.

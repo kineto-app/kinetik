@@ -97,3 +97,18 @@ test('a model can mark its goal complete without cancelling its own tool result'
   expect((await runtime.automations.list())[0]).toMatchObject({ status: 'completed', runs: 1 });
   expect((await runtime.conversations())[0]).toMatchObject({ status: 'idle' });
 });
+
+test('a routine waits for its background process and completion turn before finishing', async () => {
+  const runtime = new Runtime(new Store(crypto.randomUUID()));
+  await runtime.automations.create({
+    kind: 'task',
+    prompt: '/bg sleep 0.5; echo done',
+    maxRuns: 1,
+  });
+  await runtime.automations.tick();
+  await runtime.automations.tick();
+  expect((await runtime.automations.list())[0]).toMatchObject({ status: 'active', runs: 1 });
+  await runtime.background.drain();
+  await runtime.automations.tick();
+  expect((await runtime.automations.list())[0]).toMatchObject({ status: 'completed', runs: 1 });
+});

@@ -51,6 +51,22 @@ return (async () => {
       const data = payload(result);
       return { done: data.status !== 'running' && data.status !== 'pending', result };
     },
+    async wait(id, signal) {
+      while (true) {
+        signal.throwIfAborted();
+        const result = await client.call('charms_job', { job_id: id }, signal);
+        const data = payload(result);
+        if (!['running', 'pending'].includes(data.status)) return result;
+        // Charms currently exposes status reads, not a completion subscription.
+        // This adapter waits without invoking the model.
+        await new Promise((resolve, reject) => {
+          const abort = () => { clearTimeout(timer); reject(signal.reason); };
+          const timer = setTimeout(() => { signal.removeEventListener('abort', abort); resolve(); }, 1000);
+          signal.addEventListener('abort', abort, { once: true });
+          if (signal.aborted) abort();
+        });
+      }
+    },
     async cancel(id) { await client.call('charms_job_cancel', { job_id: id }); },
   };
   return {

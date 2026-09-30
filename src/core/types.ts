@@ -41,6 +41,7 @@ export interface SkillSnapshot {
   skills: Skill[];
 }
 export interface ToolContext {
+  background?: boolean;
   signal: AbortSignal;
   checkpoint(operationId: string): Promise<void>;
 }
@@ -64,6 +65,7 @@ export interface ToolDefinition {
   execute(input: Record<string, unknown>, context: ToolContext): Promise<unknown>;
   recover?(operationId: string, signal: AbortSignal): Promise<{ done: boolean; result?: unknown }>;
   cancel?(operationId: string): Promise<void>;
+  wait?(operationId: string, signal: AbortSignal): Promise<unknown>;
 }
 export interface Plugin {
   tools?: Record<string, ToolDefinition>;
