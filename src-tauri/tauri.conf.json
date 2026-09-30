@@ -1,0 +1,65 @@
+{
+  "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
+  "productName": "Kinetik",
+  "version": "0.1.4",
+  "identifier": "app.kinetik.oss",
+  "build": {
+    "frontendDist": "../dist-native",
+    "devUrl": "http://localhost:5173",
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build:native"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Kinetik",
+        "width": 1100,
+        "height": 780,
+        "resizable": true,
+        "fullscreen": false,
+        "minWidth": 360,
+        "minHeight": 480,
+        "create": false,
+        "useHttpsScheme": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "android": {
+      "debugApplicationIdSuffix": ".debug",
+      "minSdkVersion": 26
+    },
+    "iOS": {
+      "minimumSystemVersion": "17.0"
+    }
+  },
+  "plugins": {
+    "deep-link": {
+      "mobile": [
+        {
+          "scheme": ["kinetik"],
+          "host": "auth",
+          "pathPrefix": ["/complete"]
+        }
+      ],
+      "desktop": {
+        "schemes": ["kinetik"]
+      }
+    },
+    "hot-update": {
+      "enabled": false
+    }
+  }
+}

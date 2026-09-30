@@ -1,3 +1,4 @@
+import { attachmentPath } from './rpc';
 import { test, expect, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 
@@ -143,12 +144,16 @@ test('connections and composer uploads complete their visible workflows', async 
     mimeType: 'text/plain',
     buffer: Buffer.from('local file'),
   });
-  await expect(page.locator('#error')).toHaveText('Added example.txt');
+  await expect(page.locator('#attachments')).toContainText('example.txt');
   await expect(page.locator('#files-open')).toHaveCount(0);
   await expect(page.locator('.file-card')).toHaveCount(0);
+  await page.getByRole('textbox', { name: 'Message', exact: true }).fill('Use the attached file.');
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await expect(page.locator('#attachments')).toBeHidden();
+  await expect(page.locator('#status')).toHaveText('Ready');
   await page
     .getByRole('textbox', { name: 'Message', exact: true })
-    .fill('/show_file /workspace/example.txt');
+    .fill('/show_file ' + (await attachmentPath(page, 'example.txt')));
   await page.getByRole('button', { name: 'Send', exact: true }).click();
   await page
     .locator('.file-card')

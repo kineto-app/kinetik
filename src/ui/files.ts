@@ -1,3 +1,4 @@
+import { isNative } from '../platform/environment';
 import { rpc } from '../browser/client';
 import type { Message } from '../core/types';
 import { icon, type IconName } from './icons';
@@ -35,6 +36,14 @@ function control(name: IconName, label: string, action: () => void) {
   return button;
 }
 function download(file: SharedFile, bytes: Uint8Array) {
+  if (isNative) {
+    void import('../platform/files')
+      .then(({ saveNativeFile }) => saveNativeFile(file.name, bytes))
+      .catch((error) =>
+        window.dispatchEvent(new CustomEvent('kinetik-native-error', { detail: error })),
+      );
+    return;
+  }
   const url = URL.createObjectURL(new Blob([bytes as BlobPart]));
   const link = document.createElement('a');
   link.href = url;
@@ -203,7 +212,7 @@ function showFeedback(value: unknown, kind: string) {
   byId('error').textContent = value instanceof Error ? value.message : String(value);
   byId('error').dataset.kind = kind;
 }
-export function setupFiles() {
+export function setupFiles(attach: (file: { name: string; bytes: Uint8Array }) => Promise<void>) {
   byId('file-dialog').addEventListener('close', () => {
     closePreview?.();
     closePreview = undefined;
@@ -215,9 +224,9 @@ export function setupFiles() {
       const file = input.files?.[0];
       if (!file) return;
       input.value = '';
-      if (file.size > 4 * 1024 * 1024) throw new Error('Choose a file smaller than 4 MB.');
-      await rpc('import', { name: file.name, bytes: new Uint8Array(await file.arrayBuffer()) });
-      showFeedback('Added ' + file.name, 'success');
+      if (file.size > 25 * 1024 * 1024) throw new Error('Choose a file smaller than 25 MB.');
+      await attach({ name: file.name, bytes: new Uint8Array(await file.arrayBuffer()) });
+      byId('ui-announcement').textContent = 'Attached ' + file.name;
     })().catch((error) => showFeedback(error, 'error'));
   };
 }

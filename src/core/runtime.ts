@@ -6,12 +6,15 @@ import { Automations } from './automation';
 import { BackgroundProcesses, type BackgroundProcess } from './background';
 import { Store } from '../browser/store';
 import { createFilesystem } from '../browser/filesystem';
-import { Plugins } from '../plugins/loader';
+import { Plugins, digest } from '../plugins/loader';
 import { MockModel } from './mock-model';
 import { localTools } from './tools';
 import {
   errorText,
   message,
+  modelMessageText,
+  type Attachment,
+  type StagedAttachment,
   type Conversation,
   type Model,
   type Skill,
@@ -34,6 +37,8 @@ function abortable<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
   });
 }
 const key = (id: string) => `conversation:${id}`;
+const attachmentLock = <T>(id: string, work: () => Promise<T>) =>
+  globalThis.navigator?.locks ? navigator.locks.request('kinetik-attachments:' + id, work) : work();
 const printable = (value: unknown) =>
   (typeof value === 'string'
     ? value
@@ -113,24 +118,153 @@ export class Runtime {
     this.changed();
     return result;
   }
-  async submit(id: string, text: string, messageId?: string): Promise<void> {
-    if (typeof text !== 'string' || !text.trim() || text.length > (messageId ? 32768 : 16384))
+  async submit(
+    id: string,
+    text: string,
+    messageId?: string,
+    attachmentIds: string[] = [],
+  ): Promise<void> {
+    if (
+      !Array.isArray(attachmentIds) ||
+      attachmentIds.length > 10 ||
+      attachmentIds.some((value) => typeof value !== 'string') ||
+      new Set(attachmentIds).size !== attachmentIds.length
+    )
+      throw new Error('Invalid attachments.');
+    if (
+      typeof text !== 'string' ||
+      (!text.trim() && !attachmentIds.length) ||
+      text.length > (messageId ? 32768 : 16384)
+    )
       throw new Error('Enter a message up to 16,384 characters.');
-    const entry = message('user', text);
-    if (messageId) entry.id = messageId;
-    await this.steer(id, entry);
+    await attachmentLock(id, async () => {
+      const entry = message('user', text);
+      if (messageId) entry.id = messageId;
+      const prepared = attachmentIds.length
+        ? await this.prepareAttachments(id, attachmentIds)
+        : undefined;
+      if (prepared) entry.attachments = prepared.files;
+      await this.steer(id, entry, true, prepared?.plugins);
+      for (const attachment of entry.attachments ?? [])
+        await this.store.delete('attachment-bytes:' + attachment.id);
+    });
   }
-  private async steer(id: string, entry: Message, wake = true): Promise<void> {
+  async stageAttachment(id: string, name: string, bytes: Uint8Array): Promise<StagedAttachment> {
+    if (!name || name.length > 255 || /[\/\\\x00-\x1f]/.test(name) || ['.', '..'].includes(name))
+      throw new Error('Choose a file with a valid name.');
+    if (!(bytes instanceof Uint8Array) || bytes.byteLength > 25 * 1024 * 1024)
+      throw new Error('Choose a file smaller than 25 MB.');
+    const file = { id: crypto.randomUUID(), name, size: bytes.byteLength };
+    await this.store.put('attachment-bytes:' + file.id, bytes);
+    try {
+      await this.update(id, (c) => {
+        const files = c.attachments ?? [];
+        if (
+          files.length >= 10 ||
+          files.reduce((sum, f) => sum + f.size, file.size) > 25 * 1024 * 1024
+        )
+          throw new Error('Attach up to 10 files, 25 MB in total.');
+        return { ...c, attachments: [...files, file] };
+      });
+    } catch (error) {
+      await this.store.delete('attachment-bytes:' + file.id);
+      throw error;
+    }
+    return file;
+  }
+  async removeAttachment(id: string, attachmentId: string): Promise<void> {
+    await attachmentLock(id, async () => {
+      let removed = false;
+      await this.update(id, (c) => {
+        removed = Boolean(c.attachments?.some((f) => f.id === attachmentId));
+        return { ...c, attachments: c.attachments?.filter((f) => f.id !== attachmentId) };
+      });
+      if (removed) await this.store.delete('attachment-bytes:' + attachmentId);
+    });
+  }
+  private async prepareAttachments(
+    id: string,
+    ids: string[],
+  ): Promise<{ files: Attachment[]; plugins: InstalledPlugin[] }> {
+    const c = await this.store.get<Conversation>(key(id));
+    if (!c || ids.some((id) => !c.attachments?.some((f) => f.id === id)))
+      throw new Error('Attachment is no longer available. Add it again.');
+    const records = c.plugins ?? (await this.plugins.list());
+    const { bindings, sources } = await this.plugins.snapshot(
+      localTools(await this.workspace, () => [], this.store),
+      records,
+    );
+    const provider = bindings.write?.provider;
+    const source = sources.find((s) => s.installed.manifest.id === provider);
+    const upload = source?.plugin.files?.upload;
+    if (!provider || (provider !== 'local' && !upload))
+      throw new Error(
+        'This connection does not support file uploads. Update the connection and try again.',
+      );
+    const uploadRevision = source
+      ? await digest(JSON.stringify([source.installed.digest, source.installed.settings]))
+      : 'local';
+    const result: Attachment[] = [];
+    const signal = AbortSignal.timeout(120000);
+    for (const attachmentId of ids) {
+      const file = c.attachments!.find((f) => f.id === attachmentId)!;
+      if (file.uploaded?.provider === provider && file.uploadRevision === uploadRevision) {
+        result.push(file.uploaded);
+        continue;
+      }
+      const bytes = await this.store.get<Uint8Array>('attachment-bytes:' + file.id);
+      if (!bytes) throw new Error('Attachment is no longer available. Add it again.');
+      let path: string;
+      if (provider === 'local') {
+        if (bytes.length > 4 * 1024 * 1024)
+          throw new Error('Local attachments must be smaller than 4 MB.');
+        const fs = (await this.workspace).fs;
+        const directory = '/workspace/attachments/' + file.id;
+        await fs.mkdir(directory, { recursive: true });
+        path = directory + '/' + file.name;
+        await fs.writeFile(path, bytes);
+      } else {
+        ({ path } = await abortable(
+          upload!({ id: file.id, name: file.name, bytes }, signal),
+          signal,
+        ));
+        if (typeof path !== 'string' || !path || path.length > 4096 || /[\x00-\x1f]/.test(path))
+          throw new Error('The connection returned an invalid attachment path.');
+      }
+      const uploaded = { id: file.id, name: file.name, size: file.size, path, provider };
+      await this.update(id, (value) => ({
+        ...value,
+        attachments: value.attachments?.map((f) =>
+          f.id === file.id ? { ...f, uploaded, uploadRevision } : f,
+        ),
+      }));
+      result.push(uploaded);
+    }
+    return { files: result, plugins: records };
+  }
+  private async steer(
+    id: string,
+    entry: Message,
+    wake = true,
+    plugins?: InstalledPlugin[],
+  ): Promise<void> {
     await this.update(id, (c) => {
       if (c.messages.some((m) => m.id === entry.id)) return c;
       if (entry.role === 'user' && c.messages.length > 1000)
         throw new Error('Start a new conversation; this one reached its prototype limit.');
       return {
         ...c,
+        plugins: c.plugins ?? plugins,
+        attachments: c.attachments?.filter(
+          (f) => !entry.attachments?.some((sent) => sent.id === f.id),
+        ),
         title:
           c.messages.length || entry.role !== 'user'
             ? c.title
-            : entry.text.split('\n')[0].slice(0, 50),
+            : (entry.text.split('\n')[0] || entry.attachments?.[0]?.name || 'New chat').slice(
+                0,
+                50,
+              ),
         messages: [...c.messages, entry],
         pending: wake ? [...c.pending, entry.id] : c.pending,
         status:
@@ -212,7 +346,7 @@ export class Runtime {
               ...(value.modelInput ?? []),
               ...value.pending.map((id) => ({
                 role: 'user',
-                content: value.messages.find((m) => m.id === id)!.text,
+                content: modelMessageText(value.messages.find((m) => m.id === id)!),
               })),
             ],
             pending: [],

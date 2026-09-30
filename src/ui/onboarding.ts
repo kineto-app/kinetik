@@ -1,3 +1,4 @@
+import { isNative } from '../platform/environment';
 import { setupInstallation } from '../browser/installation';
 import { rpc } from '../browser/client';
 import type { SetupState } from '../connections/manager';
@@ -82,7 +83,7 @@ export function setupConnections(changed: (state: SetupState) => void) {
 
         </div>
         <div id="setup-ready" hidden><div class="setup-ready-list"><p id="setup-charms-ready">${icon('check')}<span>Charms</span><strong>Connected</strong></p><p>${icon('check')}<span>ChatGPT</span><strong>Connected</strong></p></div><button id="setup-start" class="primary setup-primary">Start chatting ${icon('chevron')}</button></div>
-        <p id="setup-progress" class="setup-hint" role="status"></p>
+        <p id="setup-progress" class="setup-hint" role="status"></p><button id="setup-cancel-signin" class="setup-quiet" hidden>Cancel sign-in</button>
         <p id="setup-error" class="setup-error" role="alert" hidden></p>
         <button id="setup-retry" class="secondary" hidden>Try again</button>
       </section>
@@ -144,10 +145,11 @@ export function setupConnections(changed: (state: SetupState) => void) {
     $('helper-missing').hidden = state.chatgpt.available;
     $('login').hidden = !state.chatgpt.available || state.chatgpt.connected;
     $('callback').hidden = !signingIn;
-    $('resume-chatgpt').hidden = signingIn || !state.chatgpt.available || state.chatgpt.connected;
+    $('resume-chatgpt').hidden =
+      isNative || signingIn || !state.chatgpt.available || state.chatgpt.connected;
     $('authorize').hidden = !$('authorize').hasAttribute('href');
     const charmsAuthorized = ['connected', 'disabled'].includes(state.charms.status);
-    $('charms-return-option').hidden = !installation.standalone || charmsAuthorized;
+    $('charms-return-option').hidden = isNative || !installation.standalone || charmsAuthorized;
     if (charmsAuthorized) {
       // The OAuth code has already been consumed. Retry activation using the saved credential.
       $<HTMLInputElement>('charms-link').value = '';
@@ -175,7 +177,7 @@ export function setupConnections(changed: (state: SetupState) => void) {
     }
   }
   function renderInstallButtons() {
-    const hidden = installation.standalone;
+    const hidden = isNative || installation.standalone;
     $('install-open').hidden =
       hidden || screen === 'install' || screen === 'handoff' || screen === 'connected';
     const button = document.getElementById('install-open');
@@ -273,6 +275,10 @@ export function setupConnections(changed: (state: SetupState) => void) {
     dialog.setAttribute('aria-busy', 'true');
     for (const button of dialog.querySelectorAll<HTMLButtonElement>('button'))
       button.disabled = true;
+    if (isNative) {
+      $('cancel-signin').hidden = false;
+      $<HTMLButtonElement>('cancel-signin').disabled = false;
+    }
     try {
       await work();
     } catch (e) {
@@ -281,6 +287,7 @@ export function setupConnections(changed: (state: SetupState) => void) {
       error(e);
     } finally {
       busy = false;
+      $('cancel-signin').hidden = true;
       $('progress').textContent = '';
       dialog.removeAttribute('aria-busy');
       for (const button of dialog.querySelectorAll<HTMLButtonElement>('button'))
@@ -312,6 +319,8 @@ export function setupConnections(changed: (state: SetupState) => void) {
     }
     return response.json();
   }
+  $('cancel-signin').onclick = () =>
+    void import('../platform/native').then((native) => native.cancelNativeAuthentication());
   $('later').onclick = close;
   $('start').onclick = close;
   dialog.addEventListener('cancel', (event) => {
@@ -337,9 +346,10 @@ export function setupConnections(changed: (state: SetupState) => void) {
     }, 'Copying return link…');
   $('connect-charms').onclick = () => {
     if (busy) return;
-    const tab = !['connected', 'disabled'].includes(state.charms.status)
-      ? window.open('about:blank', '_blank')
-      : null;
+    const tab =
+      !isNative && !['connected', 'disabled'].includes(state.charms.status)
+        ? window.open('about:blank', '_blank')
+        : null;
     if (tab) tab.opener = null;
     void run(async () => {
       try {
@@ -349,6 +359,12 @@ export function setupConnections(changed: (state: SetupState) => void) {
         }
         if (state.charms.status === 'disabled') {
           await rpc('connectionActivate');
+          await refresh();
+          next();
+          return;
+        }
+        if (isNative) {
+          await (await import('../platform/native')).authenticateNative('charms');
           await refresh();
           next();
           return;
@@ -374,10 +390,16 @@ export function setupConnections(changed: (state: SetupState) => void) {
   };
   $('login').onclick = () => {
     if (busy) return;
-    const tab = window.open('about:blank', '_blank');
+    const tab = isNative ? null : window.open('about:blank', '_blank');
     if (tab) tab.opener = null;
     void run(async () => {
       try {
+        if (isNative) {
+          await (await import('../platform/native')).authenticateNative('chatgpt');
+          await refresh();
+          next();
+          return;
+        }
         const value = await helper('login', {});
         const destination = new URL(value.url);
         if (destination.origin !== 'https://auth.openai.com')

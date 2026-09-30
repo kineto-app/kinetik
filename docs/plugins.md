@@ -33,6 +33,10 @@ Tool inputs are validated against their JSON Schema by Ajv before dispatch. `exe
 
 Optional `recover(operationId, signal)` returns `{done, result}`; optional `cancel(operationId)` requests remote cancellation. If the browser dies before an ID is saved, the operation is uncertain and needs manual resolution. No host can make that gap exactly-once without server cooperation.
 
+Plugins that replace `write` can also provide `files.upload({id, name, bytes}, signal)`, returning `{path}` after the complete file reaches their workspace. The host sends composer attachments through the active write provider before submitting the message. Uploads run outside model tool activity. Use the stable attachment `id` for a collision-free destination and safe retries. A provider without this hook reports an unsupported upload instead of silently saving bytes to the local workspace.
+
+The bundled Charms adapter uses `charms_files_upload`, PUTs the bytes to the returned capability URL without an Authorization header, and waits for `charms_job` when the server returns 202. Existing installations keep their pinned adapter; choose Update in Connections to pick up this hook. Selected attachments remain on the device until sent or removed, including after reopening. Limits are ten files and 25 MB total; the local workspace permits 4 MB per file. Sent file names and provider paths enter the conversation and exported history. Unsent attachments are not included in workspace exports.
+
 For native skills, return `skills.sync(previous, signal)` with a complete snapshot:
 
 ```js

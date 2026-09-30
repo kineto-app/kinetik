@@ -8,6 +8,10 @@ A small browser agent runtime with a persistent workspace, just-bash, native ski
 | ------------------------------------------- | ----------------------------------------------- |
 | ![Light workspace](docs/images/desktop.png) | ![Dark workspace](docs/images/desktop-dark.png) |
 
+## Native apps
+
+The SolidJS interface also builds with Tauri 2. Android is available for testing; iOS needs physical-device acceptance testing. Windows remains experimental because native onboarding currently fails its startup check. Native adapters provide system-browser sign-in, protected credentials, native file pickers, and Android foreground work. See [native build and release instructions](docs/native.md). Device acceptance testing is separate from the browser test suite.
+
 ## Run locally
 
 Requires Node.js 22.12 or newer and a modern browser with Service Workers, Web Locks, and IndexedDB. Chromium desktop and mobile-sized Chromium are automated test targets.

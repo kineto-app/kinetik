@@ -77,6 +77,25 @@ return (async () => {
   };
   return {
     tools, replacements: { ...replacements, show_file: null },
+    files: {
+      async upload(file, signal) {
+        if (!remote.charms_files_upload) throw new Error('Update Charms to enable file uploads.');
+        const slot = await call('charms_files_upload', { path: 'files/attachments/' + file.id + '/' + file.name }, signal);
+        const url = new URL(slot.upload_url);
+        if (url.origin !== new URL(host.settings.url).origin || url.username || url.password || slot.method !== 'PUT' || typeof slot.path !== 'string') throw new Error('Charms returned an invalid upload destination.');
+        if (typeof slot.max_bytes !== 'number' || file.bytes.length > slot.max_bytes) throw new Error('This file is too large for Charms.');
+        const response = await fetch(url, { method: 'PUT', body: file.bytes, credentials: 'omit', redirect: 'error', headers: { 'Content-Type': 'application/octet-stream' }, signal });
+        if (response.status === 202) {
+          const receipt = await response.json();
+          if (typeof receipt.job_id !== 'string') throw new Error('Charms returned an invalid upload receipt.');
+          const result = payload(await tools.charms_exec.wait(receipt.job_id, signal));
+          if (result.status !== 'completed' || result.error) throw new Error('The file did not reach Charms. Try sending again.');
+        } else if (response.status !== 204) {
+          throw new Error('File upload failed. Try sending again.');
+        }
+        return { path: slot.path };
+      },
+    },
     skills: {
       async sync(previous, signal) {
         const catalogPages = await pages('charms_skill_find', {}, signal);

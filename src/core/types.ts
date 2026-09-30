@@ -1,3 +1,28 @@
+export interface Attachment {
+  id: string;
+  name: string;
+  size: number;
+  path: string;
+  provider: string;
+}
+export interface StagedAttachment {
+  id: string;
+  name: string;
+  size: number;
+  uploaded?: Attachment;
+  uploadRevision?: string;
+}
+export function modelMessageText(value: Message): string {
+  return (
+    value.text +
+    (value.attachments?.length
+      ? '\n\nAttached files (already uploaded; use the named workspace provider to read them):\n' +
+        value.attachments
+          .map(({ name, path, provider }) => JSON.stringify({ name, path, provider }))
+          .join('\n')
+      : '')
+  );
+}
 export interface Message {
   id: string;
   role: 'user' | 'assistant' | 'tool' | 'notice';
@@ -5,6 +30,7 @@ export interface Message {
   createdAt: number;
   /** Elapsed time for the completed agent turn, including connection waits. */
   durationMs?: number;
+  attachments?: Attachment[];
   visibility?: 'internal';
   source?: 'background';
   tool?: string;
@@ -33,6 +59,7 @@ export interface Conversation {
   title: string;
   messages: Message[];
   pending: string[];
+  attachments?: StagedAttachment[];
   status: RunStatus;
   waitingFor?: 'connection' | 'signin';
   retryAt?: number;
@@ -87,6 +114,12 @@ export interface ToolDefinition {
   wait?(operationId: string, signal: AbortSignal): Promise<unknown>;
 }
 export interface Plugin {
+  files?: {
+    upload(
+      file: { id: string; name: string; bytes: Uint8Array },
+      signal: AbortSignal,
+    ): Promise<{ path: string }>;
+  };
   tools?: Record<string, ToolDefinition>;
   replacements?: Partial<
     Record<'exec' | 'read' | 'write' | 'edit' | 'list' | 'show_file', string | null>

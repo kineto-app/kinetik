@@ -1,3 +1,4 @@
+import { isNative } from '../platform/environment';
 import type { AppView } from '../core/types';
 import { rpc } from '../browser/client';
 import { icon } from './icons';
@@ -70,7 +71,8 @@ export function mountApp(
   const frame = document.createElement('iframe');
   frame.title = 'MCP App';
   frame.className = 'mcp-app';
-  frame.sandbox.add('allow-scripts', 'allow-same-origin');
+  frame.sandbox.add('allow-scripts');
+  if (!isNative) frame.sandbox.add('allow-same-origin');
   frame.src = new URL('app-sandbox.html', document.baseURI).href;
   // Keep the iframe connected while promoting its container to the top layer.
   // Moving an iframe into a separate dialog reloads it and loses the selected view.
