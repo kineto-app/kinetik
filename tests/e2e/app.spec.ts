@@ -299,3 +299,121 @@ test('background process releases the turn and later wakes it with output withou
     after.conversations[0].messages.filter((m) => m.id.startsWith('background-completed:')),
   ).toHaveLength(1);
 });
+
+test('background app results appear immediately with tool activity hidden and survive reload', async ({
+  page,
+}) => {
+  await rpc(page, 'install', {
+    source: 'http://127.0.0.1:4173/plugins/mcp/plugin.json',
+    settings: JSON.stringify({ url: 'http://127.0.0.1:4174/mcp' }),
+  });
+  await rpc(page, 'enable', { id: 'mcp', enabled: true });
+  await send(page, '/tool mcp__show {}');
+  await expect(
+    page.frameLocator('iframe.mcp-app').frameLocator('iframe').locator('#result'),
+  ).toHaveText('Ready');
+  await expect(page.locator('[data-role=assistant]')).toHaveCount(1);
+  await settled(page);
+  const state = await rpc<{ conversations: Conversation[] }>(page, 'state');
+  const c = state.conversations[0];
+  // Replay the persisted background-turn shape produced by Runtime after a job wakes it.
+  // New message IDs force incremental rendering, just as a live completion does.
+  const saved = c.messages;
+  const writeConversation = async (conversation: Conversation) =>
+    page.evaluate(async (conversation) => {
+      await new Promise<void>((resolve, reject) => {
+        const open = indexedDB.open('kinetik-oss-v1');
+        open.onerror = () => reject(open.error);
+        open.onsuccess = () => {
+          const db = open.result;
+          const tx = db.transaction('records', 'readwrite');
+          tx.objectStore('records').put(conversation, 'conversation:' + conversation.id);
+          tx.oncomplete = () => {
+            db.close();
+            resolve();
+          };
+          tx.onerror = () => reject(tx.error);
+        };
+      });
+      navigator.serviceWorker.dispatchEvent(
+        new MessageEvent('message', { data: { type: 'changed' } }),
+      );
+    }, conversation);
+  await writeConversation({ ...c, messages: [] });
+  await page.reload();
+  await expect(page.locator('#status')).toHaveText('Ready');
+  await expect
+    .poll(
+      async () =>
+        (await rpc<{ conversations: Conversation[] }>(page, 'state')).conversations[0].messages
+          .length,
+    )
+    .toBe(0);
+  await expect(page.locator('iframe.mcp-app')).toHaveCount(0);
+  c.messages = saved.map((item) => ({
+    ...item,
+    id: crypto.randomUUID(),
+    ...(item.app ? { visibility: 'internal' as const, text: 'private tool receipt' } : {}),
+    ...(item.role === 'assistant' ? { text: 'Your result is ready.' } : {}),
+  }));
+  await writeConversation(c);
+  const app = page.frameLocator('iframe.mcp-app').frameLocator('iframe');
+  await expect(page.locator('[data-role=assistant]').last()).toHaveText(/Your result is ready/);
+  await expect(app.locator('#result')).toHaveText('Ready');
+  await expect(page.locator('#timeline')).not.toContainText('private tool receipt');
+  await expect(page.locator('.tool-group')).toHaveCount(0);
+  await page.screenshot({ path: test.info().outputPath('background-widget.png') });
+  await page.reload();
+  await expect(app.locator('#result')).toHaveText('Ready');
+  await expect(page.locator('.tool-group')).toHaveCount(0);
+});
+
+test('closing the browser worker recovers a Charms job and its widget without another message', async ({
+  page,
+  context,
+  request,
+}) => {
+  const base = 'http://127.0.0.1:4174/onboarding/';
+  await request.get(base + 'reset');
+  await request.post(base + 'connections/chatgpt/callback', { data: {} });
+  await request.get(base + 'background-model');
+  await page.goto(base);
+  await expect(page.locator('#status')).toHaveText('Ready');
+  await rpc(page, 'install', {
+    source: base + 'plugins/charms/plugin.json',
+    settings: JSON.stringify({
+      url: base + 'connections/charms/mcp',
+      token: 'charms-fixture-token',
+    }),
+  });
+  await rpc(page, 'enable', { id: 'charms', enabled: true });
+  await send(page, 'Create my result');
+  await expect(page.locator('[data-role=assistant]').last()).toContainText(
+    'Working in the background.',
+  );
+  await expect
+    .poll(async () => (await (await request.get(base + 'stats')).json()).remoteRuns)
+    .toBe(1);
+  const devtools = await context.newCDPSession(page);
+  await devtools.send('ServiceWorker.enable');
+  await devtools.send('ServiceWorker.stopAllWorkers');
+  await devtools.detach();
+  await page.close();
+  await request.get(base + 'finish-job');
+  const reopened = await context.newPage();
+  await reopened.goto(base);
+  await expect(reopened.locator('[data-role=assistant]').last()).toContainText(
+    'Your result is ready.',
+  );
+  await expect(
+    reopened.frameLocator('iframe.mcp-app').frameLocator('iframe').locator('#result'),
+  ).toHaveText('Recovered result');
+  await expect(reopened.locator('.tool-group')).toHaveCount(0);
+  await expect(reopened.locator('#timeline')).not.toContainText('remote result');
+  expect((await (await request.get(base + 'stats')).json()).remoteRuns).toBe(1);
+  await reopened.reload();
+  await expect(
+    reopened.frameLocator('iframe.mcp-app').frameLocator('iframe').locator('#result'),
+  ).toHaveText('Recovered result');
+  expect((await (await request.get(base + 'stats')).json()).remoteRuns).toBe(1);
+});
