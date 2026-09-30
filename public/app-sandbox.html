@@ -5,6 +5,12 @@
   addEventListener('message', (event) => {
     if (event.source === parent) {
       const data = event.data;
+      // Matching the embedder's scheme prevents an opaque browser-default canvas
+      // behind otherwise transparent app content.
+      const theme =
+        data?.result?.hostContext?.theme ??
+        (data?.method === 'ui/notifications/host-context-changed' ? data.params?.theme : null);
+      if (theme === 'light' || theme === 'dark') document.documentElement.style.colorScheme = theme;
       if (data?.method === 'ui/notifications/sandbox-resource-ready' && !frame) {
         frame = document.createElement('iframe');
         frame.setAttribute('sandbox', 'allow-scripts allow-same-origin');
