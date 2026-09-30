@@ -14,6 +14,19 @@
   --hover: light-dark(rgba(25, 22, 22, 0.06), rgba(255, 255, 255, 0.09));
   --ok: light-dark(rgb(58, 150, 96), rgb(114, 196, 148));
   --bad: light-dark(rgb(198, 74, 74), rgb(226, 124, 124));
+  --accent-ink: light-dark(color-mix(in srgb, var(--accent) 80%, var(--ink)), var(--accent));
+  /* Slightly deeper fill keeps small button labels above 4.5:1 in light mode. */
+  --accent-fill: light-dark(color-mix(in srgb, var(--accent) 94%, var(--ink)), var(--accent));
+  --accent-soft: light-dark(rgba(119, 101, 226, 0.22), rgba(158, 143, 245, 0.26));
+  --ok-soft: light-dark(rgba(58, 150, 96, 0.12), rgba(114, 196, 148, 0.16));
+  --bad-soft: light-dark(rgba(198, 74, 74, 0.1), rgba(226, 124, 124, 0.14));
+  --frame-fill: light-dark(var(--panel), transparent);
+  --group-fill: light-dark(transparent, color-mix(in srgb, var(--ground) 97%, var(--accent)));
+  --sidebar-fill: color-mix(in srgb, var(--ground) 97%, var(--accent));
+  --scrim: light-dark(rgba(25, 22, 22, 0.3), rgba(0, 0, 0, 0.6));
+  --shadow: 0 16px 64px var(--scrim);
+  --duration: 160ms;
+  --icon-size: 20px;
   --radius: 18px;
   --radius-inner: 12px;
   --radius-control: 8px;
@@ -22,4 +35,11 @@
   --space-content: 12px;
   --target: 44px;
   --font-sans: system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+}
+:root[data-theme='dark'] {
+  color-scheme: dark;
 }
