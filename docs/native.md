@@ -2,6 +2,8 @@
 
 Kinetik shares its SolidJS interface and TypeScript runtime between the PWA and Tauri 2 apps. Native apps use native HTTP, a protected credential store, file pickers, and a loopback OAuth listener. The PWA retains its service-worker runtime and existing hosting configuration.
 
+Native builds wait for the Tauri bridge before loading the application. A late bridge must not select the browser runtime. If initialization does not complete within ten seconds, startup reports an error; browser builds start without this wait.
+
 Android is available for testing. iOS has passed simulator startup checks but still needs physical-device acceptance testing. Windows remains experimental: the current startup check opens browser preview mode instead of native onboarding. Its CI build and diagnostic checks continue to run but do not block web and Android releases.
 
 Android uses a main-frame-only WebMessageListener for native IPC. The invoke key is installed only in the top frame; sandboxed widgets cannot invoke native commands. Android System WebView must support document-start scripts and WebMessageListener. Older WebViews show an update requirement instead of loading an unsafe fallback.

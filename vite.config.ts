@@ -6,6 +6,9 @@ import solid from 'vite-plugin-solid';
 export default defineConfig({
   plugins: [solid()],
   define: {
+    __NATIVE_BUILD__: JSON.stringify(
+      process.argv.includes('--native') || Boolean(process.env.TAURI_ENV_PLATFORM),
+    ),
     __NATIVE_CONFIG__: process.env.KINETIK_NATIVE_CONFIG
       ? readFileSync(process.env.KINETIK_NATIVE_CONFIG, 'utf8')
       : JSON.stringify({ connections: {} }),

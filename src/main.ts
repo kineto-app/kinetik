@@ -39,6 +39,7 @@ type State = {
 };
 const root = document.querySelector<HTMLDivElement>('#app')!;
 renderSolid(Shell, root);
+document.dispatchEvent(new Event('kinetik-ui-ready'));
 setupViewport();
 const byId = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 let state: State = { conversations: [], plugins: [], automations: [], background: [] };
