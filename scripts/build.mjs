@@ -2,6 +2,7 @@ import { build as viteBuild } from 'vite';
 import { build } from 'esbuild';
 import { readdir, readFile, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 await viteBuild({ base: './', build: { target: 'es2022' } });
 const files = (await readdir('dist', { recursive: true })).filter((p) =>
   /\.(js|css|html|svg|png|json|webmanifest)$/.test(p),
@@ -28,7 +29,16 @@ await build({
   },
 });
 // Ship license texts for the installed production dependency tree with the bundle.
-await writeFile('dist/version.json', JSON.stringify({ build: buildId }));
+let revision = null;
+try {
+  revision = execFileSync('git', ['rev-parse', 'HEAD'], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'ignore'],
+  }).trim();
+} catch {
+  // A source archive can still build, but cannot be packaged as a verified Git revision.
+}
+await writeFile('dist/version.json', JSON.stringify({ build: buildId, revision }));
 const lock = JSON.parse(await readFile('package-lock.json', 'utf8'));
 let licenses = 'Runtime dependency licenses for Kinetik OSS\n';
 for (const [path, meta] of Object.entries(lock.packages)) {

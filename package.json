@@ -20,6 +20,7 @@
   "scripts": {
     "dev": "node scripts/dev.mjs",
     "build": "node scripts/build.mjs",
+    "package:static": "node scripts/package-static.mjs",
     "start": "node bin/kinetik.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
