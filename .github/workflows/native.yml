@@ -42,6 +42,7 @@ jobs:
             windows-launch.png
             windows-webview.json
             windows-webview.png
+            windows-processes.json
           if-no-files-found: ignore
       - run: cargo test --manifest-path src-tauri/Cargo.toml
       - run: cargo test --manifest-path native-plugin/Cargo.toml

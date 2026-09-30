@@ -2,8 +2,11 @@
 param([string]$Executable = 'src-tauri/target/release/kinetik.exe')
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes, System.Drawing
-$env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = '--remote-debugging-port=9222'
-$app = Start-Process -FilePath (Resolve-Path $Executable) -PassThru
+$start = [System.Diagnostics.ProcessStartInfo]::new()
+$start.FileName = (Resolve-Path $Executable).Path
+$start.UseShellExecute = $false
+$start.EnvironmentVariables['WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS'] = '--remote-debugging-port=9222'
+$app = [System.Diagnostics.Process]::Start($start)
 try {
     $ready = $false
     $names = @()
@@ -21,7 +24,6 @@ try {
         if ($names -contains 'Continue with ChatGPT') { $ready = $true; break }
     }
     $names | Set-Content windows-launch.txt
-    if (-not $ready) { throw 'Kinetik did not render usable onboarding. Inspect windows-launch.txt.' }
     $bounds = $window.Current.BoundingRectangle
     $bitmap = [System.Drawing.Bitmap]::new([int]$bounds.Width, [int]$bounds.Height)
     $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
@@ -32,8 +34,16 @@ try {
         $graphics.Dispose()
         $bitmap.Dispose()
     }
+    if (-not $ready) { throw 'Kinetik did not render usable onboarding. Inspect windows-launch.txt.' }
     Write-Output 'Windows app rendered ChatGPT onboarding.'
 } finally {
-    node scripts/inspect-windows-webview.mjs
-    if (-not $app.HasExited) { Stop-Process -Id $app.Id }
+    try {
+        Get-CimInstance Win32_Process |
+            Where-Object { $_.ParentProcessId -eq $app.Id } |
+            Select-Object Name, CommandLine |
+            ConvertTo-Json | Set-Content windows-processes.json
+        node scripts/inspect-windows-webview.mjs
+    } finally {
+        if (-not $app.HasExited) { Stop-Process -Id $app.Id }
+    }
 }
