@@ -146,9 +146,17 @@ export async function onboardingFixture(req, res) {
             { name: 'fixture-skill', description: 'A native fixture skill', charm_version: '1' },
           ],
         };
-      if (rpc.params.name === 'charms_skill_load')
-        payload = { skill_md: '# Fixture skill', path: '/skills/fixture-skill' };
       result = { structuredContent: payload };
+      if (rpc.params.name === 'charms_skill_load') {
+        const metadata = { path: '/skills/fixture-skill' };
+        result = {
+          structuredContent: metadata,
+          content: [
+            { type: 'text', text: JSON.stringify(metadata) },
+            { type: 'text', text: '# Fixture skill' },
+          ],
+        };
+      }
     }
     if (rpc.id === undefined) {
       res.writeHead(202);

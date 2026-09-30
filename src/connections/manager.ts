@@ -301,6 +301,10 @@ export class Connections {
     await this.activate();
   }
   async activate(): Promise<void> {
+    const { plugin: installed } = await this.assertManaged();
+    // An explicit activation picks up fixes to the host-bundled adapter.
+    // Merely opening a link still preserves pinned code and disabled state.
+    await this.plugins.install(this.source(), installed.settings, id);
     const { plugin } = await this.assertManaged();
     const provider = await this.plugins.instantiate(plugin, true);
     // Verify tools and load native skills before switching the workspace provider.

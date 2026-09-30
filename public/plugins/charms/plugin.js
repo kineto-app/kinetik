@@ -7,13 +7,19 @@ return (async () => {
   for (const name of [...Object.values(replacements), 'charms_skill_find', 'charms_skill_load']) {
     if (!remote[name]) throw new Error('Charms server is missing ' + name);
   }
-  const payload = result => {
-    if (result.structuredContent) return result.structuredContent;
-    const text = result.content?.filter(item => item.type === 'text').map(item => item.text).join('\n');
-    if (!text) throw new Error('Charms returned no structured payload.');
-    return JSON.parse(text);
+  const payload = (result, bodyField) => {
+    const texts = result.content?.filter(item => item.type === 'text') ?? [];
+    const metadata = result.structuredContent ?? (texts[0] && JSON.parse(texts[0].text));
+    if (!metadata) throw new Error('Charms returned no structured payload.');
+    // Current servers send JSON metadata followed by the exact Markdown/file text.
+    // Older servers include that text inside the structured payload.
+    if (bodyField && metadata[bodyField] === undefined && texts[1]) {
+      return { ...metadata, [bodyField]: texts[1].text };
+    }
+    return metadata;
   };
-  const call = async (name, args, signal) => payload(await client.call(name, args, signal));
+  const call = async (name, args, signal) => payload(await client.call(name, args, signal),
+    name === 'charms_skill_load' ? 'skill_md' : name === 'charms_files_read' ? 'content' : undefined);
   const pages = async (name, args, signal) => {
     const result = [];
     const visited = new Set();
