@@ -174,6 +174,7 @@ export class Runtime {
         ...value,
         plugins: pinned,
         status: value.status === 'stopped' ? value.status : 'running',
+        workStartedAt: value.workStartedAt ?? Date.now(),
         waitingFor: undefined,
       }));
       let skills: Skill[] = [];
@@ -190,12 +191,18 @@ export class Runtime {
         if (!c || c.status === 'needs_review') break;
         if (!c.activeMessage || c.pending.length) {
           if (!c.pending.length) {
-            await this.update(id, (value) => ({ ...value, status: 'idle', plugins: undefined }));
+            await this.update(id, (value) => ({
+              ...value,
+              status: 'idle',
+              plugins: undefined,
+              workStartedAt: undefined,
+            }));
             break;
           }
           c = await this.update(id, (value) => ({
             ...value,
             activeMessage: value.pending.at(-1),
+            workStartedAt: value.workStartedAt ?? Date.now(),
             turn:
               value.turn === 'foreground' ||
               value.pending.some((id) => value.messages.find((m) => m.id === id)?.role === 'user')
@@ -286,7 +293,17 @@ export class Runtime {
           if (output.type === 'text') {
             await this.update(id, (value) => ({
               ...value,
-              messages: [...value.messages, message('assistant', output.text)],
+              messages: [
+                ...value.messages,
+                {
+                  ...message('assistant', output.text),
+                  durationMs:
+                    value.workStartedAt === undefined
+                      ? undefined
+                      : Math.max(0, Date.now() - value.workStartedAt),
+                },
+              ],
+              workStartedAt: undefined,
               retryAt: undefined,
               retryAttempts: undefined,
               turn: undefined,
@@ -464,6 +481,7 @@ export class Runtime {
       await this.update(id, (c) => ({
         ...c,
         status: 'stopped',
+        workStartedAt: undefined,
         turn: undefined,
         activeMessage: undefined,
         call: undefined,
@@ -524,6 +542,7 @@ export class Runtime {
       ...c,
       status: c.status === 'needs_review' ? c.status : 'stopped',
       pending: [],
+      workStartedAt: undefined,
     }));
     await this.background.cancelConversation(id);
   }
