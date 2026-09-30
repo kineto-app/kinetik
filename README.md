@@ -80,7 +80,17 @@ Supported install sources are direct HTTPS manifest/folder/entry URLs and public
 
 See [the plugin contract](docs/plugins.md) and [the bundled example](public/plugins/example/plugin.js). A minimal [HTTP MCP plugin](public/plugins/mcp/plugin.js) is also included. It uses a supplied endpoint and optional bearer token. MCP Apps render in isolated iframes and can call app-visible tools on their own server. OAuth login and legacy SSE transport are not included. No live Charms connection has been validated; localhost-to-Charms still needs server CORS support.
 
-## Background work and events
+## Background processes
+
+The `background` tool runs a long tool call independently of the agent turn. Start with `{"action":"start","tool":"exec","input":{"command":"sleep 5; echo finished"}}`. It immediately returns a job ID, letting the agent finish its turn or do other work. When execution finishes, the runtime saves the result and wakes the **same conversation** once. The agent does not poll for completion. With the bundled test model, try `/bg sleep 5; echo finished`.
+
+`background` also accepts `{"action":"list"}` and `{"action":"cancel","id":"..."}` for the current conversation. Stop cancels its running processes. Execution uses the selected provider, including plugin tool replacements. The default timeout is five minutes, configurable through `timeoutMs` up to fifteen minutes, with at most eight running jobs per conversation. Results include output and errors; cancellation and interruption warn about possible partial effects.
+
+Local jobs outlive the model turn, not browser termination. The worker event remains open while jobs run, but the browser may terminate it. On restart, lost local jobs report interruption and are never silently replayed. Remote providers can reconnect through persisted operation IDs and optional `recover`/`wait` hooks. A completed result awaiting delivery survives restart and uses a stable event ID to prevent duplicate messages. Completion cannot automatically resume a stopped conversation or bypass a pending tool review.
+
+The Charms adapter waits for remote jobs internally using its status API. This polling does not invoke the model. A provider with a completion stream can implement `wait` using that stream instead. Closed-browser remote wakeups still require an external push sender; the bundled adapter does not supply one.
+
+## Routines and events
 
 Open **Background work** in the sidebar:
 
