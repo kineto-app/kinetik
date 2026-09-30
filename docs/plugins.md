@@ -27,7 +27,7 @@ return {
 };
 ```
 
-The factory receives `host.settings`, `host.baseURL`, and `host.mcp(url, token?)`. It may return a promise. Export all tools you provide in `tools`; they become `plugin-id__tool-name`. Optional replacements map `exec`, `read`, `write`, `edit`, and `list` to one of the plugin's own tools. Mapping replaces description, input schema, and implementation together. `read_skill` always belongs to the native catalog.
+The factory receives `host.settings`, `host.baseURL`, `host.mcp(url, token?)`, and `host.emit(name, text, uniqueId?)`. It may return a promise. Export all tools you provide in `tools`; they become `plugin-id__tool-name`. Optional replacements map `exec`, `read`, `write`, `edit`, and `list` to one of the plugin's own tools. Mapping replaces description, input schema, and implementation together. `read_skill` always belongs to the native catalog.
 
 Tool inputs are validated against their JSON Schema by Ajv before dispatch. `execute(input, context)` receives an abort signal and `await context.checkpoint(operationId)`. Save a remote operation ID as soon as it exists. Optional `recover(operationId, signal)` returns `{done, result}`; optional `cancel(operationId)` requests remote cancellation. If the browser dies before an ID is saved, the operation is uncertain and needs manual resolution. No host can make that gap exactly-once without server cooperation.
 
@@ -59,6 +59,14 @@ Install the bundled `plugins/mcp/plugin.json` using its full hosted/local URL, w
 { "url": "https://example.org/mcp", "token": "optional-bearer-token" }
 ```
 
-The helper supports the initialize handshake, protocol/session headers, paginated tools/list, JSON or SSE tool results, cancellation through fetch abort, and tool error propagation. It requests `2025-11-25` and accepts `2025-06-18`. It does not implement OAuth, legacy SSE transport, automatic side-effect retries, resources, Apps, or background notifications. A remote server needs suitable CORS, including exposed MCP session headers.
+The helper supports the initialize handshake, protocol/session headers, paginated tools/list, JSON or SSE tool results, cancellation through fetch abort, and tool error propagation. It requests `2025-11-25` and accepts `2025-06-18`. It also reads `ui://` resources, negotiates MCP Apps, respects model/app tool visibility, and forwards app tool calls only to the originating server. It does not implement OAuth, legacy SSE transport, or automatic side-effect retries. A remote server needs suitable CORS, including exposed MCP session headers.
 
-Charms can eventually use a dedicated plugin to map workspace tools and synchronize its installed skill catalog. That provider-specific implementation is intentionally deferred until its browser connectivity is verified. The generic MCP helper is not a claim that all Charms workflows work.
+The bundled `public/plugins/charms` adapter maps the five workspace tools together and imports installed Charms as native skills. Discovery calls do not appear as model tools. It follows paginated catalogs and versioned instruction reads; dynamic `kineto.connections` and `kineto.agents` refresh on every message. Supporting files stay in the sandbox. Live connectivity still requires credentials and CORS support; fixture tests do not establish that all live Charms workflows work.
+
+## MCP Apps
+
+The host loads `text/html;profile=mcp-app` resources advertised by `_meta.ui.resourceUri`, with compatibility for `_meta["ui/resourceUri"]`. It sends initialization, input and result messages and supports `tools/call`, `ui/message`, inline sizing, and inline display mode. Unsupported requests receive a JSON-RPC error. App-only tools never enter the model's tool list; model-only tools cannot be invoked by the view. Tool schemas are checked in both paths.
+
+Views run inside a nested iframe with an opaque sandbox origin, without access to the PWA DOM or storage. The proxy response enforces `Content-Security-Policy: sandbox allow-scripts`, so both frames have opaque origins. The initial same-origin navigation lets the service worker serve the proxy offline before the response sandbox takes effect. The host checks that this security header is present before embedding the proxy. No persistent app-origin storage, camera, microphone, or geolocation permissions are granted. Resource CSP metadata restricts HTTPS resource/network/frame/base-URI origins; undeclared origins are blocked. App tool calls are journaled before execution and are never automatically retried. UI resources and their initial result are stored with the conversation, so an already-loaded view can reopen offline.
+
+Expose only features your server can run in this environment. Native desktop SDK capabilities and arbitrary host filesystem access are not provided. The frontend's app bridge implements the listed protocol subset; it is not a claim of conformance to every MCP Apps extension.

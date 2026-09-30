@@ -1,20 +1,27 @@
 import './ui/styles.css';
+import { mountApp } from './ui/mcp-app';
+import { setupAutomations, renderAutomations } from './ui/automations';
+import type { Automation } from './core/automation';
 import { shell } from './ui/shell';
 import { icon, type IconName } from './ui/icons';
 import { connect, rpc } from './browser/client';
 import type { Conversation, InstalledPlugin } from './core/types';
 
 type State = {
+  automations: Automation[];
   conversations: Conversation[];
   plugins: Pick<InstalledPlugin, 'manifest' | 'source' | 'enabledAt' | 'digest'>[];
 };
 const root = document.querySelector<HTMLDivElement>('#app')!;
 root.innerHTML = shell;
 const byId = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
-let state: State = { conversations: [], plugins: [] };
+let state: State = { conversations: [], plugins: [], automations: [] };
 let selected = sessionStorage.getItem('kinetik-conversation') ?? '';
 let refreshGeneration = 0;
 let lastMessages = '';
+let disposeApps: (() => void)[] = [];
+let timelineConversation = '';
+const renderedMessages = new Set<string>();
 const current = () => state.conversations.find((c) => c.id === selected);
 function showError(error: unknown, target = 'error') {
   byId(target).textContent = error instanceof Error ? error.message : String(error);
@@ -75,14 +82,22 @@ function render() {
       ? `Running ${c.call.name} · ${c.call.provider}`
       : 'Working on your message';
   byId('recovery').hidden = c?.status !== 'needs_review';
-  const serialized = JSON.stringify([selected, c?.messages]);
+  const serialized = JSON.stringify([selected, c?.messages, c?.draft]);
   if (serialized !== lastMessages) {
     const forceScroll = !lastMessages;
     lastMessages = serialized;
     const timeline = byId('timeline');
     const oldScroll = timeline.scrollTop;
     const nearBottom = timeline.scrollHeight - timeline.scrollTop - timeline.clientHeight < 80;
-    timeline.replaceChildren();
+    if (timelineConversation !== selected || !c?.messages.length) {
+      disposeApps.forEach((dispose) => dispose());
+      disposeApps = [];
+      renderedMessages.clear();
+      timeline.replaceChildren();
+      timelineConversation = selected;
+    }
+    if (c?.messages.length) timeline.querySelector('.empty')?.remove();
+    timeline.querySelector('[data-draft]')?.remove();
     if (!c?.messages.length) {
       const empty = document.createElement('div');
       empty.className = 'empty';
@@ -118,6 +133,8 @@ function render() {
       timeline.append(empty);
     }
     for (const item of c?.messages ?? []) {
+      if (renderedMessages.has(item.id)) continue;
+      renderedMessages.add(item.id);
       const article = document.createElement('article');
       article.className = 'message';
       article.dataset.role = item.role;
@@ -147,6 +164,14 @@ function render() {
       }
       article.append(label, content);
       timeline.append(article);
+      if (item.app && c) disposeApps.push(mountApp(article, item.app, c.id));
+    }
+    if (c?.draft) {
+      const draft = document.createElement('pre');
+      draft.className = 'message';
+      draft.dataset.draft = 'true';
+      draft.textContent = c.draft;
+      timeline.append(draft);
     }
     timeline.scrollTop = !c?.messages.length
       ? 0
@@ -154,6 +179,7 @@ function render() {
         ? timeline.scrollHeight
         : oldScroll;
   }
+  renderAutomations(state.automations, refresh, choose);
   byId('plugin-count').textContent = String(
     state.plugins.filter((p) => p.enabledAt !== null).length,
   );
@@ -307,7 +333,8 @@ function openDialog(name: string) {
   closeDrawer();
   byId<HTMLDialogElement>(name + '-dialog').showModal();
 }
-for (const name of ['plugins', 'files']) byId(name + '-open').onclick = () => openDialog(name);
+for (const name of ['plugins', 'files', 'automations'])
+  byId(name + '-open').onclick = () => openDialog(name);
 byId('attach').onclick = () => openDialog('files');
 for (const close of document.querySelectorAll<HTMLButtonElement>('[data-close]'))
   close.onclick = () => byId<HTMLDialogElement>(close.dataset.close!).close();
@@ -381,6 +408,7 @@ navigator.serviceWorker?.addEventListener('message', (event) => {
 async function start() {
   const registration = await connect();
   await refresh();
+  await rpc('tick');
   // The build is complete before the one-shot local launcher is allowed to exit.
   if (registration.installing)
     await new Promise<void>((resolve) => {
@@ -407,4 +435,13 @@ async function start() {
     /* Hosted and offline copies have no launcher. */
   }
 }
+setupAutomations(refresh);
+setInterval(() => {
+  void rpc('tick')
+    .then(refresh)
+    .catch(() => {});
+}, 15000);
+window.addEventListener('online', () => {
+  void rpc('tick').then(refresh).catch(showError);
+});
 void start().catch(showError);

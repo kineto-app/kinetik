@@ -1,8 +1,8 @@
 # Kinetik OSS
 
-A small browser agent prototype with a persistent workspace, just-bash, native skills, and JavaScript plugins that can replace its tools. The chat interface reuses Kinetik Charms colors, panels, action rows, and icons.
+A small browser agent runtime with a persistent workspace, just-bash, native skills, background work, MCP Apps, and JavaScript plugins that can replace its tools. The chat interface reuses Kinetik Charms colors, panels, action rows, and icons.
 
-**This version uses a deterministic local test model, not an LLM.** No prompts go to OpenAI. Official ChatGPT subscription authentication is not implemented: the selected browser credential design conflicts with the current documented storage requirements.
+**This version uses a deterministic local test model, not an LLM.** No prompts go to OpenAI. Official ChatGPT subscription authentication remains intentionally pending: the launcher must exit completely, and OpenAI requires tokens to stay out of browser storage. A remote OAuth callback does not resolve that storage constraint.
 
 | Light                                       | Dark                                            |
 | ------------------------------------------- | ----------------------------------------------- |
@@ -78,7 +78,30 @@ Plugins are trusted JavaScript. They can access the app's origin storage and net
 
 Supported install sources are direct HTTPS manifest/folder/entry URLs and public GitHub repository/folder/file links. HTTP is accepted only for loopback development. GitHub refs resolve to a commit, then installed source bytes and their digest are stored locally. Private repository authentication and runtime npm/TypeScript compilation are not implemented.
 
-See [the plugin contract](docs/plugins.md) and [the bundled example](public/plugins/example/plugin.js). A minimal [HTTP MCP plugin](public/plugins/mcp/plugin.js) is also included. It uses a supplied endpoint and optional bearer token; OAuth login, automatic MCP reconnection, Apps/iframes, and push subscriptions are not included. No live Charms connection has been validated. Localhost-to-Charms still needs server CORS support.
+See [the plugin contract](docs/plugins.md) and [the bundled example](public/plugins/example/plugin.js). A minimal [HTTP MCP plugin](public/plugins/mcp/plugin.js) is also included. It uses a supplied endpoint and optional bearer token. MCP Apps render in isolated iframes and can call app-visible tools on their own server. OAuth login and legacy SSE transport are not included. No live Charms connection has been validated; localhost-to-Charms still needs server CORS support.
+
+## Background work and events
+
+Open **Background work** in the sidebar:
+
+- **Task:** one independent conversation. With the current test model, use an explicit command such as `/exec echo done > /workspace/result.txt`.
+- **Goal:** continue an objective for a bounded number of runs. An integrated LLM would judge completion through the `automation` tool; the bundled test model cannot reason about goals.
+- **Job:** a prompt on an interval or named event, with an explicit run limit.
+- **Monitor:** watch the result of `read` for a file path on an interval. The first successful read establishes a baseline; later changes trigger a conversation. It uses the currently enabled read provider, so a Charms replacement watches the remote file.
+
+Schedules, events and dispatches survive worker restart. Missed intervals coalesce into one run. Pause stops active work and prevents future dispatches; resolve uncertain tools in their conversation before resuming. Each dispatch has a stable conversation/message ID to avoid duplicate execution after restart. View the latest result or remove an automation from its row. Removal preserves conversation history. The UI shows run counts and status.
+
+Browser suspension still applies. A page sends a wake tick every 15 seconds. Service-worker sync, periodic sync and push handlers can also wake work when the browser delivers those events. There is no guaranteed closed-app scheduler or precise alarm on mobile. A push sender is external: under **External wake events**, enter its public VAPID key and download this browser's subscription. Send encrypted Web Push payloads shaped as `{ "id": "unique-id", "name": "inbox.new", "text": "details" }`. Push displays a notification. Events target the matching active routines present when they arrive. The latest 1,000 event IDs are deduplicated, and up to 100 events can wait in the queue. Browsers and operating systems control delivery.
+
+Plugins can emit events with `await host.emit(name, text, uniqueId)`. The `automation` tool exposes list/create/status/remove/emit for model integrations. Native app UI and RPC use the same durable scheduler.
+
+## Native skills and Charms
+
+Local skills live at `/workspace/skills/<name>/SKILL.md`. Add `name` and `description` YAML frontmatter, using plain/quoted scalars or a block description. The catalog is reread before each incoming message. Use `read_skill` with the advertised path to load the full content. Local and plugin skills remain separate from the active workspace provider.
+
+The bundled `plugins/charms/plugin.json` adapter maps `exec`, `read`, `write`, `edit`, and `list` to Charms together. Install it with the server `url` and optional bearer `token`, then enable it. The adapter follows catalog pagination and instruction continuations, caches unchanged skills, refreshes dynamic connection/agent inventory each message, and imports skills natively. Supporting scripts remain in the Charms sandbox and are read/executed using remote tools. Remote job IDs support recovery and cancellation. Changing providers does not copy files.
+
+Live Charms depends on your server credentials and browser CORS configuration. The adapter is tested against protocol fixtures, not a live account. There is no implicit credential bridge or fallback to local tools.
 
 ## Configuration
 
@@ -105,7 +128,7 @@ npm run check
 
 `check` runs formatting validation, strict TypeScript checking, unit/integration tests, a production build, and browser tests. CI installs Chromium's system dependencies too. The browser suite exercises persistence/offline reload, URL plugins, skills, updates, parallel turns, steering, Stop, and recovery after forced service-worker termination. It does not prove continuous background execution on mobile or real model authentication.
 
-Browser suspension is normal. Work resumes when the browser activates the app; there is no guaranteed closed-app scheduler. Goals, routines, MCP Apps, VM runners, a full Charms plugin, and real model login remain outside this prototype.
+Browser suspension is normal. Work resumes when the browser activates the app; there is no guaranteed closed-app scheduler. VM runners, guaranteed background execution, and real model login remain outside this release. The unconnected OpenAI adapter has stream/history tests, but no account has authenticated and no live model response has been verified.
 
 [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md)
 

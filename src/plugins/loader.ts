@@ -124,7 +124,10 @@ export async function digest(text: string): Promise<string> {
   return [...new Uint8Array(bytes)].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 export class Plugins {
-  constructor(private store: Store) {}
+  constructor(
+    private store: Store,
+    private emit?: (name: string, text: string, id?: string) => Promise<void>,
+  ) {}
   async list(): Promise<InstalledPlugin[]> {
     return (await this.store.get<InstalledPlugin[]>('plugins')) ?? [];
   }
@@ -168,6 +171,7 @@ export class Plugins {
   }
   async instantiate(installed: InstalledPlugin): Promise<Plugin> {
     const plugin: Plugin = await new Function('host', '"use strict";\n' + installed.code)({
+      emit: this.emit,
       settings: Object.freeze({ ...installed.settings }),
       baseURL: new URL('.', installed.resolvedSource).href,
       mcp: (url: string, token?: string) => new McpClient(allowedURL(url).href, token),
@@ -232,7 +236,7 @@ export class Plugins {
         try {
           const next = await plugin.skills!.sync(
             cached,
-            AbortSignal.any([signal, AbortSignal.timeout(10000)]),
+            AbortSignal.any([signal, AbortSignal.timeout(cached ? 15000 : 60000)]),
           );
           if (
             !next ||

@@ -693,6 +693,7 @@ label {
   margin: 0 0 8px;
 }
 input:not([type='file']),
+dialog select,
 dialog textarea {
   display: block;
   width: 100%;
@@ -966,4 +967,29 @@ summary .muted {
 .tool-mark .icon {
   width: 16px;
   height: 16px;
+}
+
+.mcp-app {
+  width: 100%;
+  height: 320px;
+  border: 0;
+  border-radius: var(--radius-inner);
+}
+#automation-list {
+  display: grid;
+  gap: var(--space-content);
+}
+#automations-open {
+  display: flex;
+  align-items: center;
+  gap: var(--space-inline);
+  width: 100%;
+}
+
+#automation-form > select,
+#automation-form > textarea,
+#automation-form [data-kinds],
+#event-form > input,
+#event-form > textarea {
+  margin-bottom: var(--space-section);
 }

@@ -11,9 +11,82 @@ const manifest = {
 const server = createServer(async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'content-type');
+  res.setHeader(
+    'Access-Control-Allow-Headers',
+    'content-type, mcp-protocol-version, mcp-session-id',
+  );
   res.setHeader('Cache-Control', 'no-store');
   if (req.method === 'OPTIONS') return res.end();
+  if (req.url === '/mcp') {
+    let data = '';
+    for await (const part of req) data += part;
+    const rpc = JSON.parse(data);
+    let result = {};
+    if (rpc.method === 'initialize')
+      result = {
+        protocolVersion: '2025-11-25',
+        capabilities: { tools: {}, resources: {} },
+        serverInfo: { name: 'fixture', version: '1' },
+      };
+    if (rpc.method === 'tools/list')
+      result = {
+        tools: [
+          {
+            name: 'show',
+            description: 'Show interactive app',
+            inputSchema: { type: 'object' },
+            _meta: { ui: { resourceUri: 'ui://fixture/view' } },
+          },
+          {
+            name: 'increment',
+            description: 'App-only increment',
+            inputSchema: { type: 'object' },
+            _meta: { ui: { visibility: ['app'] } },
+          },
+          {
+            name: 'secret',
+            description: 'Model only',
+            inputSchema: { type: 'object' },
+            _meta: { ui: { visibility: ['model'] } },
+          },
+        ],
+      };
+    if (rpc.method === 'resources/read')
+      result = {
+        contents: [
+          {
+            uri: 'ui://fixture/view',
+            mimeType: 'text/html;profile=mcp-app',
+            text: `<!doctype html><html><body><p id="result">Loading</p><p id="isolation"></p><button id="inc">Increment</button><button id="denied">Forbidden tool</button><script>
+      try { top.localStorage.setItem('escaped','true'); document.getElementById('isolation').textContent='Unsafe'; } catch { document.getElementById('isolation').textContent='Isolated'; }
+      const send = (method, params, id) => parent.postMessage({jsonrpc:'2.0',method,params,id}, '*');
+      addEventListener('message', event => {
+        const data=event.data;
+        if(data.id === 1 && data.result) send('ui/notifications/initialized', {});
+        if(data.method === 'ui/notifications/tool-result') document.getElementById('result').textContent='Ready';
+        if(data.id === 2) document.getElementById('result').textContent=data.result ? 'Incremented' : 'Failed';
+        if(data.id === 3) document.getElementById('result').textContent=data.error ? 'Denied' : 'Unsafe';
+      });
+      document.getElementById('inc').onclick=()=>send('tools/call',{name:'increment',arguments:{}},2);
+      document.getElementById('denied').onclick=()=>send('tools/call',{name:'secret',arguments:{}},3);
+      send('ui/initialize',{protocolVersion:'2026-01-26',appInfo:{name:'fixture',version:'1'},appCapabilities:{}},1);
+    <\/script></body></html>`,
+          },
+        ],
+      };
+    if (rpc.method === 'tools/call')
+      result = {
+        content: [
+          { type: 'text', text: rpc.params.name === 'increment' ? 'Incremented' : 'App result' },
+        ],
+      };
+    if (rpc.id === undefined) {
+      res.writeHead(202);
+      return res.end();
+    }
+    res.setHeader('Content-Type', 'application/json');
+    return res.end(JSON.stringify({ jsonrpc: '2.0', id: rpc.id, result }));
+  }
   if (req.url === '/control') {
     let data = '';
     for await (const part of req) data += part;

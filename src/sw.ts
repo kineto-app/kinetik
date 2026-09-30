@@ -1,4 +1,5 @@
 /// <reference lib="webworker" />
+import { sandboxCSP } from './browser/sandbox';
 import { Runtime } from './core/runtime';
 import { errorText } from './core/types';
 declare const __PRECACHE__: string[];
@@ -53,7 +54,14 @@ sw.addEventListener('fetch', (event) => {
         }
       }
       const cached = await cache.match(event.request, { ignoreSearch: true });
-      if (cached) return cached;
+      if (cached) {
+        if (relative === 'app-sandbox.html') {
+          const headers = new Headers(cached.headers);
+          headers.set('Content-Security-Policy', sandboxCSP);
+          return new Response(cached.body, { status: cached.status, headers });
+        }
+        return cached;
+      }
       if (event.request.mode === 'navigate') {
         const page = await cache.match(new URL('index.html', scope).href);
         if (page) return page;
@@ -81,6 +89,7 @@ sw.addEventListener('message', (event) => {
         switch (data.op) {
           case 'state':
             result = {
+              automations: await runtime.automations.list(),
               conversations: (await runtime.conversations()).map((c) => ({
                 ...c,
                 plugins: undefined,
@@ -92,6 +101,36 @@ sw.addEventListener('message', (event) => {
                 digest: p.digest,
               })),
             };
+            break;
+          case 'tick':
+            break;
+          case 'automationCreate':
+            result = await runtime.automations.create(data.input as Record<string, unknown>);
+            break;
+          case 'automationStatus':
+            await runtime.automations.setStatus(
+              string(data.id),
+              data.status as 'active' | 'paused' | 'completed',
+            );
+            break;
+          case 'automationRemove':
+            await runtime.automations.remove(string(data.id));
+            break;
+          case 'event':
+            await runtime.automations.emit(
+              string(data.name),
+              string(data.text),
+              data.id as string | undefined,
+            );
+            break;
+          case 'appCall':
+            if (!data.input || typeof data.input !== 'object' || Array.isArray(data.input))
+              throw new Error('Invalid tool input.');
+            result = await runtime.appCall(
+              string(data.id),
+              string(data.name),
+              data.input as Record<string, unknown>,
+            );
             break;
           case 'create':
             result = await runtime.create();
@@ -140,6 +179,8 @@ sw.addEventListener('message', (event) => {
         }
         port.postMessage({ ok: true, result });
         if (followup) await runtime.run(followup);
+        if (['tick', 'automationCreate', 'automationStatus', 'event'].includes(data.op as string))
+          await runtime.automations.tick();
         if (data.op === 'state')
           await Promise.all(
             (await runtime.conversations())
@@ -152,3 +193,29 @@ sw.addEventListener('message', (event) => {
     })(),
   );
 });
+
+// Push providers deliver {id, name, text}; IDs deduplicate redelivery. No token lives here.
+sw.addEventListener('push', (event) => {
+  event.waitUntil(
+    (async () => {
+      await initialized;
+      const value = event.data?.json();
+      if (value)
+        await runtime.automations.emit(string(value.name), string(value.text), string(value.id));
+      await sw.registration.showNotification('Kinetik', {
+        body: 'Background event received. Open Kinetik to review work.',
+        tag: 'kinetik-event',
+      });
+      await runtime.automations.tick();
+    })(),
+  );
+});
+sw.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  event.waitUntil(sw.clients.openWindow(scope.href));
+});
+for (const type of ['sync', 'periodicsync']) {
+  sw.addEventListener(type, ((event: ExtendableEvent) => {
+    event.waitUntil(initialized.then(() => runtime.automations.tick()));
+  }) as EventListener);
+}

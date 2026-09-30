@@ -83,9 +83,11 @@ const server = createServer(async (req, res) => {
     // Only the trusted plugin host needs string compilation; the UI does not.
     res.setHeader(
       'Content-Security-Policy',
-      file.endsWith('sw.js')
-        ? "default-src 'self'; script-src 'self' 'unsafe-eval'; connect-src https: http://127.0.0.1:* http://localhost:*"
-        : "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; worker-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'",
+      file.endsWith('app-sandbox.html')
+        ? "default-src 'none'; script-src 'unsafe-inline' https:; style-src 'unsafe-inline' https:; img-src data: https:; font-src https:; media-src data: https:; connect-src https: wss:; frame-src about: https:; base-uri https:; object-src 'none'; form-action 'none'; sandbox allow-scripts"
+        : file.endsWith('sw.js')
+          ? "default-src 'self'; script-src 'self' 'unsafe-eval'; connect-src https: http://127.0.0.1:* http://localhost:*"
+          : "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; worker-src 'self'; frame-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'",
     );
     res.end(req.method === 'HEAD' ? undefined : content);
   } catch (error) {

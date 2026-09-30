@@ -66,6 +66,11 @@ test('light and dark workspace, dialogs and messages are accessible', async ({ p
     await accessible(page);
     await page.screenshot({ path: info.outputPath(`files-${theme}.png`) });
     await page.getByRole('button', { name: 'Close files' }).click();
+    await drawer(page);
+    await page.locator('#automations-open').click();
+    await accessible(page);
+    await page.screenshot({ path: info.outputPath(`automations-${theme}.png`) });
+    await page.getByRole('button', { name: 'Close background work' }).click();
   }
   await page.getByRole('button', { name: 'Create a note' }).click();
   await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeEnabled();

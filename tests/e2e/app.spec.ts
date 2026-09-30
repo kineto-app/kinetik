@@ -173,3 +173,66 @@ test('worker termination pauses uncertain work and never silently repeats it', a
     new TextDecoder().decode(await rpc<Uint8Array>(page, 'export', { path: '/workspace/events' })),
   ).toBe('once\n');
 });
+
+test('MCP Apps handshake, tool interaction, visibility and origin isolation', async ({
+  page,
+  context,
+}) => {
+  await rpc(page, 'install', {
+    source: 'http://127.0.0.1:4173/plugins/mcp/plugin.json',
+    settings: JSON.stringify({ url: 'http://127.0.0.1:4174/mcp' }),
+  });
+  await rpc(page, 'enable', { id: 'mcp', enabled: true });
+  await send(page, '/tool mcp__show {}');
+  await settled(page);
+  const app = page.frameLocator('iframe.mcp-app').frameLocator('iframe');
+  await expect(app.locator('#result')).toHaveText('Ready');
+  await expect(app.locator('#isolation')).toHaveText('Isolated');
+  await app.getByRole('button', { name: 'Forbidden tool' }).click();
+  await expect(app.locator('#result')).toHaveText('Denied');
+  await app.getByRole('button', { name: 'Increment' }).click();
+  await expect(page.getByText('App · increment', { exact: true })).toBeVisible();
+  expect(await page.evaluate(() => localStorage.getItem('escaped'))).toBeNull();
+  await context.setOffline(true);
+  await page.reload();
+  await expect(
+    page.frameLocator('iframe.mcp-app').frameLocator('iframe').locator('#result'),
+  ).toHaveText('Ready');
+});
+
+test('background tasks can be created in the UI and survive reload without a second run', async ({
+  page,
+}, testInfo) => {
+  if (testInfo.project.name === 'mobile-chromium') await page.locator('#menu').click();
+  await page.locator('#automations-open').click();
+  await page.getByLabel('What should the agent do?').fill('/exec echo task >> /workspace/task.txt');
+  await page.getByRole('button', { name: 'Create background work' }).click();
+  await expect(page.locator('#automation-feedback')).toContainText('Saved');
+  await expect
+    .poll(async () => {
+      await rpc(page, 'tick');
+      const state = await rpc<{ automations: { status: string }[] }>(page, 'state');
+      return state.automations[0]?.status;
+    })
+    .toBe('completed');
+  await page.screenshot({ path: testInfo.outputPath('background-work.png') });
+  await page.reload();
+  await expect(page.locator('#status')).toHaveText('Local workspace');
+  await rpc(page, 'tick');
+  const bytes = await rpc<Uint8Array>(page, 'export', { path: '/workspace/task.txt' });
+  expect(new TextDecoder().decode(bytes)).toBe('task\n');
+});
+
+test('idle state reads do not create a worker notification loop', async ({ page }) => {
+  const changes = await page.evaluate(async () => {
+    let count = 0;
+    const listener = (event: MessageEvent) => {
+      if (event.data?.type === 'changed') count++;
+    };
+    navigator.serviceWorker.addEventListener('message', listener);
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    navigator.serviceWorker.removeEventListener('message', listener);
+    return count;
+  });
+  expect(changes).toBeLessThan(5);
+});
