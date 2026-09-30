@@ -1,4 +1,4 @@
-// Apply the saved appearance before paint, then synchronize mounted controls.
+// Apply the saved appearance before the app paints. Only this preference uses localStorage.
 (() => {
   const key = 'kinetik-appearance';
   const system = matchMedia('(prefers-color-scheme: dark)');
@@ -24,7 +24,6 @@
   apply();
   system.addEventListener('change', apply);
   document.addEventListener('DOMContentLoaded', apply);
-  document.addEventListener('kinetik-ui-ready', apply);
   document.addEventListener('change', (event) => {
     if (event.target instanceof HTMLSelectElement && event.target.id === 'appearance') {
       preference = valid(event.target.value);
