@@ -86,6 +86,19 @@ jobs:
       - run: npm ci
       - run: npm run tauri -- ios init --ci
       - run: npm run ios:build -- --debug --target aarch64-sim --no-sign --ci
+      - name: Sign simulator app for Keychain access
+        run: |
+          # --no-sign leaves only a linker signature, without an app identity.
+          # Simulator-only identity; device releases use Apple's provisioning profile.
+          cat > /tmp/kinetik-simulator-entitlements.plist <<'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>application-identifier</key><string>SIMULATOR.app.kinetik.oss</string>
+            <key>keychain-access-groups</key><array><string>SIMULATOR.app.kinetik.oss</string></array>
+          </dict></plist>
+          PLIST
+          codesign --force --sign - --entitlements /tmp/kinetik-simulator-entitlements.plist src-tauri/gen/apple/build/arm64-sim/Kinetik.app
       - name: Launch iOS simulator app
         run: |
           KINETIK_SIMULATOR=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; data=json.load(sys.stdin); print(next(device["udid"] for runtime, devices in data["devices"].items() if "iOS" in runtime for device in devices if device["name"].startswith("iPhone")))')
@@ -95,6 +108,14 @@ jobs:
           xcrun simctl launch "$KINETIK_SIMULATOR" app.kinetik.oss
           sleep 8
           xcrun simctl io "$KINETIK_SIMULATOR" screenshot ios-launch.png
+          swift scripts/verify-ios-launch.swift ios-launch.png
+      - name: Upload launch screenshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-launch
+          path: ios-launch.png
+          if-no-files-found: ignore
       - name: Package simulator app
         run: ditto -c -k --keepParent src-tauri/gen/apple/build/arm64-sim/Kinetik.app ios-simulator.zip
       - uses: actions/upload-artifact@v4

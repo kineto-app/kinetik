@@ -28,6 +28,8 @@ npm run ios:build -- --debug --target aarch64-sim --no-sign
 
 A physical iOS build needs an Apple development team and signing identity. Set `APPLE_DEVELOPMENT_TEAM`; use TestFlight before distributing a store release. Do not regenerate Android project files without reviewing the resulting manifest and signing changes.
 
+The unsigned simulator build also needs an app-identity entitlement before testing Keychain access. Native CI applies a simulator-only ad-hoc signature and checks the launch screenshot for startup errors. Follow its `Sign simulator app for Keychain access` step when installing a `--no-sign` build locally. Never use that simulator identity for a physical-device release.
+
 ## Distribution configuration
 
 Set `KINETIK_NATIVE_CONFIG` to a JSON file using the connection format in [deployment.md](deployment.md#connections-and-guided-setup). It is embedded at build time. Include only public service endpoints and UI configuration, never tokens, passwords, or private keys. Native ChatGPT authorization is configured by the native adapter. Charms remains optional.
