@@ -77,10 +77,10 @@ Generate a minisign keypair once and keep the private key outside Git. Build the
 ```sh
 npm run build:native
 KINETIK_UPDATE_SIGNING_KEY=/path/to/frontend-update.key \
-npm run package:native-update -- 0.1.1 0.1.0 https://updates.example.com/
+npm run package:native-update -- 0.1.2 0.1.1 https://updates.example.com/
 ```
 
-Upload the three files from `release/frontend/0.1.1/` to the configured host. Publish the archive before its manifest and signature. Never reuse an update version for different bytes. Changing the native bridge, permissions, signing trust, or platform capabilities requires a new native build. Downloadable code must also comply with the relevant store's distribution rules.
+Upload the three files from `release/frontend/0.1.2/` to the configured host. Publish the archive before its manifest and signature. Never reuse an update version for different bytes. Changing the native bridge, permissions, signing trust, or platform capabilities requires a new native build. Downloadable code must also comply with the relevant store's distribution rules.
 
 Checks are passive. The user clicks Update to download and stage a bundle, then closes and reopens the app to activate it. No live chat reload is forced. A new bundle must reach the UI-ready acknowledgement; after two consecutive launches without that acknowledgement, the next cold launch returns to the prior working bundle. The embedded assets remain the final fallback. An update feed outage leaves the installed app usable.
 
