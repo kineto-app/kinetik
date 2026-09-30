@@ -995,17 +995,33 @@ summary .muted {
 }
 
 .app-update {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-content);
   padding: var(--space-content) var(--space-section);
-  background: var(--panel);
+  background: linear-gradient(var(--accent-soft), var(--accent-soft)), var(--ground);
   border-bottom: 1px solid var(--line);
   font-size: 13px;
 }
 .app-update > div {
   min-width: 0;
+}
+.app-update .field-hint:empty {
+  display: none;
+}
+.app-update .field-hint {
+  overflow-wrap: anywhere;
+}
+.connection-setup > .app-update {
+  padding-top: max(var(--space-content), env(safe-area-inset-top));
+}
+dialog:has(> .app-update:not([hidden])) {
+  scroll-padding-top: calc(var(--target) + 2 * var(--space-content) + var(--space-section));
 }
 .app-update button {
   flex: none;
