@@ -2,7 +2,7 @@
 
 A small browser agent runtime with a persistent workspace, just-bash, native skills, background work, MCP Apps, and JavaScript plugins that can replace its tools. The chat interface reuses Kinetik Charms colors, panels, action rows, and icons.
 
-**By default, this version uses a deterministic local test model.** A host can configure an external, same-origin credential helper to enable ChatGPT subscription sign-in and inference. No OpenAI credentials are stored in the browser. The included launcher still exits completely and does not supply that helper; standalone subscription sign-in remains pending a supported browser-only flow. See [hosting configuration](docs/deployment.md#connections-and-guided-setup).
+**By default, this version uses a deterministic local test model.** Hosts can enable experimental browser ChatGPT sign-in or a separate credential helper. Browser mode stores credentials in a dedicated IndexedDB database and calls OpenAI directly. It departs from OpenAI's documented storage guidance and is not presented as an officially supported browser integration. The launcher still exits completely. See [hosting configuration](docs/deployment.md#connections-and-guided-setup).
 
 | Light                                       | Dark                                            |
 | ------------------------------------------- | ----------------------------------------------- |

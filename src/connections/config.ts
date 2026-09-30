@@ -10,7 +10,8 @@ export interface ConnectionPreset {
 export interface Configuration {
   installation?: { required: boolean };
   connections: { charms?: ConnectionPreset };
-  chatgpt?: { apiBase: string };
+  chatgpt?:
+    { apiBase: string; mode?: never } | { mode: 'browser'; jwksUrl: string; apiBase?: never };
 }
 
 // Deployment-owned configuration, never taken from deep-link parameters.
@@ -40,7 +41,12 @@ export function parseConfiguration(value: unknown, base: URL): Configuration {
       metadataUrl: address(p.metadataUrl),
     };
   }
-  if (input.chatgpt) {
+  if (input.chatgpt?.mode === 'browser') {
+    const jwksUrl = new URL(address(input.chatgpt.jwksUrl));
+    if (jwksUrl.origin !== base.origin)
+      throw new Error('Public signing keys must use this app’s origin.');
+    config.chatgpt = { mode: 'browser', jwksUrl: jwksUrl.href };
+  } else if (input.chatgpt) {
     const apiBase = new URL(address(input.chatgpt.apiBase));
     if (apiBase.origin !== base.origin || !apiBase.pathname.endsWith('/'))
       throw new Error('The credential helper must be on this app’s origin.');
