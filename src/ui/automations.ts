@@ -3,16 +3,16 @@ import { rpc } from '../browser/client';
 import { icon } from './icons';
 export const automationDialog = `
 <dialog id="automations-dialog" aria-labelledby="automations-heading">
-  <div class="dialog-head"><span class="glyph">${icon('terminal')}</span><div><h2 id="automations-heading">Background work</h2><p class="small muted">Tasks, goals, jobs and monitors</p></div><button data-close="automations-dialog" class="icon-button" aria-label="Close background work">${icon('close')}</button></div>
-  <p class="field-hint">Work runs while the browser permits it. If suspended, it resumes when you reopen the app. Missed intervals run once.</p>
+  <div class="dialog-head"><span class="glyph">${icon('clock')}</span><div><h2 id="automations-heading">Routines</h2><p class="small muted">A little help on repeat</p></div><button data-close="automations-dialog" class="icon-button" aria-label="Close routines">${icon('close')}</button></div>
+  <p class="field-hint">Keep Kinetik open for the best chance of running on time. If your browser pauses it, routines catch up once when you return.</p>
   <section class="panel"><h3 class="section-label">Scheduled work</h3><div id="automation-list" class="section-body"></div></section>
   <section class="panel"><h3 class="section-label">Create</h3><form id="automation-form" class="section-body">
-    <label for="automation-kind">Kind</label><select id="automation-kind"><option value="task">Background task</option><option value="goal">Goal</option><option value="job">Scheduled job</option><option value="monitor">Monitor</option></select>
-    <label for="automation-prompt">What should the agent do?</label><textarea id="automation-prompt" required maxlength="12000" rows="3"></textarea>
-    <div data-kinds="job monitor"><label for="automation-interval">Interval in minutes, for jobs and monitors</label><input id="automation-interval" type="number" min="1" placeholder="For example, 60" /></div>
-    <div data-kinds="monitor"><label for="automation-path">File to watch, for monitors</label><input id="automation-path" placeholder="/workspace/report.txt" /></div><div data-kinds="job"><label for="automation-event">Or trigger on an event</label><input id="automation-event" pattern="[\\w.\\-]+" placeholder="For example, file.changed" /></div>
-    <div data-kinds="goal job monitor"><label for="automation-limit">Maximum runs</label><input id="automation-limit" type="number" min="1" max="1000" value="10" required /></div>
-    <button class="primary" type="submit">Create background work</button>
+    <label for="automation-kind">Routine type</label><select id="automation-kind"><option value="task">One-time task</option><option value="goal">Goal</option><option value="job">Scheduled task</option><option value="monitor">Watch a file</option></select>
+    <label for="automation-prompt">What would you like done?</label><textarea id="automation-prompt" required maxlength="12000" rows="3"></textarea>
+    <div data-kinds="job monitor"><label for="automation-interval">Repeat every (minutes)</label><input id="automation-interval" type="number" min="1" placeholder="For example, 60" /></div>
+    <div data-kinds="monitor"><label for="automation-path">File to watch</label><input id="automation-path" placeholder="/workspace/report.txt" /></div><div data-kinds="job"><label for="automation-event">Or use a custom event (advanced)</label><input id="automation-event" pattern="[\\w.\\-]+" placeholder="For example, file.changed" /></div>
+    <div data-kinds="goal job monitor"><label for="automation-limit">Stop after this many runs</label><input id="automation-limit" type="number" min="1" max="1000" value="10" required /></div>
+    <button class="primary" type="submit">Create routine</button>
   </form></section>
   <details class="advanced"><summary>Send a test event</summary><form id="event-form" class="section-body"><label for="event-name">Event name</label><input id="event-name" required pattern="[\\w.\\-]+" /><label for="event-text">Event details</label><textarea id="event-text" maxlength="12000"></textarea><button class="secondary">Send event</button></form></details>
   <details class="advanced"><summary>External wake events</summary><p class="field-hint">Your push sender needs this browser's subscription. Browsers may delay or suppress wakeups.</p><label for="push-key">Push sender's public VAPID key</label><input id="push-key" /><button id="push-enable" class="secondary" type="button">Enable and download subscription</button></details>
@@ -89,7 +89,7 @@ export function setupAutomations(refresh: () => Promise<void>) {
         .then(refresh)
         .then(() => {
           document.getElementById('automation-feedback')!.textContent =
-            'Saved. Work will appear in conversations.';
+            'Saved. Results will appear in your chats.';
         })
         .catch((error) => {
           document.getElementById('automation-feedback')!.textContent = String(error);
@@ -107,7 +107,7 @@ export function renderAutomations(
 ) {
   const list = document.getElementById('automation-list')!;
   list.replaceChildren();
-  if (!items.length) list.textContent = 'No background work yet.';
+  if (!items.length) list.textContent = 'No routines yet.';
   for (const item of items) {
     const row = document.createElement('div');
     row.className = 'plugin-row';
@@ -115,7 +115,7 @@ export function renderAutomations(
     title.textContent = item.prompt.slice(0, 100);
     const detail = document.createElement('p');
     detail.className = 'field-hint';
-    detail.textContent = `${item.kind} · ${item.status} · ${item.runs}/${item.maxRuns} runs${item.lastError ? ' · ' + item.lastError : ''}`;
+    detail.textContent = `${{ task: 'One-time task', goal: 'Goal', job: 'Scheduled task', monitor: 'Watch a file' }[item.kind]} · ${item.status} · ${item.runs}/${item.maxRuns} runs${item.lastError ? ' · ' + item.lastError : ''}`;
     const actions = document.createElement('div');
     actions.className = 'actions';
     if (item.status !== 'completed') {
@@ -136,7 +136,7 @@ export function renderAutomations(
     }
     if (item.conversationId ?? item.lastConversationId) {
       const open = document.createElement('button');
-      open.textContent = 'View conversation';
+      open.textContent = 'Open chat';
       open.onclick = () => {
         (document.getElementById('automations-dialog') as HTMLDialogElement).close();
         choose((item.conversationId ?? item.lastConversationId)!);

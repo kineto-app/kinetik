@@ -34,13 +34,13 @@ test('packaged static launcher exits and app reopens at a subpath with no server
   try {
     await expect.poll(() => output).toContain('http://127.0.0.1:4180/kinetik-oss/');
     await page.goto('http://127.0.0.1:4180/kinetik-oss/');
-    await expect(page.locator('#status')).toHaveText('Local workspace');
+    await expect(page.locator('#status')).toHaveText('Ready');
     await expect.poll(() => child.exitCode, { timeout: 10000 }).toBe(0);
     await exited;
     await page.close();
     const reopened = await context.newPage();
     await reopened.goto('http://127.0.0.1:4180/kinetik-oss/');
-    await expect(reopened.locator('#status')).toHaveText('Local workspace');
+    await expect(reopened.locator('#status')).toHaveText('Ready');
     await reopened
       .getByRole('textbox', { name: 'Message', exact: true })
       .fill('/exec echo offline launcher');

@@ -7,6 +7,7 @@ import type { Conversation, InstalledPlugin, ModelRequest } from '../src/core/ty
 
 const read = async (store: Store, id: string) =>
   (await store.get<Conversation>('conversation:' + id))!;
+const completion = (c: Conversation) => c.messages.filter((m) => m.source === 'background').at(-1);
 const plugin = (code: string): InstalledPlugin => ({
   manifest: { id: 'remote', name: 'Remote', version: '1', apiVersion: 1, entry: 'plugin.js' },
   source: 'https://example.org/plugin.json',
@@ -41,7 +42,9 @@ test('background exec ends the turn, then wakes the same conversation once with 
   await runtime.background.drain();
   const final = await read(store, c.id);
   expect(final.status).toBe('idle');
-  expect(final.messages.at(-1)?.text).toContain('finished');
+  expect(completion(final)?.text).toContain('finished');
+  expect(completion(final)?.visibility).toBe('internal');
+  expect(final.messages.at(-1)?.text).toBe('Background task completed.');
   expect(final.messages.filter((m) => m.id.startsWith('background-completed:'))).toHaveLength(1);
   expect(requests.length).toBe(callsBeforeCompletion + 1);
   expect(new TextDecoder().decode(await runtime.exportFile('/workspace/result'))).toBe(
@@ -68,7 +71,7 @@ test('background exec uses a replacement and waits for provider completion, not 
   await runtime.run(c.id);
   expect((await runtime.background.list(c.id))[0].state).toBe('running');
   await runtime.background.drain();
-  expect((await read(store, c.id)).messages.at(-1)?.text).toContain('remote finished: remote-job');
+  expect(completion(await read(store, c.id))?.text).toContain('remote finished: remote-job');
   await expect(runtime.exportFile('/workspace/nope')).rejects.toThrow();
 });
 
@@ -113,7 +116,7 @@ test('worker restart reports a lost local process and never replays its command'
   const { c } = await seed(store, runtime);
   await runtime.recover();
   expect((await runtime.background.list(c.id))[0].state).toBe('interrupted');
-  expect((await read(store, c.id)).messages.at(-1)?.text).toContain('was not restarted');
+  expect(completion(await read(store, c.id))?.text).toContain('was not restarted');
   await expect(runtime.exportFile('/workspace/duplicate')).rejects.toThrow();
 });
 
@@ -131,9 +134,7 @@ test('restart reconnects to a remote job without invoking execute again', async 
   await store.put('background:job', { ...job, operationId: 'existing-operation' });
   await runtime.recover();
   await runtime.background.drain();
-  expect((await read(store, c.id)).messages.at(-1)?.text).toContain(
-    'reconnected existing-operation',
-  );
+  expect(completion(await read(store, c.id))?.text).toContain('reconnected existing-operation');
   expect((await runtime.background.list(c.id))[0].state).toBe('completed');
 });
 
@@ -157,7 +158,7 @@ test('a crash before the start receipt is saved recovers the existing job and de
   }));
   await runtime.recover();
   expect((await read(store, c.id)).status).toBe('idle');
-  expect((await read(store, c.id)).messages.at(-1)?.text).toContain('already done');
+  expect(completion(await read(store, c.id))?.text).toContain('already done');
   // Simulate a crash after enqueueing the completion but before marking it delivered.
   await store.update<BackgroundProcess>('background:job', (value) => ({
     ...value!,
@@ -217,8 +218,8 @@ test('provider failure wakes the conversation with an interruption result', asyn
   await runtime.run(c.id);
   await runtime.background.drain();
   expect((await runtime.background.list(c.id))[0].state).toBe('interrupted');
-  expect((await read(store, c.id)).messages.at(-1)?.text).toContain('connection lost');
-  expect((await read(store, c.id)).messages.at(-1)?.text).toContain('do not automatically retry');
+  expect(completion(await read(store, c.id))?.text).toContain('connection lost');
+  expect(completion(await read(store, c.id))?.text).toContain('do not automatically retry');
 });
 
 test('background timeout wakes the agent even if a provider ignores abort', async () => {
@@ -238,6 +239,100 @@ test('background timeout wakes the agent even if a provider ignores abort', asyn
   await runtime.run(c.id);
   expect((await read(store, c.id)).status).toBe('idle');
   await runtime.background.drain();
-  expect((await read(store, c.id)).messages.at(-1)?.text).toContain('Background job timed out');
+  expect(completion(await read(store, c.id))?.text).toContain('Background job timed out');
   expect((await runtime.background.list(c.id))[0].state).toBe('interrupted');
+});
+
+test('background completion and user steering join the same next model request after a foreground tool', async () => {
+  const store = new Store(crypto.randomUUID());
+  let toolEntered!: () => void;
+  let finishTool!: () => void;
+  let finishJob!: () => void;
+  const toolStarted = new Promise<void>((resolve) => {
+    toolEntered = resolve;
+  });
+  const toolHeld = new Promise<void>((resolve) => {
+    finishTool = resolve;
+  });
+  const jobHeld = new Promise<void>((resolve) => {
+    finishJob = resolve;
+  });
+  const requests: ModelRequest[] = [];
+  let modelCalls = 0;
+  const runtime = new Runtime(store, undefined, {
+    async next(request) {
+      requests.push(request);
+      switch (++modelCalls) {
+        case 1:
+          return {
+            type: 'tool',
+            name: 'background',
+            input: { action: 'start', tool: 'exec', input: { command: 'bg' } },
+          };
+        case 2:
+          return {
+            type: 'tool',
+            name: 'exec',
+            input: { command: 'fg' },
+            callId: 'foreground',
+            items: [
+              { type: 'function_call', call_id: 'foreground', name: 'exec', arguments: '{}' },
+            ],
+          };
+        case 3:
+          return { type: 'tool', name: 'exec', input: { command: 'follow-up' } };
+        default:
+          return { type: 'text', text: 'Used the completed job and your correction.' };
+      }
+    },
+  });
+  vi.spyOn(runtime.plugins, 'snapshot').mockResolvedValue({
+    bindings: {
+      exec: {
+        provider: 'local',
+        tool: {
+          description: 'controlled work',
+          inputSchema: { type: 'object' },
+          async execute(input) {
+            if (input.command === 'bg') {
+              await jobHeld;
+              return 'internal background result';
+            }
+            toolEntered();
+            await toolHeld;
+            return 'foreground result';
+          },
+        },
+      },
+    },
+    sources: [],
+  });
+  const c = await runtime.create();
+  await runtime.submit(c.id, 'do the work');
+  const running = runtime.run(c.id);
+  await toolStarted;
+  await runtime.submit(c.id, 'use my correction');
+  finishJob();
+  await runtime.background.drain();
+  expect(modelCalls).toBe(2); // Nothing interrupts the executing foreground tool.
+  finishTool();
+  await running;
+  expect(modelCalls).toBe(4);
+  const history = requests[2].history!;
+  expect(
+    history.some(
+      (item) => item.type === 'function_call_output' && item.output === 'foreground result',
+    ),
+  ).toBe(true);
+  expect(history.some((item) => String(item.content).includes('internal background result'))).toBe(
+    true,
+  );
+  expect(history.some((item) => item.content === 'use my correction')).toBe(true);
+  const toolMessages = (await read(store, c.id)).messages.filter((m) => m.tool?.startsWith('exec'));
+  expect(toolMessages).toHaveLength(2);
+  expect(toolMessages.every((m) => m.visibility !== 'internal')).toBe(true);
+  expect(completion(await read(store, c.id))?.visibility).toBe('internal');
+  expect((await read(store, c.id)).messages.at(-1)?.text).toBe(
+    'Used the completed job and your correction.',
+  );
 });

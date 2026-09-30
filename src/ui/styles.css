@@ -993,3 +993,106 @@ summary .muted {
 #event-form > textarea {
   margin-bottom: var(--space-section);
 }
+
+.app-update {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-content);
+  padding: var(--space-content) var(--space-section);
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+}
+.app-update > div {
+  min-width: 0;
+}
+.app-update button {
+  flex: none;
+}
+.background-activity {
+  color: var(--accent-ink);
+}
+
+.preview-note {
+  max-width: 440px;
+  font-size: 12px;
+  color: var(--muted);
+  margin: 20px auto 0;
+}
+.settings-section {
+  padding: 16px;
+}
+.settings-section select {
+  width: 100%;
+}
+.tool-details {
+  color: var(--muted);
+  font-size: 13px;
+}
+.tool-details summary {
+  cursor: pointer;
+  min-height: var(--target);
+  padding: 10px 0;
+}
+.tool-details[open] .message-label {
+  margin-top: 8px;
+}
+.file-card,
+.file-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-inner);
+  background: var(--ground);
+}
+.file-card {
+  flex-wrap: wrap;
+  justify-content: space-between;
+}
+.file-card strong {
+  overflow-wrap: anywhere;
+}
+.file-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 16px;
+}
+.file-row .file-open {
+  justify-content: flex-start;
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  padding: 4px;
+}
+.file-open span {
+  overflow-wrap: anywhere;
+}
+.file-row > .small {
+  white-space: nowrap;
+}
+.file-preview {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-inner);
+  padding: 16px;
+  margin-top: 16px;
+}
+.file-preview-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.file-preview h3 {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.file-preview pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: inherit;
+  margin-bottom: 0;
+}

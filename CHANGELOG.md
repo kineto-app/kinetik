@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Simplified chat for nontechnical users: everyday preview examples, browsable local files with Open/Download cards, plain progress labels, and connection setup under Settings.
+
+- Offer downloaded PWA updates with an explicit Update button, retain unsent drafts across tab reloads, and keep the current build usable when downloads fail. Refuse activation during active work and defer runtime recovery until worker activation.
+- Show background execution as an activity indicator, hide raw job results and background tool activity from chat, and retain only useful assistant replies. Rename scheduled-work navigation to Routines.
+- Route background completions and user messages through the same steering queue. Batch queued context at safe boundaries and prevent stale model responses from executing tools after new steering arrives.
+
 - Preserve streamed OpenAI output items when the terminal response has an empty output array, as observed during a real ChatGPT subscription test.
 
 - Add background tool processes that release the agent turn and wake the same conversation with a durable completion result. Include cancellation, plugin completion hooks, remote recovery and interruption reporting without replay.
