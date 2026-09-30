@@ -9,9 +9,11 @@ let server: Server;
 let origin: string;
 let revision: number;
 let broken: boolean;
+let browserLogin = false;
 const prefix = '/kinetik-oss/';
 test.beforeEach(async () => {
   revision = 1;
+  browserLogin = false;
   broken = false;
   const { build } = JSON.parse(await readFile('dist/version.json', 'utf8'));
   const files = new Map<string, Buffer>();
@@ -24,6 +26,16 @@ test.beforeEach(async () => {
   }
   server = createServer((request, response) => {
     const path = new URL(request.url!, origin).pathname.slice(prefix.length) || 'index.html';
+    if (path === 'config.json' && browserLogin) {
+      response.writeHead(200, { 'Content-Type': 'application/json' });
+      response.end(
+        JSON.stringify({
+          connections: {},
+          chatgpt: { mode: 'browser', jwksUrl: './connections/chatgpt/keys' },
+        }),
+      );
+      return;
+    }
     const content = files.get(path);
     if (!content || (broken && path === 'index.html')) {
       response.writeHead(503).end();
@@ -250,4 +262,47 @@ test('updates stay reachable inside setup, dialogs and the mobile chat drawer', 
   await reloaded;
   await expect(page.locator('#status')).toHaveText('Ready');
   expect(await rpc(page, 'version')).toBe('release-2');
+});
+
+test('app updates preserve the saved browser login', async ({ page }) => {
+  browserLogin = true;
+  await page.goto(origin + prefix);
+  await expect(page.locator('#status')).toHaveText('Ready');
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve, reject) => {
+        const open = indexedDB.open('kinetik-chatgpt-v1', 1);
+        open.onupgradeneeded = () => open.result.createObjectStore('records');
+        open.onerror = () => reject(open.error);
+        open.onsuccess = () => {
+          const tx = open.result.transaction('records', 'readwrite');
+          tx.objectStore('records').put(
+            {
+              access: 'fixture-access',
+              refresh: 'fixture-refresh',
+              expires: Date.now() + 3600000,
+              account: 'fixture-person',
+              model: 'fixture-model',
+            },
+            'session',
+          );
+          tx.oncomplete = () => {
+            open.result.close();
+            resolve();
+          };
+          tx.onerror = () => reject(tx.error);
+        };
+      }),
+  );
+  expect(
+    (await rpc<{ chatgpt: { connected: boolean } }>(page, 'setupState')).chatgpt.connected,
+  ).toBe(true);
+  revision = 2;
+  await checkUpdate(page);
+  await expect(page.locator('#app-update')).toBeVisible();
+  await page.locator('#app-update-apply').click();
+  await expect(page.locator('#app-update')).toBeHidden();
+  expect(
+    (await rpc<{ chatgpt: { connected: boolean } }>(page, 'setupState')).chatgpt.connected,
+  ).toBe(true);
 });

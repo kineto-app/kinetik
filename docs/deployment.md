@@ -56,7 +56,7 @@ travel directly between the browser worker and OpenAI. Model requests are direct
 which requires OpenAI to allow the browser origin through CORS. A successful token exchange
 does not prove that authenticated model responses are readable. The paste-back flow checks state,
 PKCE, the ID-token signature, issuer, audience, nonce, expiry and plan permission. Credentials
-remain only in worker memory, separately from workspace files and chat. Sign-in must be repeated after worker termination, even if the PWA is still open. The short-lived OAuth transaction and public registration persist in IndexedDB to support the return flow. Trusted plugins still share
+are saved in a dedicated browser-local IndexedDB database, separately from workspace files and chat. Login survives worker termination, app restarts and updates. Refresh requests read and update that shared record under a Web Lock, so multiple workers cannot rotate the same token concurrently. Logout removes the record before remote revocation. Browser data clearing, storage eviction or revoked access still require signing in again. The short-lived OAuth transaction and public registration persist in IndexedDB to support the return flow. Trusted plugins still share
 origin privileges. This mode deliberately departs from OpenAI's documented token-storage
 guidance and has no claim of official browser support. Use it only on a trusted personal device.
 
@@ -107,7 +107,7 @@ Safari on Mac gets Add to Dock instructions. Users can continue in the browser a
 any point without installing.
 
 Charms uses an ordinary OAuth redirect in a separate tab, keeping the chat and its
-in-memory model session available in both browser and installed-app mode. When both share the stored authorization
+active model request available in both browser and installed-app mode. When both share the stored authorization
 request, the callback connects automatically and closes the return tab. The app
 refreshes its connection when focused. Separate browser/PWA storage falls back to
 a return link that the user pastes into the initiating app. No authorization code is
