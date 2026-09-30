@@ -107,3 +107,70 @@ test.each(['inline', 'split', 'text-only'])(
     );
   },
 );
+
+test.each([204, 202])(
+  'Charms sends attachment bytes through its existing upload API (%i)',
+  async (status) => {
+    const code = await readFile(
+      new URL('../public/plugins/charms/plugin.js', import.meta.url),
+      'utf8',
+    );
+    const names = [
+      'charms_exec',
+      'charms_files_read',
+      'charms_files_write',
+      'charms_files_edit',
+      'charms_files_list',
+      'charms_skill_find',
+      'charms_skill_load',
+      'charms_files_upload',
+    ];
+    const call = vi.fn(async (name: string, args: any) => {
+      if (name === 'charms_files_upload')
+        return {
+          structuredContent: {
+            upload_url: 'https://charms.example.com/api/charms/uploads/capability',
+            method: 'PUT',
+            path: args.path,
+            max_bytes: 25000000,
+          },
+        };
+      if (name === 'charms_job') return { structuredContent: { status: 'completed' } };
+      throw new Error('Unexpected tool ' + name);
+    });
+    const request = vi.fn(async (_url: RequestInfo | URL, _init?: RequestInit) =>
+      status === 204
+        ? new Response(null, { status })
+        : Response.json({ job_id: 'upload-job' }, { status }),
+    );
+    vi.stubGlobal('fetch', request);
+    try {
+      const plugin = await new Function('host', code)({
+        settings: { url: 'https://charms.example.com/mcp' },
+        mcp: () => ({
+          tools: async () =>
+            Object.fromEntries(names.map((name) => [name, { execute: async () => ({}) }])),
+          call,
+        }),
+      });
+      const bytes = new Uint8Array([0, 128, 255]);
+      const result = await plugin.files.upload(
+        { id: 'attachment-1', name: 'photo.png', bytes },
+        new AbortController().signal,
+      );
+      expect(result.path).toBe('files/attachments/attachment-1/photo.png');
+      expect(request.mock.calls[0][1]).toMatchObject({
+        method: 'PUT',
+        credentials: 'omit',
+        redirect: 'error',
+        body: bytes,
+      });
+      expect((request.mock.calls[0][1] as RequestInit).headers).not.toHaveProperty('Authorization');
+      expect(call.mock.calls.filter(([name]) => name === 'charms_job')).toHaveLength(
+        status === 202 ? 1 : 0,
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  },
+);

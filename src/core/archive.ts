@@ -1,7 +1,7 @@
 import Ajv from 'ajv';
 import { Store } from '../browser/store';
 import { createFilesystem } from '../browser/filesystem';
-import type { Conversation, InstalledPlugin } from './types';
+import { modelMessageText, type Conversation, type InstalledPlugin } from './types';
 import type { Automation } from './automation';
 
 const MAX_ARCHIVE = 32 * 1024 * 1024;
@@ -33,6 +33,21 @@ const schema = new Ajv({ strict: false }).compile({
                 text: { type: 'string', maxLength: 2000000 },
                 createdAt: { type: 'number' },
                 durationMs: { type: 'number', minimum: 0 },
+                attachments: {
+                  type: 'array',
+                  maxItems: 10,
+                  items: {
+                    type: 'object',
+                    required: ['id', 'name', 'size', 'path', 'provider'],
+                    properties: {
+                      id: { type: 'string', maxLength: 100 },
+                      name: { type: 'string', maxLength: 255 },
+                      size: { type: 'number', minimum: 0 },
+                      path: { type: 'string', maxLength: 4096 },
+                      provider: { type: 'string', maxLength: 100 },
+                    },
+                  },
+                },
                 file: {
                   type: 'object',
                   required: ['path', 'name'],
@@ -175,6 +190,17 @@ function conversation(value: Conversation): Conversation {
       role: m.role,
       text: m.text,
       createdAt: m.createdAt,
+      ...(m.attachments?.length
+        ? {
+            attachments: m.attachments.map(({ id, name, size, path, provider }) => ({
+              id,
+              name,
+              size,
+              path,
+              provider,
+            })),
+          }
+        : {}),
       ...(typeof m.durationMs === 'number' ? { durationMs: m.durationMs } : {}),
       ...(m.visibility === 'internal' ? { visibility: 'internal' as const } : {}),
       ...(m.source === 'background' ? { source: 'background' as const } : {}),
@@ -329,7 +355,7 @@ export async function parseArchive(text: string): Promise<[string, unknown][]> {
     // or retaining a pending tool execution from the source device.
     restored.modelInput = restored.messages
       .filter((m) => ['user', 'assistant'].includes(m.role) && m.visibility !== 'internal')
-      .map((m) => ({ role: m.role, content: m.text }));
+      .map((m) => ({ role: m.role, content: modelMessageText(m) }));
     return ['conversation:' + c.id, restored];
   });
   const plugins = archive.plugins.map(plugin);

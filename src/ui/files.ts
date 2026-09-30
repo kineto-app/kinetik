@@ -212,7 +212,7 @@ function showFeedback(value: unknown, kind: string) {
   byId('error').textContent = value instanceof Error ? value.message : String(value);
   byId('error').dataset.kind = kind;
 }
-export function setupFiles() {
+export function setupFiles(attach: (file: { name: string; bytes: Uint8Array }) => Promise<void>) {
   byId('file-dialog').addEventListener('close', () => {
     closePreview?.();
     closePreview = undefined;
@@ -224,9 +224,9 @@ export function setupFiles() {
       const file = input.files?.[0];
       if (!file) return;
       input.value = '';
-      if (file.size > 4 * 1024 * 1024) throw new Error('Choose a file smaller than 4 MB.');
-      await rpc('import', { name: file.name, bytes: new Uint8Array(await file.arrayBuffer()) });
-      showFeedback('Added ' + file.name, 'success');
+      if (file.size > 25 * 1024 * 1024) throw new Error('Choose a file smaller than 25 MB.');
+      await attach({ name: file.name, bytes: new Uint8Array(await file.arrayBuffer()) });
+      byId('ui-announcement').textContent = 'Attached ' + file.name;
     })().catch((error) => showFeedback(error, 'error'));
   };
 }

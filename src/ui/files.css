@@ -1,6 +1,43 @@
 .file-card {
   min-width: 0;
 }
+.attachment-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-inline);
+  min-width: 0;
+}
+.attachment-list[hidden] {
+  display: none;
+}
+#attachments {
+  margin-bottom: var(--space-inline);
+}
+.attachment-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-inline);
+  max-width: 100%;
+  min-height: var(--target);
+  padding-inline: var(--space-content);
+  border-radius: var(--radius-pill);
+  background: var(--glass);
+  border: 1px solid var(--control-line);
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.attachment-chip > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.attachment-chip .icon-button {
+  flex: none;
+}
+#attachment-status:empty {
+  display: none;
+}
 .shared-file-panel {
   min-width: 0;
   background: var(--frame-fill);

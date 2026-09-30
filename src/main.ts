@@ -118,6 +118,7 @@ renderSolid(
 function render() {
   setView({ state, selected });
   const c = current();
+  renderAttachments();
   const foreground = c?.status === 'running' && !isBackgroundTurn(c);
   const jobs = state.background ?? [];
   const processing = state.conversations.some(
@@ -135,7 +136,7 @@ function render() {
       : 'Ready';
   byId('composer-hint').textContent = foreground
     ? 'Send another message to guide Kinetik as it works.'
-    : 'Enter to send · Shift + Enter for a new line';
+    : 'Enter for a new line. Use Send to send your message.';
   byId('connection-wait').hidden = c?.status !== 'waiting';
   byId('connection-wait-label').textContent =
     c?.waitingFor === 'signin'
@@ -251,17 +252,61 @@ async function refresh() {
   render();
 }
 let submitting = false;
+let pickingFile = false;
+function renderAttachments() {
+  const container = byId('attachments');
+  const files = current()?.attachments ?? [];
+  container.hidden = !files.length;
+  container.replaceChildren(
+    ...files.map((file) => {
+      const chip = document.createElement('div');
+      chip.className = 'attachment-chip';
+      const name = document.createElement('span');
+      name.textContent = file.name;
+      name.title = file.name;
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'icon-button';
+      remove.innerHTML = icon('close');
+      remove.setAttribute('aria-label', 'Remove ' + file.name);
+      remove.disabled = submitting;
+      const conversationId = selected;
+      remove.onclick = () => {
+        void rpc('attachmentRemove', { id: conversationId, attachmentId: file.id })
+          .then(refresh)
+          .catch(showError);
+      };
+      chip.append(name, remove);
+      return chip;
+    }),
+  );
+}
+async function stageFile(file: { name: string; bytes: Uint8Array }) {
+  if (!current()) selected = (await rpc<Conversation>('create')).id;
+  await rpc('attachmentStage', { id: selected, ...file });
+  byId('error').textContent = '';
+  await refresh();
+}
 function updateComposer() {
   const input = byId<HTMLTextAreaElement>('prompt');
+  input.readOnly = submitting;
   const busy =
     ['running', 'queued', 'waiting'].includes(current()?.status ?? '') ||
     state.background.some((job) => job.conversationId === selected);
-  const stopping = busy && !input.value.trim();
+  const hasAttachments = Boolean(current()?.attachments?.length);
+  const stopping = busy && !input.value.trim() && !hasAttachments;
   byId('stop').hidden = !stopping;
   byId('send').hidden = stopping;
   byId('work-options').hidden = !busy;
   if (!busy) byId<HTMLDetailsElement>('work-options').open = false;
-  byId<HTMLButtonElement>('send').disabled = submitting || !input.value.trim();
+  byId<HTMLButtonElement>('send').disabled =
+    submitting || pickingFile || (!input.value.trim() && !hasAttachments);
+  byId<HTMLButtonElement>('attach').disabled = submitting || pickingFile;
+  byId('attachment-status').textContent = pickingFile
+    ? 'Adding file…'
+    : submitting && hasAttachments
+      ? 'Sending files…'
+      : '';
   sessionStorage.setItem(draftKey, input.value);
   input.style.height = 'auto';
   input.style.height = Math.min(input.scrollHeight, 144) + 'px';
@@ -327,8 +372,10 @@ byId('composer').onsubmit = (event) => {
   void (async () => {
     const input = byId<HTMLTextAreaElement>('prompt');
     const text = input.value;
-    if (!text.trim() || submitting) return;
+    const attachments = current()?.attachments?.map((file) => file.id) ?? [];
+    if ((!text.trim() && !attachments.length) || submitting || pickingFile) return;
     submitting = true;
+    renderAttachments();
     updateComposer();
     try {
       if (connectionState?.chatgpt.available) {
@@ -340,7 +387,7 @@ byId('composer').onsubmit = (event) => {
       }
       if (!current()) selected = (await rpc<Conversation>('create')).id;
       followNextMessage = true;
-      await rpc('submit', { id: selected, text });
+      await rpc('submit', { id: selected, text, attachments });
       input.value = '';
       updateComposer();
       byId('error').textContent = '';
@@ -348,15 +395,10 @@ byId('composer').onsubmit = (event) => {
       input.focus();
     } finally {
       submitting = false;
+      renderAttachments();
       updateComposer();
     }
   })().catch(showError);
-};
-byId('prompt').onkeydown = (event) => {
-  if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
-    event.preventDefault();
-    byId<HTMLFormElement>('composer').requestSubmit();
-  }
 };
 byId('stop').onclick = byId('cancel-work').onclick = () => {
   byId<HTMLDetailsElement>('work-options').open = false;
@@ -381,15 +423,18 @@ byId('attach').onclick = () => {
     byId<HTMLInputElement>('upload').click();
     return;
   }
+  pickingFile = true;
+  updateComposer();
   void import('./platform/files')
     .then(async ({ importNativeFile }) => {
       const file = await importNativeFile();
-      if (file) {
-        await rpc('import', file);
-        await refresh();
-      }
+      if (file) await stageFile(file);
     })
-    .catch(showError);
+    .catch(showError)
+    .finally(() => {
+      pickingFile = false;
+      updateComposer();
+    });
 };
 for (const close of document.querySelectorAll<HTMLButtonElement>('[data-close]'))
   close.onclick = () => byId<HTMLDialogElement>(close.dataset.close!).close();
@@ -529,7 +574,16 @@ async function start() {
     /* Hosted and offline copies have no launcher. */
   }
 }
-setupFiles();
+setupFiles(async (file) => {
+  pickingFile = true;
+  updateComposer();
+  try {
+    await stageFile(file);
+  } finally {
+    pickingFile = false;
+    updateComposer();
+  }
+});
 setupDataTransfer();
 setupAutomations(refresh);
 const connectionSetup = setupConnections((value) => {

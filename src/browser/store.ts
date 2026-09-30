@@ -46,6 +46,15 @@ export class Store {
   async put<T>(key: string, value: T): Promise<void> {
     await this.update(key, () => value);
   }
+  async delete(key: string): Promise<void> {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('records', 'readwrite');
+      tx.objectStore('records').delete(key);
+      tx.oncomplete = () => resolve();
+      tx.onabort = tx.onerror = () => reject(tx.error ?? new Error('Storage transaction aborted'));
+    });
+  }
   /** Replace application records atomically, retaining device-owned records selected by the caller. */
   async replace(records: [string, unknown][], retain: (key: string) => boolean): Promise<void> {
     const db = await this.open();

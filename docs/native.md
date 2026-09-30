@@ -57,6 +57,8 @@ Android encrypts credentials using an Android Keystore key. iOS stores them in t
 
 Workspace data remains in the app's local IndexedDB. Keep the app identifier and WebView origin stable across upgrades. Uninstalling the app, clearing app data, or losing OS storage can remove local data. Settings offers explicit workspace export/import. Exports contain chats, files, plugin code, and routines; treat them as private. Connection settings and stored credentials are excluded. Imported plugins are disabled and routines paused until reviewed. Imported widget snapshots can display their original content; run the provider tool again after reconnecting to restore live interaction.
 
+The composer stages selected files locally and sends them to the active workspace with the message. Failed uploads keep the message and selected files for retry. Enter inserts a newline; the Send button submits.
+
 ## Background work
 
 Android starts a foreground service while user work or sign-in is active. Its notification has a Stop action. A wake lock and heartbeat support the existing JavaScript runtime; an absent heartbeat stops the service. It is not an always-on daemon and does not start on device boot. OEM power restrictions, force stop, and process loss can interrupt work.

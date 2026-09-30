@@ -159,6 +159,8 @@ export function Shell() {
               </div>
             </div>
             <div id="error" class="feedback" role="alert"></div>
+            <div id="attachments" class="attachment-list" aria-label="Attached files" hidden></div>
+            <div id="attachment-status" class="field-hint" role="status"></div>
             <form id="composer" class="composer">
               <button
                 type="button"
@@ -206,7 +208,7 @@ export function Shell() {
               </span>
             </form>
             <div class="composer-foot sr-only">
-              <span id="composer-hint">Enter to send · Shift + Enter for a new line</span>
+              <span id="composer-hint">Enter for a new line. Use Send to send your message.</span>
               <span id="model-status">Preview · ChatGPT is not connected</span>
             </div>
           </section>

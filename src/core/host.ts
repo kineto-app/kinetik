@@ -242,7 +242,19 @@ export class RuntimeHost {
           break;
         case 'submit':
           followup = string(data.id);
-          await runtime.submit(followup, string(data.text));
+          await runtime.submit(
+            followup,
+            string(data.text),
+            undefined,
+            data.attachments as string[] | undefined,
+          );
+          break;
+        case 'attachmentStage':
+          if (!(data.bytes instanceof Uint8Array)) throw new Error('Invalid file bytes.');
+          result = await runtime.stageAttachment(string(data.id), string(data.name), data.bytes);
+          break;
+        case 'attachmentRemove':
+          await runtime.removeAttachment(string(data.id), string(data.attachmentId));
           break;
         case 'stop':
           await runtime.stop(string(data.id));

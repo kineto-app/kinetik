@@ -23,10 +23,15 @@ export function workerRPC<T = void>(
 ): Promise<T> {
   return new Promise((resolve, reject) => {
     const channel = new MessageChannel();
-    const timer = setTimeout(() => {
-      channel.port1.close();
-      reject(new Error('Worker did not respond. Reopen the app to recover.'));
-    }, 60000);
+    const timer = setTimeout(
+      () => {
+        channel.port1.close();
+        reject(new Error('Worker did not respond. Reopen the app to recover.'));
+      },
+      op === 'submit' && Array.isArray(data.attachments) && data.attachments.length
+        ? 150000
+        : 60000,
+    );
     channel.port1.onmessage = (event) => {
       clearTimeout(timer);
       channel.port1.close();

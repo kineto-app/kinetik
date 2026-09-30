@@ -227,6 +227,8 @@ export class Plugins {
     }
     if (plugin.skills && typeof plugin.skills.sync !== 'function')
       throw new Error('Invalid skill source.');
+    if (plugin.files && typeof plugin.files.upload !== 'function')
+      throw new Error('Invalid file upload provider.');
     return plugin;
   }
   async snapshot(

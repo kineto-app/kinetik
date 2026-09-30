@@ -1,4 +1,4 @@
-import { onCleanup, onMount, Show } from 'solid-js';
+import { For, onCleanup, onMount, Show } from 'solid-js';
 import type { Message } from '../core/types';
 import { renderMessageContent, copyButton } from './message-content';
 import { messageTime, workDuration } from './time';
@@ -50,6 +50,17 @@ export function MessageBubble(props: {
             : (item.tool ?? 'Workspace notice')}
       </div>
       {content}
+      <Show when={item.attachments?.length}>
+        <div class="attachment-list" aria-label="Sent files">
+          <For each={item.attachments}>
+            {(file) => (
+              <span class="attachment-chip" title={file.name}>
+                {file.name}
+              </span>
+            )}
+          </For>
+        </div>
+      </Show>
       <Show when={item.role === 'assistant'}>
         <div class="message-actions">
           {copyButton(item.text, 'Copy reply')}
