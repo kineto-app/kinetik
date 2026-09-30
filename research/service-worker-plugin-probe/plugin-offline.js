@@ -1,0 +1,1 @@
+return { name: "probe", execute: async (n) => n + 1 };

@@ -1,0 +1,64 @@
+/** A write resolves on commit, never just on request success. Updaters are synchronous. */
+export class Store {
+  private database?: Promise<IDBDatabase>;
+  constructor(private name = 'kinetik-oss-v1') {}
+  private open(): Promise<IDBDatabase> {
+    return (this.database ??= new Promise((resolve, reject) => {
+      const request = indexedDB.open(this.name, 1);
+      request.onupgradeneeded = () => request.result.createObjectStore('records');
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        request.result.onversionchange = () => request.result.close();
+        resolve(request.result);
+      };
+    }));
+  }
+  async get<T>(key: string): Promise<T | undefined> {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const request = db.transaction('records').objectStore('records').get(key);
+      request.onsuccess = () => resolve(request.result as T | undefined);
+      request.onerror = () => reject(request.error);
+    });
+  }
+  async update<T>(key: string, update: (previous: T | undefined) => T): Promise<T> {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('records', 'readwrite');
+      const records = tx.objectStore('records');
+      let value: T;
+      let failure: unknown;
+      const request = records.get(key);
+      request.onsuccess = () => {
+        try {
+          value = update(request.result as T | undefined);
+          records.put(value, key);
+        } catch (error) {
+          failure = error;
+          tx.abort();
+        }
+      };
+      tx.oncomplete = () => resolve(value);
+      tx.onabort = tx.onerror = () =>
+        reject(failure ?? tx.error ?? new Error('Storage transaction aborted'));
+    });
+  }
+  async put<T>(key: string, value: T): Promise<void> {
+    await this.update(key, () => value);
+  }
+  async entries<T>(prefix: string): Promise<[string, T][]> {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const request = db.transaction('records').objectStore('records').openCursor();
+      const result: [string, T][] = [];
+      request.onsuccess = () => {
+        const cursor = request.result;
+        if (!cursor) return resolve(result);
+        if (String(cursor.key).startsWith(prefix))
+          result.push([String(cursor.key), cursor.value as T]);
+        cursor.continue();
+      };
+      request.onerror = () => reject(request.error);
+    });
+  }
+}

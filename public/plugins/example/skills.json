@@ -1,0 +1,4 @@
+{
+  "revision": "1",
+  "skills": [{ "name": "example-workspace", "description": "Use the example plugin to inspect tool replacement.", "path": "example/SKILL.md", "content": "# Example workspace\nThe example plugin replaces exec with an echo tool. No shell command is executed. Disable the plugin to restore the local shell. This skill is loaded natively through read_skill." }]
+}

@@ -1,0 +1,127 @@
+import { createServer } from 'node:http';
+let revision = 1,
+  fail = false;
+const manifest = {
+  id: 'fixture',
+  name: 'Fixture plugin',
+  version: '1.0.0',
+  apiVersion: 1,
+  entry: 'plugin.js',
+};
+const server = createServer(async (req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader(
+    'Access-Control-Allow-Headers',
+    'content-type, mcp-protocol-version, mcp-session-id',
+  );
+  res.setHeader('Cache-Control', 'no-store');
+  if (req.method === 'OPTIONS') return res.end();
+  if (req.url === '/mcp') {
+    let data = '';
+    for await (const part of req) data += part;
+    const rpc = JSON.parse(data);
+    let result = {};
+    if (rpc.method === 'initialize')
+      result = {
+        protocolVersion: '2025-11-25',
+        capabilities: { tools: {}, resources: {} },
+        serverInfo: { name: 'fixture', version: '1' },
+      };
+    if (rpc.method === 'tools/list')
+      result = {
+        tools: [
+          {
+            name: 'show',
+            description: 'Show interactive app',
+            inputSchema: { type: 'object' },
+            _meta: { ui: { resourceUri: 'ui://fixture/view' } },
+          },
+          {
+            name: 'increment',
+            description: 'App-only increment',
+            inputSchema: { type: 'object' },
+            _meta: { ui: { visibility: ['app'] } },
+          },
+          {
+            name: 'placeholder-token',
+            description: 'Model only',
+            inputSchema: { type: 'object' },
+            _meta: { ui: { visibility: ['model'] } },
+          },
+        ],
+      };
+    if (rpc.method === 'resources/read')
+      result = {
+        contents: [
+          {
+            uri: 'ui://fixture/view',
+            mimeType: 'text/html;profile=mcp-app',
+            text: `<!doctype html><html><body><p id="result">Loading</p><p id="isolation"></p><button id="inc">Increment</button><button id="denied">Forbidden tool</button><script>
+      try { top.localStorage.setItem('escaped','true'); document.getElementById('isolation').textContent='Unsafe'; } catch { document.getElementById('isolation').textContent='Isolated'; }
+      const send = (method, params, id) => parent.postMessage({jsonrpc:'2.0',method,params,id}, '*');
+      addEventListener('message', event => {
+        const data=event.data;
+        if(data.id === 1 && data.result) send('ui/notifications/initialized', {});
+        if(data.method === 'ui/notifications/tool-result') document.getElementById('result').textContent='Ready';
+        if(data.id === 2) document.getElementById('result').textContent=data.result ? 'Incremented' : 'Failed';
+        if(data.id === 3) document.getElementById('result').textContent=data.error ? 'Denied' : 'Unsafe';
+      });
+      document.getElementById('inc').onclick=()=>send('tools/call',{name:'increment',arguments:{}},2);
+      document.getElementById('denied').onclick=()=>send('tools/call',{name:'placeholder-token',arguments:{}},3);
+      send('ui/initialize',{protocolVersion:'2026-01-26',appInfo:{name:'fixture',version:'1'},appCapabilities:{}},1);
+    <\/script></body></html>`,
+          },
+        ],
+      };
+    if (rpc.method === 'tools/call')
+      result = {
+        content: [
+          { type: 'text', text: rpc.params.name === 'increment' ? 'Incremented' : 'App result' },
+        ],
+      };
+    if (rpc.id === undefined) {
+      res.writeHead(202);
+      return res.end();
+    }
+    res.setHeader('Content-Type', 'application/json');
+    return res.end(JSON.stringify({ jsonrpc: '2.0', id: rpc.id, result }));
+  }
+  if (req.url === '/control') {
+    let data = '';
+    for await (const part of req) data += part;
+    const state = JSON.parse(data);
+    revision = state.revision ?? revision;
+    fail = state.fail ?? fail;
+    return res.end('ok');
+  }
+  if (req.url === '/plugin.json') {
+    res.setHeader('Content-Type', 'application/json');
+    return res.end(JSON.stringify({ ...manifest, version: `${revision}.0.0` }));
+  }
+  if (req.url === '/plugin.js') {
+    res.setHeader('Content-Type', 'text/plain');
+    return res.end(
+      `return { tools:{echo:{description:'Fixture execution',inputSchema:{type:'object',properties:{command:{type:'string'}},required:['command'],additionalProperties:false},async execute({command}){return 'code-${revision}: '+command;}}},replacements:{exec:'echo'},skills:{async sync(previous,signal){const r=await fetch(new URL('skills.json',host.baseURL),{signal,cache:'no-store'});if(!r.ok)throw new Error('Skill source offline');return await r.json();}}};`,
+    );
+  }
+  if (req.url === '/skills.json') {
+    res.setHeader('Content-Type', 'application/json');
+    res.statusCode = fail ? 503 : 200;
+    return res.end(
+      JSON.stringify({
+        revision: String(revision),
+        skills: [
+          {
+            name: 'fixture-skill',
+            description: `Description ${revision}`,
+            path: 'fixture/SKILL.md',
+            content: `# Revision ${revision}`,
+          },
+        ],
+      }),
+    );
+  }
+  res.end('ok');
+});
+server.listen(4174, '127.0.0.1');

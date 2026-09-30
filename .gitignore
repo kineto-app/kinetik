@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.dev/
+coverage/
+test-results/
+playwright-report/
+*.tgz
+.env
+.env.*
+!.env.example
+.DS_Store
+*.log
