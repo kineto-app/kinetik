@@ -3,8 +3,11 @@ export interface Message {
   role: 'user' | 'assistant' | 'tool' | 'notice';
   text: string;
   createdAt: number;
+  visibility?: 'internal';
+  source?: 'background';
   tool?: string;
   app?: AppView;
+  file?: { path: string; name: string };
 }
 export type RunStatus = 'idle' | 'running' | 'stopped' | 'needs_review' | 'queued';
 export interface ToolCall {
@@ -24,6 +27,7 @@ export interface Conversation {
   pending: string[];
   status: RunStatus;
   activeMessage?: string;
+  turn?: 'foreground' | 'background';
   plugins?: InstalledPlugin[];
   call?: ToolCall;
   updatedAt: number;

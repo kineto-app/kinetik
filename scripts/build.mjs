@@ -1,6 +1,6 @@
 import { build as viteBuild } from 'vite';
 import { build } from 'esbuild';
-import { readdir, readFile } from 'node:fs/promises';
+import { readdir, readFile, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 await viteBuild({ base: './', build: { target: 'es2022' } });
 const files = (await readdir('dist', { recursive: true })).filter((p) =>
@@ -11,6 +11,7 @@ for (const file of files) hash.update(await readFile('dist/' + file));
 hash.update(await readFile('src/sw.ts'));
 // All worker source/dependency changes must produce a fresh cache namespace too.
 hash.update(String(Date.now()));
+const buildId = hash.digest('hex').slice(0, 12);
 await build({
   entryPoints: ['src/sw.ts'],
   outfile: 'dist/sw.js',
@@ -23,11 +24,11 @@ await build({
   legalComments: 'external',
   define: {
     __PRECACHE__: JSON.stringify(files),
-    __BUILD_ID__: JSON.stringify(hash.digest('hex').slice(0, 12)),
+    __BUILD_ID__: JSON.stringify(buildId),
   },
 });
 // Ship license texts for the installed production dependency tree with the bundle.
-const { writeFile } = await import('node:fs/promises');
+await writeFile('dist/version.json', JSON.stringify({ build: buildId }));
 const lock = JSON.parse(await readFile('package-lock.json', 'utf8'));
 let licenses = 'Runtime dependency licenses for Kinetik OSS\n';
 for (const [path, meta] of Object.entries(lock.packages)) {

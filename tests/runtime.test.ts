@@ -44,9 +44,7 @@ test('incoming messages steer at a tool boundary', async () => {
   await waitFor(async () => (await read(store, c.id)).call?.state === 'pending');
   await runtime.submit(c.id, '/write /workspace/steered\nnew direction');
   await run;
-  expect((await read(store, c.id)).messages.some((m) => m.text.includes('tool boundary'))).toBe(
-    true,
-  );
+  expect((await read(store, c.id)).pending).toEqual([]);
   expect(new TextDecoder().decode(await runtime.exportFile('/workspace/steered'))).toBe(
     'new direction',
   );
@@ -210,4 +208,61 @@ test('local SKILL.md metadata refreshes before the next message', async () => {
   await runtime.submit(conversation.id, '/read_skill /workspace/skills/test/SKILL.md');
   await runtime.run(conversation.id);
   expect((await read(store, conversation.id)).messages.at(-1)?.text).toContain('Do useful work');
+});
+
+test('steering during inference discards the stale action and keeps every queued message in history', async () => {
+  const store = new Store(crypto.randomUUID());
+  let release!: () => void;
+  let entered!: () => void;
+  const waiting = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let calls = 0;
+  const runtime = new Runtime(store, undefined, {
+    async next(request) {
+      if (++calls === 1) {
+        entered();
+        await held;
+        return {
+          type: 'tool',
+          name: 'write',
+          input: { path: '/workspace/stale', content: 'wrong' },
+        };
+      }
+      expect(request.history?.map((item) => item.content)).toEqual([
+        'original',
+        'stop that',
+        'new direction',
+      ]);
+      return { type: 'text', text: 'Followed the new direction.' };
+    },
+  });
+  const c = await runtime.create();
+  await runtime.submit(c.id, 'original');
+  const running = runtime.run(c.id);
+  await waiting;
+  await runtime.submit(c.id, 'stop that');
+  await runtime.submit(c.id, 'new direction');
+  release();
+  await running;
+  expect(calls).toBe(2);
+  expect((await read(store, c.id)).pending).toEqual([]);
+  expect((await read(store, c.id)).messages.at(-1)?.text).toBe('Followed the new direction.');
+  await expect(runtime.exportFile('/workspace/stale')).rejects.toThrow();
+});
+
+test('file browser lists nested files and does not follow directory symlinks', async () => {
+  const runtime = new Runtime(new Store(crypto.randomUUID()));
+  const c = await runtime.create();
+  await runtime.submit(
+    c.id,
+    '/exec mkdir -p folder; printf hello > folder/note.txt; ln -s /workspace folder/loop',
+  );
+  await runtime.run(c.id);
+  const files = await runtime.files();
+  expect(files).toContainEqual({ path: '/workspace/folder/note.txt', name: 'note.txt', size: 5 });
+  expect(files.some((file) => file.path.includes('/loop/'))).toBe(false);
 });

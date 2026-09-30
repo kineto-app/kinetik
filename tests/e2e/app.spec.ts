@@ -33,7 +33,7 @@ async function settled(page: Page) {
 test.beforeEach(async ({ page, request }) => {
   await request.post('http://127.0.0.1:4174/control', { data: { revision: 1, fail: false } });
   await page.goto('/');
-  await expect(page.locator('#status')).toHaveText('Local workspace');
+  await expect(page.locator('#status')).toHaveText('Ready');
 });
 
 test('chat shell, native skill, binary import/export and offline reload', async ({
@@ -54,7 +54,7 @@ test('chat shell, native skill, binary import/export and offline reload', async 
   await page.screenshot({ path: testInfo.outputPath('chat.png') });
   await context.setOffline(true);
   await page.reload();
-  await expect(page.locator('#status')).toHaveText('Local workspace');
+  await expect(page.locator('#status')).toHaveText('Ready');
   await send(page, '/read /workspace/note.txt');
   await settled(page);
   await expect(page.locator('[data-role="assistant"] pre').last()).toHaveText(/hello/);
@@ -191,7 +191,10 @@ test('MCP Apps handshake, tool interaction, visibility and origin isolation', as
   await app.getByRole('button', { name: 'Forbidden tool' }).click();
   await expect(app.locator('#result')).toHaveText('Denied');
   await app.getByRole('button', { name: 'Increment' }).click();
-  await expect(page.getByText('App · increment', { exact: true })).toBeVisible();
+  const action = page.locator('.tool-details').filter({ hasText: 'App · increment' });
+  await action.locator('summary').click();
+  await expect(action).toContainText('App · increment');
+  await expect(app.locator('#result')).toHaveText('Incremented');
   expect(await page.evaluate(() => localStorage.getItem('escaped'))).toBeNull();
   await context.setOffline(true);
   await page.reload();
@@ -200,13 +203,13 @@ test('MCP Apps handshake, tool interaction, visibility and origin isolation', as
   ).toHaveText('Ready');
 });
 
-test('background tasks can be created in the UI and survive reload without a second run', async ({
+test('routines can be created in the UI and survive reload without a second run', async ({
   page,
 }, testInfo) => {
   if (testInfo.project.name === 'mobile-chromium') await page.locator('#menu').click();
   await page.locator('#automations-open').click();
-  await page.getByLabel('What should the agent do?').fill('/exec echo task >> /workspace/task.txt');
-  await page.getByRole('button', { name: 'Create background work' }).click();
+  await page.getByLabel('What would you like done?').fill('/exec echo task >> /workspace/task.txt');
+  await page.getByRole('button', { name: 'Create routine' }).click();
   await expect(page.locator('#automation-feedback')).toContainText('Saved');
   await expect
     .poll(async () => {
@@ -217,7 +220,7 @@ test('background tasks can be created in the UI and survive reload without a sec
     .toBe('completed');
   await page.screenshot({ path: testInfo.outputPath('background-work.png') });
   await page.reload();
-  await expect(page.locator('#status')).toHaveText('Local workspace');
+  await expect(page.locator('#status')).toHaveText('Ready');
   await rpc(page, 'tick');
   const bytes = await rpc<Uint8Array>(page, 'export', { path: '/workspace/task.txt' });
   expect(new TextDecoder().decode(bytes)).toBe('task\n');
@@ -247,8 +250,11 @@ test('background process releases the turn and later wakes it with output withou
   );
   await settled(page);
   await expect(page.locator('[data-role="assistant"] pre').last()).toContainText(
-    'Completion will wake',
+    'Started a background task.',
   );
+  await expect(page.locator('#background-activity')).toContainText('1 background task running');
+  await expect(page.locator('#activity')).toBeHidden();
+  await page.screenshot({ path: testInfo.outputPath('background-running.png') });
   // The originating model turn is done. A second foreground command can run meanwhile.
   await send(page, '/exec echo foreground-finished');
   await settled(page);
@@ -256,17 +262,24 @@ test('background process releases the turn and later wakes it with output withou
     'foreground-finished',
   );
   await expect(page.locator('[data-role="assistant"] pre').last()).toContainText(
-    'background-finished',
+    'Background task completed.',
+  );
+  await expect(page.locator('#background-activity')).toBeHidden();
+  await expect(page.locator('#timeline')).not.toContainText('Background job ');
+  await expect(page.locator('#timeline [data-role=tool]')).not.toContainText(
+    'Completion will wake',
   );
   await page.screenshot({ path: testInfo.outputPath('background-process.png') });
   const before = await rpc<{ conversations: Conversation[] }>(page, 'state');
   const events = () =>
     before.conversations[0].messages.filter((m) => m.id.startsWith('background-completed:'));
   expect(events()).toHaveLength(1);
+  expect(events()[0].visibility).toBe('internal');
+  expect(events()[0].text).toContain('background-finished');
   expect(before.conversations[0].messages.filter((m) => m.role === 'user')).toHaveLength(2);
   await context.setOffline(true);
   await page.reload();
-  await expect(page.locator('#status')).toHaveText('Local workspace');
+  await expect(page.locator('#status')).toHaveText('Ready');
   await settled(page);
   const after = await rpc<{ conversations: Conversation[] }>(page, 'state');
   expect(

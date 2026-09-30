@@ -81,7 +81,7 @@ Browser storage is tied to its origin. The hosted PWA and a localhost installati
 ### Turn behavior
 
 1. Persist the user message. Refresh enabled plugin skill sources before incorporating it into model context.
-2. Start a new conversation turn, or queue steering for the active turn's next safe point.
+2. Start a new conversation turn, or queue steering for the active turn's next safe point. User messages and background completions use one persisted queue. Drain queued inputs together before the next model request; preserve completed tool results. If new input arrives during inference, discard the unexecuted stale response and request a new one with the steering context.
 3. Snapshot active tool bindings and plugin code revisions for a new turn. Skill refresh on a steering message may update the next model request's skill catalog without replacing in-flight tool implementations.
 4. Build instructions from the base prompt, actual tools/environment, and available native skills. Send only skill metadata until content is requested.
 5. Stream model output and persist complete response/tool-call records. Execute tools automatically.
