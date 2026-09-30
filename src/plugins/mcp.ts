@@ -1,4 +1,5 @@
 import Ajv from 'ajv';
+import { ConnectionError, SignInRequired } from '../core/connection-error';
 import type { AppResource, ToolDefinition } from '../core/types';
 
 const clientInfo = { name: 'kinetik-oss', version: '0.1.0' };
@@ -53,9 +54,15 @@ export class McpClient {
     });
     if (response.status === 401 && token && this.unauthorized) {
       await this.unauthorized(token);
-      throw new Error('Reconnect Charms in Connections to continue.');
+      throw new SignInRequired('Reconnect Charms in Connections to continue.');
     }
-    if (!response.ok) throw new Error(`MCP ${method}: HTTP ${response.status}`);
+    if (!response.ok) {
+      if ([401, 403].includes(response.status))
+        throw new SignInRequired('Reconnect the service to continue.');
+      const text = `MCP ${method}: HTTP ${response.status}`;
+      if ([408, 429, 500, 502, 503, 504].includes(response.status)) throw new ConnectionError(text);
+      throw new Error(text);
+    }
     const session = response.headers.get('Mcp-Session-Id');
     if (session) this.session = session;
     if (notification) {
@@ -100,7 +107,7 @@ export class McpClient {
         }
         if (done) {
           if (!events) return accept(JSON.parse(buffer) as Rpc);
-          throw new Error('MCP stream ended before its response.');
+          throw new ConnectionError('MCP stream ended before its response.');
         }
       }
     } finally {
