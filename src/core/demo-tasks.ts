@@ -7,7 +7,7 @@ export const demoTasks = [
     filename: 'Welcome.txt',
     content:
       'My notes\n\nA place to collect ideas, reminders, and things I want to come back to.\n',
-    reply: 'Your note is ready. Use the file card to open it, or find it later in Files.',
+    reply: 'Your note is ready.',
   },
   {
     title: 'Make a packing list',
@@ -16,6 +16,6 @@ export const demoTasks = [
     filename: 'Weekend packing list.txt',
     content:
       'Weekend packing list\n\nClothing\n- Two outfits\n- Sleepwear and underwear\n- Comfortable shoes\n- A light jacket\n\nEssentials\n- Toiletries and any medication\n- Phone and charger\n- Wallet, ID, and tickets\n- Reusable water bottle\n\nBefore leaving\n- Check the weather\n- Confirm your booking and travel times\n',
-    reply: 'Here’s a simple weekend packing list. Use the file card to see what to bring.',
+    reply: 'Here’s your weekend packing list.',
   },
 ] as const;

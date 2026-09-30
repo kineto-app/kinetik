@@ -61,9 +61,9 @@ Replies format headings, lists, tables, links, and code. Copy a complete reply o
 
 ## Try it
 
-Choose **Create a note** or **Make a packing list**, then send the suggested message. These are fixed preview examples: they create real local files but do not understand arbitrary requests. Open or download the resulting file card, or use **Files** to browse, preview, add, and download files without typing a path. Files shows this browser’s workspace; files on connected services remain in that service.
+Choose **Create a note** or **Make a packing list**, then send the suggested message. These are fixed preview examples: they create real local files but do not understand arbitrary requests. Shared text, Markdown, and images appear inline using the Charms file layout, with compact Copy, Download, and Expand controls. Other file types use a clickable filename/size row. Expand opens a larger preview; unsupported formats remain download-only. Use the composer’s **Add a file** button to upload a local file. Creating or editing a file does not attach it to chat: the agent explicitly shares finished deliverables using `show_file`. New local attachments preserve the bytes at sharing time, including after later edits or reloads. Charms disables this local tool and uses its existing sharing tools and widgets.
 
-Foreground steps have short, everyday labels. Expand a step only when you want its technical details. Interactive MCP cards remain visible. **Settings → Manage connections** holds service configuration, with custom plugin links and JSON options under advanced setup. The preview limitation stays visible beside the message box and in Settings.
+Foreground tools appear in a collapsed activity card between narration messages. Repeated actions share a row, with individual calls available on expansion. Each call has a short explanation and optional technical details. A successful retry of the same action and arguments resolves its earlier failure inside that group; unrelated and uncertain outcomes stay visible. Interactive MCP cards remain visible. **Settings → Manage connections** holds service configuration, with custom plugin links and JSON options under advanced setup. The preview limitation stays visible beside the message box and in Settings.
 
 For developers, the test model also understands explicit commands so runtime behavior is reproducible:
 
@@ -76,7 +76,7 @@ For developers, the test model also understands explicit commands so runtime beh
 /tool edit {"path":"/workspace/note.txt","oldText":"hello","newText":"hi"}
 ```
 
-`/write /workspace/note.txt` followed by a new line and content replaces a file. Shift+Enter inserts a line in the composer. `/tool plugin__tool {"argument":"value"}` invokes another enabled tool.
+`/write /workspace/note.txt` followed by a new line and content replaces a file without sharing it. `/show_file /workspace/note.txt` explicitly attaches a snapshot to chat. Shift+Enter inserts a line in the composer. `/tool plugin__tool {"argument":"value"}` invokes another enabled tool.
 
 Conversations run concurrently and share `/workspace`. User messages and background completion events use the same durable steering queue. They join the next model request together at a safe boundary after the current tool finishes. A message arriving during inference prevents the stale response from executing a tool; the next request includes the new steering context. Stop aborts model work and requests tool cancellation; an uncertain effect stays visible for review. On a worker restart, uncertain calls pause rather than execute twice. Resolving without retry continues; retry is an explicit user action.
 

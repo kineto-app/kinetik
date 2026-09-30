@@ -299,21 +299,6 @@
 .tool-details summary {
   color: var(--muted);
 }
-.file-card {
-  gap: 12px;
-  border: 1px solid var(--control-line);
-  box-shadow: var(--chat-shadow);
-  border-radius: 14px;
-  background: var(--ground);
-}
-.file-card strong {
-  flex: 1;
-  overflow-wrap: anywhere;
-  font-size: 14px;
-}
-.file-card .actions {
-  flex: none;
-}
 .composer-area {
   padding-inline: max(28px, calc((100% - var(--content-width)) / 2));
   padding-top: 8px;
@@ -530,12 +515,6 @@ dialog[open]::backdrop {
   }
   .copy-action {
     min-height: 44px;
-  }
-  .file-card {
-    flex-wrap: wrap;
-  }
-  .file-card .actions {
-    margin-left: auto;
   }
   .jump-latest {
     min-height: 44px;

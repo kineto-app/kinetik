@@ -79,7 +79,15 @@ test.each(['inline', 'split', 'text-only'])(
     expect(first.skills).toHaveLength(2);
     expect(first.skills[0].content).toContain('startend');
     expect(plugin.tools.charms_skill_find).toBeUndefined();
-    expect(Object.keys(plugin.replacements)).toEqual(['exec', 'read', 'write', 'edit', 'list']);
+    expect(Object.keys(plugin.replacements)).toEqual([
+      'exec',
+      'read',
+      'write',
+      'edit',
+      'list',
+      'show_file',
+    ]);
+    expect(plugin.replacements.show_file).toBeNull();
     call.mockClear();
     await plugin.skills.sync(first, new AbortController().signal);
     expect(

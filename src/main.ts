@@ -11,7 +11,7 @@ import { shell } from './ui/shell';
 import { icon, type IconName } from './ui/icons';
 import { demoTasks } from './core/demo-tasks';
 import { taskLabel } from './ui/task-labels';
-import { setupFiles, refreshFiles, previewFile, downloadFile } from './ui/files';
+import { setupFiles, mountFile } from './ui/files';
 import { setupUpdates } from './browser/updates';
 import { connect, rpc } from './browser/client';
 import type { Conversation, InstalledPlugin } from './core/types';
@@ -35,7 +35,7 @@ let refreshGeneration = 0;
 let lastMessages = '';
 let lastNavigation = '';
 let followNextMessage = false;
-let disposeApps: (() => void)[] = [];
+let disposeContent: (() => void)[] = [];
 let timelineConversation = '';
 const renderedMessages = new Set<string>();
 const draftKey = 'kinetik-composer';
@@ -139,8 +139,8 @@ function render() {
     const oldScroll = timeline.scrollTop;
     const nearBottom = timeline.scrollHeight - timeline.scrollTop - timeline.clientHeight < 80;
     if (timelineConversation !== selected || !c?.messages.length) {
-      disposeApps.forEach((dispose) => dispose());
-      disposeApps = [];
+      disposeContent.forEach((dispose) => dispose());
+      disposeContent = [];
       renderedMessages.clear();
       timeline.replaceChildren();
       timelineConversation = selected;
@@ -180,7 +180,7 @@ function render() {
         item.visibility === 'internal' ||
         item.id.startsWith('background-completed:') ||
         item.tool?.startsWith('background ·');
-      if ((hiddenActivity && !item.app) || renderedMessages.has(item.id)) continue;
+      if ((hiddenActivity && !item.app && !item.file) || renderedMessages.has(item.id)) continue;
       renderedMessages.add(item.id);
       const article = document.createElement('article');
       article.className = 'message message-enter';
@@ -189,7 +189,7 @@ function render() {
       if (hiddenActivity && item.app && c) {
         // A rendered result is user-facing even when its producing tool call is internal.
         timeline.insertBefore(article, timeline.querySelector('[data-draft]'));
-        disposeApps.push(mountApp(article, item.app, c.id));
+        disposeContent.push(mountApp(article, item.app, c.id));
         continue;
       }
       const label = document.createElement('div');
@@ -213,43 +213,7 @@ function render() {
         label.prepend(avatar);
       }
       if (item.role === 'tool') {
-        const mark = document.createElement('span');
-        mark.className = 'tool-mark';
-        mark.innerHTML = icon('check');
-        label.prepend(mark);
-      }
-      if (item.role === 'tool') {
-        const details = document.createElement('details');
-        details.className = 'tool-details';
-        const summary = document.createElement('summary');
-        summary.textContent = taskLabel(item.tool ?? '', true);
-        details.append(summary, label, content);
-        article.append(details);
-        if (item.file) {
-          const file = item.file;
-          const card = document.createElement('div');
-          card.className = 'file-card';
-          const name = document.createElement('strong');
-          name.textContent = file.name;
-          const actions = document.createElement('div');
-          actions.className = 'actions';
-          actions.append(
-            button(
-              'Open',
-              async () => {
-                openDialog('files');
-                await previewFile(file.path);
-              },
-              'secondary',
-            ),
-            button('Download', () => downloadFile(file.path)),
-          );
-          const fileIcon = document.createElement('span');
-          fileIcon.className = 'glyph';
-          fileIcon.innerHTML = icon('file');
-          card.append(fileIcon, name, actions);
-          article.append(card);
-        }
+        if (item.file) disposeContent.push(mountFile(article, item.file, updateJumpButton));
       } else {
         article.append(label, content);
         if (item.role === 'assistant') {
@@ -260,7 +224,7 @@ function render() {
         }
       }
       timeline.insertBefore(article, timeline.querySelector('[data-draft]'));
-      if (item.app && c) disposeApps.push(mountApp(article, item.app, c.id));
+      if (item.app && c) disposeContent.push(mountApp(article, item.app, c.id));
     }
     if (c?.draft && !isBackgroundTurn(c)) {
       let draft = timeline.querySelector<HTMLElement>('[data-draft]');
@@ -459,11 +423,10 @@ function openDialog(name: string) {
   closeDrawer();
   for (const dialog of document.querySelectorAll<HTMLDialogElement>('dialog[open]')) dialog.close();
   byId<HTMLDialogElement>(name + '-dialog').showModal();
-  if (name === 'files') void refreshFiles().catch((error) => showError(error, 'file-result'));
 }
-for (const name of ['plugins', 'files', 'automations', 'settings'])
+for (const name of ['plugins', 'automations', 'settings'])
   byId(name + '-open').onclick = () => openDialog(name);
-byId('attach').onclick = () => openDialog('files');
+byId('attach').onclick = () => byId<HTMLInputElement>('upload').click();
 for (const close of document.querySelectorAll<HTMLButtonElement>('[data-close]'))
   close.onclick = () => byId<HTMLDialogElement>(close.dataset.close!).close();
 byId('menu').onclick = openDrawer;
