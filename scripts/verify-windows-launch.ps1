@@ -42,7 +42,7 @@ try {
             Where-Object { $_.ParentProcessId -eq $app.Id } |
             Select-Object Name, CommandLine |
             ConvertTo-Json | Set-Content windows-processes.json
-        node scripts/inspect-windows-webview.mjs
+        if (-not $ready) { node scripts/inspect-windows-webview.mjs }
     } finally {
         if (-not $app.HasExited) { Stop-Process -Id $app.Id }
     }

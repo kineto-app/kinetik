@@ -5,7 +5,13 @@ const browserFetch = globalThis.fetch.bind(globalThis);
 export async function platformFetch(input: RequestInfo | URL, init?: RequestInit) {
   const value = input instanceof Request ? input.url : String(input);
   const url = new URL(value, document.baseURI);
-  if (url.origin === location.origin || !['http:', 'https:'].includes(url.protocol))
+  // Windows Tauri IPC uses this virtual host. Sending it through native HTTP
+  // would recursively invoke the HTTP plugin before the original IPC can finish.
+  if (
+    url.origin === location.origin ||
+    url.hostname === 'ipc.localhost' ||
+    !['http:', 'https:'].includes(url.protocol)
+  )
     return browserFetch(input, init);
   const headers = new Headers(
     init?.headers ?? (input instanceof Request ? input.headers : undefined),
