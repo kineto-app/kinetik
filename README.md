@@ -154,6 +154,20 @@ Browser suspension is normal. Work resumes when the browser activates the app; t
 
 [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md)
 
+## Connection-screen UI
+
+`bin/connect-page.mjs` renders an optional connection screen for a separate credential helper.
+It guides users through opening ChatGPT, copying the final localhost address, and pasting it
+back. Its assets are in `bin/ui/`; pass the app stylesheet, theme script, UI asset base, API
+base, and workspace URL to `renderConnectPage`. All URLs should be supplied by the host,
+not user input. Serve the page and API on the same origin, with `Cache-Control: no-store`.
+
+The view expects `GET status` and `POST claim`, `login`, `callback`, and `logout` under the
+API base. Mutations send `X-Kinetik-Request: 1`; the helper must authenticate the session,
+validate the request origin, and own the OAuth exchange and tokens. No authentication
+server is included or enabled by this UI. Browser tests use simulated responses and do
+not establish live sign-in or inference support.
+
 ## License
 
 [MIT, copyright Kineto](LICENSE). Dependencies and reused visual assets are listed in [third-party notices](THIRD_PARTY_NOTICES.md). The license does not grant trademark rights.

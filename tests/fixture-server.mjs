@@ -1,4 +1,6 @@
 import { createServer } from 'node:http';
+import { readFile } from 'node:fs/promises';
+import { renderConnectPage } from '../bin/connect-page.mjs';
 let revision = 1,
   fail = false;
 const manifest = {
@@ -17,6 +19,35 @@ const server = createServer(async (req, res) => {
   );
   res.setHeader('Cache-Control', 'no-store');
   if (req.method === 'OPTIONS') return res.end();
+  if (req.url === '/connect') {
+    res.setHeader('Content-Type', 'text/html');
+    res.setHeader(
+      'Content-Security-Policy',
+      "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'",
+    );
+    return res.end(
+      await renderConnectPage({
+        appStyles: '/styles.css',
+        themeScript: '/theme.js',
+        uiBase: '/ui/',
+        apiBase: '/account/',
+        appUrl: '/workspace',
+      }),
+    );
+  }
+  const connectAssets = {
+    '/ui/connect.js': ['../bin/ui/connect.js', 'text/javascript'],
+    '/ui/connect.css': ['../bin/ui/connect.css', 'text/css'],
+    '/styles.css': ['../src/ui/styles.css', 'text/css'],
+    '/tokens.css': ['../src/ui/tokens.css', 'text/css'],
+    '/theme.js': ['../public/theme.js', 'text/javascript'],
+  };
+  if (connectAssets[req.url]) {
+    const [file, type] = connectAssets[req.url];
+    res.setHeader('Content-Type', type);
+    return res.end(await readFile(new URL(file, import.meta.url)));
+  }
+
   if (req.url === '/mcp') {
     let data = '';
     for await (const part of req) data += part;
