@@ -125,8 +125,7 @@ test('plugin and file dialogs complete their visible workflows', async ({ page }
   await page.goto('/');
   await expect(page.locator('#status')).toHaveText('Ready');
   await drawer(page);
-  await page.locator('#settings-open').click();
-  await page.locator('#plugins-open').click();
+  await page.locator('#connections-open').click();
   await page.getByText('Add a custom connection', { exact: true }).click();
   await page.getByRole('button', { name: 'Use demo connection' }).click();
   await page.getByRole('button', { name: 'Add connection', exact: true }).click();
