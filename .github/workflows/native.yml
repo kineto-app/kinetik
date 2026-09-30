@@ -29,6 +29,18 @@ jobs:
           workspaces: src-tauri
       - run: npm ci
       - run: npm run tauri -- build --bundles nsis
+      - name: Launch Windows app
+        shell: powershell
+        run: ./scripts/verify-windows-launch.ps1
+      - name: Upload Windows launch evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-launch
+          path: |
+            windows-launch.txt
+            windows-launch.png
+          if-no-files-found: ignore
       - run: cargo test --manifest-path src-tauri/Cargo.toml
       - run: cargo test --manifest-path native-plugin/Cargo.toml
       - uses: actions/upload-artifact@v4
