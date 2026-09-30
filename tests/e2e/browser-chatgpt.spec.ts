@@ -118,8 +118,14 @@ for (const relay of [false, true]) {
     );
     await page.getByRole('button', { name: 'Connect ChatGPT', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'Connect Charms' })).toBeVisible();
+    const charmsPopup = page.waitForEvent('popup');
     await page.getByRole('button', { name: 'Connect Charms', exact: true }).click();
-    await page.getByRole('link', { name: 'Allow Charms' }).click();
+    const consent = await charmsPopup;
+    const consentClosed = consent.waitForEvent('close');
+    await consent.getByRole('link', { name: 'Allow Charms' }).click();
+    await consentClosed;
+    await page.bringToFront();
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')));
     await page.getByRole('button', { name: 'Start chatting' }).click();
     await page.reload();
     await page.getByRole('textbox', { name: 'Message', exact: true }).fill('Hello');

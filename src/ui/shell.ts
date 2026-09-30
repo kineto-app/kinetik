@@ -10,7 +10,7 @@ export const shell = `
     <div class="brand"><img src="./icon.svg" width="32" height="32" alt="" /><span>Kinetik</span><button id="menu-close" class="icon-button" aria-label="Close chats">${icon('close')}</button></div>
     <button class="new-chat" id="new-chat">${icon('plus')}<span>New chat</span></button>
     <div class="history"><h2 class="eyebrow">Recent chats</h2><nav id="conversations" aria-label="Chat list"></nav></div>
-    <div class="sidebar-footer">
+    <div class="sidebar-footer"><button id="install-open" class="secondary" hidden>${icon('download')}<span>Install Kinetik</span></button>
       <div class="nav-tools"><button id="files-open">${icon('folder')}<span>Files</span></button><button id="automations-open">${icon('clock')}<span>Routines</span></button><button id="settings-open">${icon('settings')}<span>Settings</span></button></div>
       <div class="storage-note"><span class="status-dot"></span><span>Saved on this device</span></div>
     </div>

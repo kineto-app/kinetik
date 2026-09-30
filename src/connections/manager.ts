@@ -240,6 +240,10 @@ export class Connections {
     }).toString();
     return url.href;
   }
+  async canFinish(state: string): Promise<boolean> {
+    const pending = await this.store.get<Pending>(pendingKey);
+    return Boolean(pending && pending.state === state && pending.expiresAt >= Date.now());
+  }
   async finish(input: {
     state: string;
     code?: string;
