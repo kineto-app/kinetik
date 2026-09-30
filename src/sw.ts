@@ -206,6 +206,9 @@ sw.addEventListener('message', (event) => {
           case 'setupState':
             result = await connections.state();
             break;
+          case 'connectionCanFinish':
+            result = await connections.canFinish(string(data.state));
+            break;
           case 'connectionPrepare':
           case 'connectionBegin':
           case 'connectionFinish':

@@ -45,8 +45,14 @@ test('guided setup authorizes Charms, loads native skills, connects ChatGPT and 
     .fill('http://127.0.0.1:1455/auth/callback?code=fixture&state=fixture');
   await page.getByRole('button', { name: 'Connect ChatGPT', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Connect Charms' })).toBeVisible();
+  const charmsPopup = page.waitForEvent('popup');
   await page.getByRole('button', { name: 'Connect Charms', exact: true }).click();
-  await page.getByRole('link', { name: 'Allow Charms' }).click();
+  const consent = await charmsPopup;
+  const consentClosed = consent.waitForEvent('close');
+  await consent.getByRole('link', { name: 'Allow Charms' }).click();
+  await consentClosed;
+  await page.bringToFront();
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
   await expect(page.getByRole('button', { name: 'Start chatting' })).toBeVisible();
   expect(page.url()).not.toContain('code=');
   const skills = await page.evaluate(
