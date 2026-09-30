@@ -20,6 +20,8 @@ export async function readResponse(
   if (!response.body) throw new Error('Model returned no response stream.');
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
+  const started = new Set<number>();
+  const finished = new Map<number, Record<string, unknown>>();
   let buffer = '',
     text = '',
     size = 0;
@@ -41,6 +43,21 @@ export async function readResponse(
           .join('\n');
         if (!data || data === '[DONE]') continue;
         const event = JSON.parse(data);
+        if (
+          event.type === 'response.output_item.added' ||
+          event.type === 'response.output_item.done'
+        ) {
+          if (
+            !Number.isSafeInteger(event.output_index) ||
+            event.output_index < 0 ||
+            !event.item ||
+            typeof event.item !== 'object'
+          )
+            throw new Error('Invalid streamed output item.');
+          started.add(event.output_index);
+          if (event.type === 'response.output_item.done')
+            finished.set(event.output_index, event.item);
+        }
         if (event.type === 'response.output_text.delta') {
           text += event.delta;
           onText?.(text);
@@ -55,7 +72,12 @@ export async function readResponse(
         if (event.type === 'response.completed') {
           if (!Array.isArray(event.response?.output))
             throw new Error('Model completed without output.');
-          return event.response.output;
+          if (event.response.output.length) return event.response.output;
+          // SIWC streams can carry complete items only in output_item.done,
+          // leaving the terminal response's output array empty.
+          if (!finished.size || [...started].some((index) => !finished.has(index)))
+            throw new Error('Model completed without all streamed output items.');
+          return [...finished.entries()].sort(([a], [b]) => a - b).map(([, item]) => item);
         }
       }
       if (done)
