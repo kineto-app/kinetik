@@ -41,6 +41,21 @@ Serve deployment-owned `config.json` beside `index.html` with `Cache-Control: no
 
 The guided flow offers ChatGPT sign-in, prepares Charms, obtains authorization, verifies its tools, and loads native skills. Existing connections skip completed steps. A manually disabled connection requires an explicit Enable action. If the deployment configuration changes, existing settings are preserved rather than silently redirecting credentials to a new service.
 
+For experimental browser-owned sign-in, add:
+
+```json
+{ "connections": {}, "chatgpt": { "mode": "browser", "jwksUrl": "./connections/chatgpt/keys" } }
+```
+
+The host must serve OpenAI's public `https://auth.openai.com/.well-known/jwks.json`
+through the same-origin `jwksUrl`, without forwarding cookies, credentials, or redirects.
+This endpoint returns public signing keys only. Codes, tokens, refreshes and model requests
+travel directly between the browser worker and OpenAI. The paste-back flow checks state,
+PKCE, the ID-token signature, issuer, audience, nonce, expiry and plan permission. Credentials
+persist separately from workspace files and chat in IndexedDB. Trusted plugins still share
+origin privileges. This mode deliberately departs from OpenAI's documented token-storage
+guidance and has no claim of official browser support. Use it only on a trusted personal device.
+
 For an existing credential helper, add:
 
 ```json

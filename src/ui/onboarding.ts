@@ -258,6 +258,11 @@ export function setupConnections(changed: (state: SetupState) => void) {
     }
   }
   async function helper(path: string, data?: unknown) {
+    if (state.chatgpt.browser)
+      return rpc<{ url: string }>('chatgpt', {
+        action: path,
+        ...((data as Record<string, unknown>) ?? {}),
+      });
     if (!state.chatgpt.apiBase) throw new Error('ChatGPT sign-in is not configured.');
     const response = await fetch(new URL(path, state.chatgpt.apiBase), {
       method: data === undefined ? 'GET' : 'POST',

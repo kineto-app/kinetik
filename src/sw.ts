@@ -5,6 +5,7 @@ import { errorText, type Conversation } from './core/types';
 import { Store } from './browser/store';
 import type { BackgroundProcess } from './core/background';
 import { loadConfiguration } from './connections/config';
+import { BrowserChatGPT } from './connections/chatgpt';
 import { Connections } from './connections/manager';
 import { OpenAIModel } from './core/openai-model';
 declare const __PRECACHE__: string[];
@@ -18,11 +19,13 @@ const updateKey = 'app-update:' + scope.pathname;
 const operationLock = 'kinetik-runtime:' + scope.pathname;
 let runtime: Runtime;
 let connections: Connections;
+let chatgpt: BrowserChatGPT | undefined;
 let initialized: Promise<void> | undefined;
 function initialize() {
   return (initialized ??= (async () => {
     const config = await loadConfiguration(scope, store);
     const helper = config.chatgpt?.apiBase;
+    if (config.chatgpt?.mode === 'browser') chatgpt = new BrowserChatGPT(config.chatgpt.jwksUrl);
     runtime = new Runtime(
       store,
       () => {
@@ -30,20 +33,30 @@ function initialize() {
           .matchAll()
           .then((clients) => clients.forEach((client) => client.postMessage({ type: 'changed' })));
       },
-      helper
-        ? new OpenAIModel(new URL('responses', helper).href, async () => {
-            const response = await fetch(new URL('status', helper), {
-              cache: 'no-store',
-              signal: AbortSignal.timeout(5000),
-            });
-            if (!response.ok) throw new Error('Connect ChatGPT in Connections to continue.');
-            const status = await response.json();
-            if (!status.connected) throw new Error('Connect ChatGPT in Connections to continue.');
-            return { account: status.account ?? 'default', model: status.model };
-          })
-        : undefined,
+      chatgpt
+        ? new OpenAIModel(
+            'browser:',
+            () => chatgpt!.status(),
+            async (_url, init) =>
+              chatgpt!.responses(
+                JSON.parse(String(init?.body)),
+                init?.signal ?? new AbortController().signal,
+              ),
+          )
+        : helper
+          ? new OpenAIModel(new URL('responses', helper).href, async () => {
+              const response = await fetch(new URL('status', helper), {
+                cache: 'no-store',
+                signal: AbortSignal.timeout(5000),
+              });
+              if (!response.ok) throw new Error('Connect ChatGPT in Connections to continue.');
+              const status = await response.json();
+              if (!status.connected) throw new Error('Connect ChatGPT in Connections to continue.');
+              return { account: status.account ?? 'default', model: status.model };
+            })
+          : undefined,
     );
-    connections = new Connections(store, runtime.plugins, config, scope);
+    connections = new Connections(store, runtime.plugins, config, scope, () => chatgpt!.status());
     await runtime.recover();
   })());
 }
@@ -163,6 +176,22 @@ sw.addEventListener('message', (event) => {
         const data = event.data as Record<string, unknown>;
         let result: unknown;
         switch (data.op) {
+          case 'chatgpt':
+            if (!chatgpt) throw new Error('Browser ChatGPT sign-in is not configured.');
+            switch (data.action) {
+              case 'login':
+                result = await chatgpt.login();
+                break;
+              case 'callback':
+                result = await chatgpt.callback(string(data.url));
+                break;
+              case 'logout':
+                result = await chatgpt.logout();
+                break;
+              default:
+                throw new Error('Unknown ChatGPT action.');
+            }
+            break;
           case 'setupState':
             result = await connections.state();
             break;

@@ -94,6 +94,7 @@ export class OpenAIModel implements Model {
   constructor(
     private endpoint: string,
     private configuration: () => Promise<{ account: string; model: string }>,
+    private request: typeof fetch = fetch.bind(globalThis),
   ) {}
   async next(request: ModelRequest, signal: AbortSignal): Promise<ModelStep> {
     const config = await this.configuration();
@@ -113,7 +114,7 @@ export class OpenAIModel implements Model {
         };
       }),
     );
-    const response = await fetch(this.endpoint, {
+    const response = await this.request(this.endpoint, {
       method: 'POST',
       credentials: 'same-origin',
       signal,
