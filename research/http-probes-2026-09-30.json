@@ -1,0 +1,185 @@
+{
+  "checked_at": "2026-09-29T23:59:04.020854+00:00",
+  "requests": [
+    {
+      "url": "https://api.openai.com/v1/responses",
+      "origin": "https://kineto.app",
+      "requested_method": "POST",
+      "requested_headers": "authorization,content-type",
+      "status": 200,
+      "final_url": "https://api.openai.com/v1/responses",
+      "headers": {
+        "Content-Type": "text/plain; charset=utf-8",
+        "Access-Control-Allow-Origin": "*",
+        "access-control-allow-headers": "authorization,content-type",
+        "access-control-allow-methods": "DELETE, GET, HEAD, OPTIONS, PATCH, POST, PUT",
+        "access-control-expose-headers": "CF-Ray",
+        "Access-Control-Expose-Headers": "CF-Ray",
+        "access-control-max-age": "600"
+      }
+    },
+    {
+      "url": "https://api.openai.com/v1/responses",
+      "origin": "http://127.0.0.1:4173",
+      "requested_method": "POST",
+      "requested_headers": "authorization,content-type",
+      "status": 200,
+      "final_url": "https://api.openai.com/v1/responses",
+      "headers": {
+        "Content-Type": "text/plain; charset=utf-8",
+        "Access-Control-Allow-Origin": "*",
+        "access-control-allow-headers": "authorization,content-type",
+        "access-control-allow-methods": "DELETE, GET, HEAD, OPTIONS, PATCH, POST, PUT",
+        "access-control-expose-headers": "CF-Ray",
+        "Access-Control-Expose-Headers": "CF-Ray",
+        "access-control-max-age": "600"
+      }
+    },
+    {
+      "url": "https://api.openai.com/v1/models",
+      "origin": "https://kineto.app",
+      "requested_method": "GET",
+      "requested_headers": "authorization",
+      "status": 200,
+      "final_url": "https://api.openai.com/v1/models",
+      "headers": {
+        "Content-Type": "text/plain; charset=utf-8",
+        "Access-Control-Allow-Origin": "*",
+        "access-control-allow-headers": "authorization",
+        "access-control-allow-methods": "DELETE, GET, HEAD, OPTIONS, PATCH, POST, PUT",
+        "access-control-expose-headers": "CF-Ray",
+        "Access-Control-Expose-Headers": "CF-Ray",
+        "access-control-max-age": "600"
+      }
+    },
+    {
+      "url": "https://api.openai.com/v1/models",
+      "origin": "http://127.0.0.1:4173",
+      "requested_method": "GET",
+      "requested_headers": "authorization",
+      "status": 200,
+      "final_url": "https://api.openai.com/v1/models",
+      "headers": {
+        "Content-Type": "text/plain; charset=utf-8",
+        "Access-Control-Allow-Origin": "*",
+        "access-control-allow-headers": "authorization",
+        "access-control-allow-methods": "DELETE, GET, HEAD, OPTIONS, PATCH, POST, PUT",
+        "access-control-expose-headers": "CF-Ray",
+        "Access-Control-Expose-Headers": "CF-Ray",
+        "access-control-max-age": "600"
+      }
+    },
+    {
+      "url": "https://auth.openai.com/api/accounts/oauth/token",
+      "origin": "https://kineto.app",
+      "requested_method": "POST",
+      "requested_headers": "content-type",
+      "status": 200,
+      "final_url": "https://auth.openai.com/api/accounts/oauth/token",
+      "headers": {
+        "Content-Type": "text/plain; charset=utf-8",
+        "access-control-allow-origin": "*",
+        "access-control-allow-methods": "DELETE, GET, HEAD, OPTIONS, PATCH, POST, PUT",
+        "access-control-max-age": "600",
+        "access-control-allow-headers": "content-type"
+      }
+    },
+    {
+      "url": "https://auth.openai.com/api/accounts/oauth/token",
+      "origin": "http://127.0.0.1:4173",
+      "requested_method": "POST",
+      "requested_headers": "content-type",
+      "status": 200,
+      "final_url": "https://auth.openai.com/api/accounts/oauth/token",
+      "headers": {
+        "Content-Type": "text/plain; charset=utf-8",
+        "access-control-allow-origin": "*",
+        "access-control-allow-methods": "DELETE, GET, HEAD, OPTIONS, PATCH, POST, PUT",
+        "access-control-max-age": "600",
+        "access-control-allow-headers": "content-type"
+      }
+    },
+    {
+      "url": "https://kineto.app/api/charms/mcp",
+      "origin": "https://kineto.app",
+      "requested_method": "POST",
+      "requested_headers": "authorization,content-type,mcp-protocol-version,mcp-session-id",
+      "status": 200,
+      "final_url": "https://kineto.app/api/charms/mcp",
+      "headers": {
+        "vary": "Origin,Access-Control-Request-Method,Access-Control-Request-Headers"
+      }
+    },
+    {
+      "url": "https://kineto.app/api/charms/mcp",
+      "origin": "http://127.0.0.1:4173",
+      "requested_method": "POST",
+      "requested_headers": "authorization,content-type,mcp-protocol-version,mcp-session-id",
+      "status": 403,
+      "final_url": "https://kineto.app/api/charms/mcp",
+      "headers": {
+        "vary": "Origin,Access-Control-Request-Method,Access-Control-Request-Headers"
+      }
+    },
+    {
+      "url": "https://kineto.app/mcpoauth/token",
+      "origin": "https://kineto.app",
+      "requested_method": "POST",
+      "requested_headers": "content-type",
+      "status": 200,
+      "final_url": "https://kineto.app/mcpoauth/token",
+      "headers": {
+        "vary": "Origin,Access-Control-Request-Method,Access-Control-Request-Headers"
+      }
+    },
+    {
+      "url": "https://kineto.app/mcpoauth/token",
+      "origin": "http://127.0.0.1:4173",
+      "requested_method": "POST",
+      "requested_headers": "content-type",
+      "status": 403,
+      "final_url": "https://kineto.app/mcpoauth/token",
+      "headers": {
+        "vary": "Origin,Access-Control-Request-Method,Access-Control-Request-Headers"
+      }
+    },
+    {
+      "url": "https://kineto.app/.well-known/oauth-authorization-server/mcpoauth",
+      "origin": "https://kineto.app",
+      "requested_method": "GET",
+      "requested_headers": "",
+      "status": 200,
+      "final_url": "https://kineto.app/.well-known/oauth-authorization-server/mcpoauth",
+      "headers": {
+        "vary": "Origin,Access-Control-Request-Method,Access-Control-Request-Headers"
+      }
+    },
+    {
+      "url": "https://kineto.app/.well-known/oauth-authorization-server/mcpoauth",
+      "origin": "http://127.0.0.1:4173",
+      "requested_method": "GET",
+      "requested_headers": "",
+      "status": 403,
+      "final_url": "https://kineto.app/.well-known/oauth-authorization-server/mcpoauth",
+      "headers": {
+        "vary": "Origin,Access-Control-Request-Method,Access-Control-Request-Headers"
+      }
+    }
+  ],
+  "scope": "Unauthenticated OPTIONS probes only; no login, token exchange, inference or MCP tool call. Header results do not prove an authenticated browser flow.",
+  "metadata_get": {
+    "url": "https://kineto.app/.well-known/oauth-authorization-server/mcpoauth",
+    "origins": [
+      "https://kineto.app",
+      "http://127.0.0.1:4173"
+    ],
+    "status": 200,
+    "access_control_allow_origin": null,
+    "issuer": "https://kineto.app/mcpoauth",
+    "token_endpoint": "https://kineto.app/mcpoauth/token",
+    "registration_endpoint": "https://kineto.app/mcpoauth/register",
+    "grant_types_supported": [
+      "authorization_code"
+    ]
+  }
+}

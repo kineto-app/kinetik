@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.dev/
+test-results/
+playwright-report/
+coverage/
+package-lock.json
+research/
+public/plugins/
