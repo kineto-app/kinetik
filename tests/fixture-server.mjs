@@ -90,11 +90,20 @@ const server = createServer(async (req, res) => {
           {
             uri: 'ui://fixture/view',
             mimeType: 'text/html;profile=mcp-app',
-            text: `<!doctype html><html><body><p id="result">Loading</p><p id="isolation"></p><button id="inc">Increment</button><button id="denied">Forbidden tool</button><script>
+            text: `<!doctype html><html><style>
+        body { color:var(--color-text-primary); font-family:var(--font-sans); }
+        #surface { background:var(--color-background-primary); border:1px solid var(--color-border-primary); border-radius:var(--border-radius-lg); }
+      </style><body><div id="surface">Host styles</div><p id="result">Loading</p><p id="isolation"></p><button id="inc">Increment</button><button id="denied">Forbidden tool</button><script>
       try { top.localStorage.setItem('escaped','true'); document.getElementById('isolation').textContent='Unsafe'; } catch { document.getElementById('isolation').textContent='Isolated'; }
       const send = (method, params, id) => parent.postMessage({jsonrpc:'2.0',method,params,id}, '*');
       addEventListener('message', event => {
         const data=event.data;
+        const ctx = data.id === 1 ? data.result?.hostContext : data.method === 'ui/notifications/host-context-changed' ? data.params : null;
+        if (ctx) {
+          window.hostContext = ctx;
+          document.documentElement.style.colorScheme = ctx.theme;
+          for (const [key,value] of Object.entries(ctx.styles?.variables ?? {})) document.documentElement.style.setProperty(key,value);
+        }
         if(data.id === 1 && data.result) send('ui/notifications/initialized', {});
         if(data.method === 'ui/notifications/tool-result') document.getElementById('result').textContent='Ready';
         if(data.id === 2) document.getElementById('result').textContent=data.result ? 'Incremented' : 'Failed';

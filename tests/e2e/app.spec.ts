@@ -216,6 +216,59 @@ test('MCP Apps handshake, tool interaction, visibility and origin isolation', as
   ).toHaveText('Ready');
 });
 
+test('MCP Apps share host styles and follow theme changes without remounting', async ({ page }) => {
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await rpc(page, 'install', {
+    source: 'http://127.0.0.1:4173/plugins/mcp/plugin.json',
+    settings: JSON.stringify({ url: 'http://127.0.0.1:4174/mcp' }),
+  });
+  await rpc(page, 'enable', { id: 'mcp', enabled: true });
+  await send(page, '/tool mcp__show {}');
+  await settled(page);
+  const app = page.frameLocator('iframe.mcp-app').frameLocator('iframe');
+  await expect(app.locator('#result')).toHaveText('Ready');
+  await app.getByRole('button', { name: 'Increment' }).click();
+  await expect(app.locator('#result')).toHaveText('Incremented');
+  for (const theme of ['dark', 'light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme: theme });
+    await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
+    const host = await page.evaluate(() => {
+      const root = getComputedStyle(document.documentElement);
+      const body = getComputedStyle(document.body);
+      return {
+        background: root.backgroundColor,
+        color: body.color,
+        font: body.fontFamily,
+        radius: root.getPropertyValue('--radius').trim(),
+      };
+    });
+    await expect(app.locator('#surface')).toHaveCSS('background-color', host.background);
+    await expect(app.locator('body')).toHaveCSS('color', host.color);
+    await expect(app.locator('body')).toHaveCSS('font-family', host.font);
+    await expect(app.locator('#surface')).toHaveCSS('border-radius', host.radius);
+    await expect(app.locator('html')).toHaveCSS('color-scheme', theme);
+    await expect(page.frameLocator('iframe.mcp-app').locator('html')).toHaveCSS(
+      'color-scheme',
+      theme,
+    );
+    await expect(app.locator('html')).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+    await expect(app.locator('#result')).toHaveText('Incremented');
+  }
+  // Compare the rendered transparent margin, not just computed background-color:
+  // a mismatched iframe color scheme can paint an opaque canvas behind transparent CSS.
+  await page.locator('.layout').evaluate((el) => {
+    (el as HTMLElement).style.background = 'var(--ground)';
+  });
+  await page.locator('iframe.mcp-app').scrollIntoViewIfNeeded();
+  const box = (await page.locator('iframe.mcp-app').boundingBox())!;
+  const canvas = await page.screenshot({ clip: { x: 0, y: 0, width: 1, height: 1 } });
+  const margin = await page.screenshot({
+    clip: { x: Math.floor(box.x + box.width / 2), y: Math.ceil(box.y) + 2, width: 1, height: 1 },
+  });
+  expect(margin).toEqual(canvas);
+  await expect(app.locator('#isolation')).toHaveText('Isolated');
+});
+
 test('routines can be created in the UI and survive reload without a second run', async ({
   page,
 }, testInfo) => {

@@ -1,6 +1,43 @@
 import type { AppView } from '../core/types';
 import { rpc } from '../browser/client';
 
+// MCP Apps standard style names, mapped to the same tokens as the chat.
+function hostStyles() {
+  const root = document.documentElement;
+  const css = getComputedStyle(root);
+  const tokens: Record<string, string> = {
+    '--color-background-primary': '--ground',
+    '--color-background-secondary': '--card',
+    '--color-background-tertiary': '--panel',
+    '--color-background-info': '--glyph-bg',
+    '--color-background-success': '--ok-soft',
+    '--color-background-danger': '--bad-soft',
+    '--color-text-primary': '--ink',
+    '--color-text-secondary': '--muted',
+    '--color-text-info': '--accent-ink',
+    '--color-text-success': '--ok',
+    '--color-text-danger': '--bad',
+    '--color-border-primary': '--control-line',
+    '--color-border-secondary': '--line',
+    '--color-ring-primary': '--accent',
+    '--font-sans': '--font-sans',
+    '--border-radius-sm': '--radius-control',
+    '--border-radius-md': '--radius-inner',
+    '--border-radius-lg': '--radius',
+    '--border-radius-xl': '--radius-island',
+    '--border-radius-full': '--radius-pill',
+    '--shadow-sm': '--chat-shadow',
+  };
+  return {
+    theme: root.dataset.theme === 'dark' ? 'dark' : 'light',
+    styles: {
+      variables: Object.fromEntries(
+        Object.entries(tokens).map(([name, token]) => [name, css.getPropertyValue(token).trim()]),
+      ),
+    },
+  };
+}
+
 // An opaque sandbox proxy keeps MCP views outside the PWA origin.
 function domains(values?: string[]): string {
   return (Array.isArray(values) ? values : [])
@@ -50,7 +87,7 @@ export function mountApp(
           hostInfo: { name: 'kinetik-oss', version: '0.1.0' },
           hostCapabilities: { serverTools: {}, message: {} },
           hostContext: {
-            theme: document.documentElement.dataset.theme ?? 'light',
+            ...hostStyles(),
             displayMode: 'inline',
             availableDisplayModes: ['inline'],
             locale: navigator.language,
@@ -61,6 +98,8 @@ export function mountApp(
       }
       if (data.method === 'ui/notifications/initialized') {
         ready = true;
+        // Catch a theme change between initialize and initialized.
+        notify('ui/notifications/host-context-changed', hostStyles());
         notify('ui/notifications/tool-input', { arguments: view.input });
         notify('ui/notifications/tool-result', view.result);
         return;
@@ -125,6 +164,13 @@ export function mountApp(
     }
   };
   window.addEventListener('message', listener);
+  const themeObserver = new MutationObserver(() => {
+    if (ready) notify('ui/notifications/host-context-changed', hostStyles());
+  });
+  themeObserver.observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: ['data-theme'],
+  });
   const loading = new AbortController();
   // The response CSP applies the opaque-origin sandbox after navigation, allowing
   // the navigation itself to be served by our worker while fully offline.
@@ -148,6 +194,7 @@ export function mountApp(
     });
   return () => {
     loading.abort();
+    themeObserver.disconnect();
     window.removeEventListener('message', listener);
     frame.remove();
   };
