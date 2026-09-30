@@ -58,6 +58,36 @@ test('local assets use WebView fetch unchanged', async () => {
   expect(nativeFetch).not.toHaveBeenCalled();
 });
 
+test.each(['http:', 'https:'])(
+  'Windows %s IPC bypasses native HTTP without changing the request',
+  async (protocol) => {
+    const fetch = await setup();
+    const url = `${protocol}//ipc.localhost/plugin%3Anative%7Csecure_get`;
+    const options = {
+      method: 'POST',
+      headers: { 'Tauri-Callback': '42', 'Tauri-Error': '43' },
+      body: JSON.stringify({ payload: { key: 'chatgpt:session' } }),
+    };
+    await fetch(url, options);
+    expect(browserFetch).toHaveBeenCalledWith(url, options);
+    expect(nativeFetch).not.toHaveBeenCalled();
+  },
+);
+
+test('a Windows HTTP-plugin IPC request cannot recurse into the native HTTP plugin', async () => {
+  const fetch = await setup();
+  vi.stubGlobal('fetch', fetch);
+  const response = new Response('done');
+  browserFetch.mockResolvedValue(response);
+  nativeFetch.mockImplementation(async () => {
+    if (nativeFetch.mock.calls.length > 1) throw new Error('Native HTTP called itself through IPC');
+    return globalThis.fetch('https://ipc.localhost/plugin%3Ahttp%7Cfetch', { method: 'POST' });
+  });
+  await expect(fetch('https://service.example/api')).resolves.toBe(response);
+  expect(nativeFetch).toHaveBeenCalledTimes(1);
+  expect(browserFetch).toHaveBeenCalledTimes(1);
+});
+
 test('native transport still rejects redirects when required', async () => {
   const fetch = await setup();
   nativeFetch.mockResolvedValue(new Response(null, { status: 302 }));
