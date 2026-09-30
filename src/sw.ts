@@ -25,7 +25,13 @@ function initialize() {
   return (initialized ??= (async () => {
     const config = await loadConfiguration(scope, store);
     const helper = config.chatgpt?.apiBase;
-    if (config.chatgpt?.mode === 'browser') chatgpt = new BrowserChatGPT(config.chatgpt.jwksUrl);
+    if (config.chatgpt?.mode === 'browser')
+      chatgpt = new BrowserChatGPT(
+        config.chatgpt.jwksUrl,
+        undefined,
+        undefined,
+        config.chatgpt.modelRelay,
+      );
     runtime = new Runtime(
       store,
       () => {

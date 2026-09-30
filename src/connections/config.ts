@@ -11,7 +11,8 @@ export interface Configuration {
   installation?: { required: boolean };
   connections: { charms?: ConnectionPreset };
   chatgpt?:
-    { apiBase: string; mode?: never } | { mode: 'browser'; jwksUrl: string; apiBase?: never };
+    | { apiBase: string; mode?: never }
+    | { mode: 'browser'; jwksUrl: string; modelRelay?: string; apiBase?: never };
 }
 
 // Deployment-owned configuration, never taken from deep-link parameters.
@@ -46,6 +47,12 @@ export function parseConfiguration(value: unknown, base: URL): Configuration {
     if (jwksUrl.origin !== base.origin)
       throw new Error('Public signing keys must use this app’s origin.');
     config.chatgpt = { mode: 'browser', jwksUrl: jwksUrl.href };
+    if (input.chatgpt.modelRelay !== undefined) {
+      const relay = new URL(address(input.chatgpt.modelRelay));
+      if (relay.origin !== base.origin || !relay.pathname.endsWith('/'))
+        throw new Error('The model relay must be on this app’s origin with a trailing slash.');
+      config.chatgpt.modelRelay = relay.href;
+    }
   } else if (input.chatgpt) {
     const apiBase = new URL(address(input.chatgpt.apiBase));
     if (apiBase.origin !== base.origin || !apiBase.pathname.endsWith('/'))

@@ -213,3 +213,67 @@ test('browser mode is deployment controlled and keys must be same origin', () =>
     ),
   ).toThrow('origin');
 });
+
+test.each([
+  ['/oauth/token', 'token exchange'],
+  ['/connections/chatgpt/keys', 'identity keys'],
+  ['/models', 'model list'],
+])(
+  'identifies a failed sign-in request at %s without exposing credentials',
+  async (path, stage) => {
+    const request = fetcher.getMockImplementation()!;
+    fetcher.mockImplementation((input, init) =>
+      String(input).endsWith(path)
+        ? Promise.reject(new TypeError('Failed to fetch secret-access-token'))
+        : request(input, init),
+    );
+    await begin();
+    await expect(client.callback(callback())).rejects.toThrow(
+      `Could not reach ChatGPT (${stage}). Check your connection, then restart sign-in.`,
+    );
+    expect((await client.status()).connected).toBe(false);
+  },
+);
+
+test('sends only catalog and inference through the optional relay, never OAuth or refresh tokens', async () => {
+  const relay = base + 'connections/chatgpt/model/';
+  client = new BrowserChatGPT(base + 'connections/chatgpt/keys', store, fetcher, relay);
+  expires = 1;
+  await begin();
+  await client.callback(callback());
+  await client.responses({ account: 'person', request: {} }, new AbortController().signal);
+  await client.logout();
+  const relayed = fetcher.mock.calls.filter(([url]) => String(url).startsWith(relay));
+  expect(relayed.map(([url]) => url)).toEqual([relay + 'models', relay + 'responses']);
+  for (const [, init] of relayed) {
+    expect(init?.method).toBe('POST');
+    expect(init?.credentials).toBe('omit');
+    expect(JSON.stringify(init)).not.toContain('refresh-');
+  }
+  expect(refreshes).toBe(1);
+  expect(JSON.stringify(await store.entries(''))).not.toMatch(
+    /access-one|refresh-one|access-two|refresh-two/,
+  );
+});
+
+test('rejects relay destinations outside the deployment origin and malformed base paths', () => {
+  for (const modelRelay of [
+    'https://evil.test/',
+    './relay',
+    './relay/?token=secret',
+    './relay/#hash',
+  ]) {
+    expect(() =>
+      parseConfiguration(
+        { chatgpt: { mode: 'browser', jwksUrl: './keys', modelRelay } },
+        new URL(base),
+      ),
+    ).toThrow();
+  }
+  expect(
+    parseConfiguration(
+      { chatgpt: { mode: 'browser', jwksUrl: './keys', modelRelay: './connections/model/' } },
+      new URL(base),
+    ).chatgpt,
+  ).toEqual({ mode: 'browser', jwksUrl: base + 'keys', modelRelay: base + 'connections/model/' });
+});
