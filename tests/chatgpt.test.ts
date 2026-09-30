@@ -130,7 +130,7 @@ function callback() {
     })
   );
 }
-test('keeps tokens only in memory, clears legacy storage, and signs out after worker restart', async () => {
+test('retains login across worker restarts in the dedicated credential store', async () => {
   await store.put('session', { access: 'old-saved-access', refresh: 'old-saved-refresh' });
   await begin();
   const host = flow.searchParams.get('ext_agent_host_id');
@@ -140,10 +140,13 @@ test('keeps tokens only in memory, clears legacy storage, and signs out after wo
     model: 'available-model',
     account: 'person',
   });
-  expect(JSON.stringify(await store.entries(''))).not.toMatch(/access-one|refresh-one|old-saved/);
+  expect(await store.get('session')).toMatchObject({
+    access: 'access-one',
+    refresh: 'refresh-one',
+  });
   expect(
     await new BrowserChatGPT(base + 'connections/chatgpt/keys', store, fetcher).status(),
-  ).toEqual({ connected: false, model: '', account: '' });
+  ).toEqual({ connected: true, model: 'available-model', account: 'person' });
   await expect(client.callback(callback())).rejects.toThrow('does not match');
   expect(tokenCalls).toBe(1);
   await client.login();
@@ -177,14 +180,19 @@ test('serializes token rotation across concurrent model requests', async () => {
   await begin();
   await client.callback(callback());
   await Promise.all(
-    [1, 2].map(() =>
-      client.responses(
-        { account: 'person', request: { store: true, model: 'wrong' } },
-        new AbortController().signal,
-      ),
+    [client, new BrowserChatGPT(base + 'connections/chatgpt/keys', store, fetcher)].map(
+      (instance) =>
+        instance.responses(
+          { account: 'person', request: { store: true, model: 'wrong' } },
+          new AbortController().signal,
+        ),
     ),
   );
   expect(refreshes).toBe(1);
+  expect(await store.get('session')).toMatchObject({
+    access: 'access-two',
+    refresh: 'refresh-two',
+  });
   const calls = fetcher.mock.calls.filter(([url]) => String(url).endsWith('/responses'));
   expect(calls).toHaveLength(2);
   for (const [, init] of calls)
@@ -195,6 +203,11 @@ test('sign-out clears local credentials and accepts empty revocation success', a
   await client.callback(callback());
   await client.logout();
   expect((await client.status()).connected).toBe(false);
+  expect(
+    (await new BrowserChatGPT(base + 'connections/chatgpt/keys', store, fetcher).status())
+      .connected,
+  ).toBe(false);
+  expect(await store.get('session')).toBeNull();
   await expect(
     client.responses({ account: 'person', request: {} }, new AbortController().signal),
   ).rejects.toThrow('Connect ChatGPT');
@@ -276,4 +289,42 @@ test('rejects relay destinations outside the deployment origin and malformed bas
       new URL(base),
     ).chatgpt,
   ).toEqual({ mode: 'browser', jwksUrl: base + 'keys', modelRelay: base + 'connections/model/' });
+});
+
+test('temporary refresh failures retain login, while revoked access clears it durably', async () => {
+  expires = 1;
+  await begin();
+  await client.callback(callback());
+  const request = fetcher.getMockImplementation()!;
+  let status = 503;
+  fetcher.mockImplementation((input, init) =>
+    String(input).endsWith('/oauth/token')
+      ? Promise.resolve(Response.json({ error: 'refresh failed' }, { status }))
+      : request(input, init),
+  );
+  const send = () =>
+    client.responses({ account: 'person', request: {} }, new AbortController().signal);
+  await expect(send()).rejects.toThrow('could not be renewed');
+  expect(await store.get('session')).toMatchObject({ refresh: 'refresh-one' });
+  status = 401;
+  await expect(send()).rejects.toThrow('Reconnect ChatGPT');
+  expect(await store.get('session')).toBeNull();
+  expect(
+    (await new BrowserChatGPT(base + 'connections/chatgpt/keys', store, fetcher).status())
+      .connected,
+  ).toBe(false);
+});
+
+test('logout removes durable credentials even when remote revocation fails', async () => {
+  await begin();
+  await client.callback(callback());
+  const request = fetcher.getMockImplementation()!;
+  fetcher.mockImplementation((input, init) =>
+    String(input).endsWith('/oauth/revoke')
+      ? Promise.reject(new TypeError('Failed to fetch'))
+      : request(input, init),
+  );
+  await expect(client.logout()).rejects.toThrow('Signed out on this device');
+  expect(await store.get('session')).toBeNull();
+  expect((await client.status()).connected).toBe(false);
 });

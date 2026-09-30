@@ -138,6 +138,11 @@ export class OpenAIModel implements Model {
       }),
     });
     const items = await readResponse(response, request.onText);
+    const text = items
+      .filter((item) => item.type === 'message')
+      .flatMap((item) => (item.content ?? []) as { text?: string }[])
+      .map((part) => part.text ?? '')
+      .join('');
     const calls = items.filter((item) => item.type === 'function_call');
     if (calls.length > 1)
       throw new Error(
@@ -151,13 +156,15 @@ export class OpenAIModel implements Model {
       const input = JSON.parse(call.arguments);
       if (!input || typeof input !== 'object' || Array.isArray(input))
         throw new Error('Invalid tool arguments.');
-      return { type: 'tool', name, input, callId: call.call_id, items };
+      return {
+        type: 'tool',
+        name,
+        input,
+        callId: call.call_id,
+        narration: text || undefined,
+        items,
+      };
     }
-    const text = items
-      .filter((item) => item.type === 'message')
-      .flatMap((item) => (item.content ?? []) as { text?: string }[])
-      .map((part) => part.text ?? '')
-      .join('');
     if (!text) throw new Error('Model completed without a message or tool call.');
     return { type: 'text', text, items };
   }
