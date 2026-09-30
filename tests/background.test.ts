@@ -1,0 +1,243 @@
+import { expect, test, vi } from 'vitest';
+import { Store } from '../src/browser/store';
+import { Runtime } from '../src/core/runtime';
+import { MockModel } from '../src/core/mock-model';
+import type { BackgroundProcess } from '../src/core/background';
+import type { Conversation, InstalledPlugin, ModelRequest } from '../src/core/types';
+
+const read = async (store: Store, id: string) =>
+  (await store.get<Conversation>('conversation:' + id))!;
+const plugin = (code: string): InstalledPlugin => ({
+  manifest: { id: 'remote', name: 'Remote', version: '1', apiVersion: 1, entry: 'plugin.js' },
+  source: 'https://example.org/plugin.json',
+  resolvedSource: 'https://example.org/plugin.json',
+  code,
+  digest: 'test',
+  enabledAt: 1,
+  settings: {},
+});
+
+test('background exec ends the turn, then wakes the same conversation once with its result', async () => {
+  const store = new Store(crypto.randomUUID());
+  const requests: ModelRequest[] = [];
+  const model = new MockModel();
+  const runtime = new Runtime(store, undefined, {
+    next(request, signal) {
+      requests.push(request);
+      return model.next(request, signal);
+    },
+  });
+  const c = await runtime.create();
+  await runtime.submit(
+    c.id,
+    '/bg sleep 0.6; echo finished > /workspace/result; cat /workspace/result',
+  );
+  await runtime.run(c.id);
+  expect((await read(store, c.id)).status).toBe('idle');
+  expect((await runtime.background.list(c.id))[0].state).toBe('running');
+  const callsBeforeCompletion = requests.length;
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  expect(requests).toHaveLength(callsBeforeCompletion); // No model polling while the process runs.
+  await runtime.background.drain();
+  const final = await read(store, c.id);
+  expect(final.status).toBe('idle');
+  expect(final.messages.at(-1)?.text).toContain('finished');
+  expect(final.messages.filter((m) => m.id.startsWith('background-completed:'))).toHaveLength(1);
+  expect(requests.length).toBe(callsBeforeCompletion + 1);
+  expect(new TextDecoder().decode(await runtime.exportFile('/workspace/result'))).toBe(
+    'finished\n',
+  );
+  await new Runtime(store).recover();
+  expect(
+    (await read(store, c.id)).messages.filter((m) => m.id.startsWith('background-completed:')),
+  ).toHaveLength(1);
+});
+
+test('background exec uses a replacement and waits for provider completion, not the start receipt', async () => {
+  const store = new Store(crypto.randomUUID());
+  await store.put('plugins', [
+    plugin(`return {tools: {exec: {
+    description: 'remote', inputSchema: {type: 'object'},
+    async execute(input, context) { await context.checkpoint('remote-job'); return {status: 'running'}; },
+    async wait(id, signal) { await new Promise(resolve => setTimeout(resolve, 400)); return 'remote finished: ' + id; }
+  }}, replacements: {exec: 'exec'}}`),
+  ]);
+  const runtime = new Runtime(store);
+  const c = await runtime.create();
+  await runtime.submit(c.id, '/bg echo not-local > /workspace/nope');
+  await runtime.run(c.id);
+  expect((await runtime.background.list(c.id))[0].state).toBe('running');
+  await runtime.background.drain();
+  expect((await read(store, c.id)).messages.at(-1)?.text).toContain('remote finished: remote-job');
+  await expect(runtime.exportFile('/workspace/nope')).rejects.toThrow();
+});
+
+test('Stop cancels background work without waking a stopped conversation', async () => {
+  const store = new Store(crypto.randomUUID());
+  const runtime = new Runtime(store);
+  const c = await runtime.create();
+  await runtime.submit(c.id, '/bg sleep 10; echo wrong > /workspace/late');
+  await runtime.run(c.id);
+  await runtime.stop(c.id);
+  await runtime.background.drain();
+  expect((await read(store, c.id)).status).toBe('stopped');
+  expect((await runtime.background.list(c.id))[0].state).toBe('cancelled');
+  expect((await read(store, c.id)).messages.at(-1)?.role).toBe('notice');
+  await expect(runtime.exportFile('/workspace/late')).rejects.toThrow();
+});
+
+async function seed(
+  store: Store,
+  runtime: Runtime,
+  state: BackgroundProcess['state'] = 'running',
+  plugins: InstalledPlugin[] = [],
+) {
+  const c = await runtime.create();
+  const job: BackgroundProcess = {
+    id: 'job',
+    conversationId: c.id,
+    tool: 'exec',
+    provider: plugins.length ? 'remote' : 'local',
+    plugins,
+    input: { command: 'echo duplicate > /workspace/duplicate' },
+    state,
+    deadline: Date.now() + 10000,
+  };
+  await store.put('background:job', job);
+  return { c, job };
+}
+
+test('worker restart reports a lost local process and never replays its command', async () => {
+  const store = new Store(crypto.randomUUID());
+  const runtime = new Runtime(store);
+  const { c } = await seed(store, runtime);
+  await runtime.recover();
+  expect((await runtime.background.list(c.id))[0].state).toBe('interrupted');
+  expect((await read(store, c.id)).messages.at(-1)?.text).toContain('was not restarted');
+  await expect(runtime.exportFile('/workspace/duplicate')).rejects.toThrow();
+});
+
+test('restart reconnects to a remote job without invoking execute again', async () => {
+  const store = new Store(crypto.randomUUID());
+  const runtime = new Runtime(store);
+  const { c, job } = await seed(store, runtime, 'running', [
+    plugin(`return {tools: {exec: {
+    description: 'remote', inputSchema: {type: 'object'},
+    async execute() { throw new Error('DUPLICATE EXECUTION'); },
+    async recover(id) { return {done: false}; },
+    async wait(id) { return 'reconnected ' + id; }
+  }}, replacements: {exec: 'exec'}}`),
+  ]);
+  await store.put('background:job', { ...job, operationId: 'existing-operation' });
+  await runtime.recover();
+  await runtime.background.drain();
+  expect((await read(store, c.id)).messages.at(-1)?.text).toContain(
+    'reconnected existing-operation',
+  );
+  expect((await runtime.background.list(c.id))[0].state).toBe('completed');
+});
+
+test('a crash before the start receipt is saved recovers the existing job and delivers its outbox once', async () => {
+  const store = new Store(crypto.randomUUID());
+  const runtime = new Runtime(store);
+  const { c, job } = await seed(store, runtime, 'completed');
+  await store.put('background:job', { ...job, result: 'already done' });
+  await runtime.submit(c.id, '/bg echo duplicate');
+  await store.update<Conversation>('conversation:' + c.id, (value) => ({
+    ...value!,
+    activeMessage: value!.pending[0],
+    pending: [],
+    call: {
+      id: 'job',
+      name: 'background',
+      provider: 'local',
+      input: { action: 'start' },
+      state: 'pending',
+    },
+  }));
+  await runtime.recover();
+  expect((await read(store, c.id)).status).toBe('idle');
+  expect((await read(store, c.id)).messages.at(-1)?.text).toContain('already done');
+  // Simulate a crash after enqueueing the completion but before marking it delivered.
+  await store.update<BackgroundProcess>('background:job', (value) => ({
+    ...value!,
+    delivered: false,
+  }));
+  await runtime.recover();
+  expect(
+    (await read(store, c.id)).messages.filter((m) => m.id.startsWith('background-completed:')),
+  ).toHaveLength(1);
+  await expect(runtime.exportFile('/workspace/duplicate')).rejects.toThrow();
+});
+
+test('Stop racing with the durable job creation prevents execution', async () => {
+  const store = new Store(crypto.randomUUID());
+  const runtime = new Runtime(store);
+  const c = await runtime.create();
+  let release!: () => void;
+  let entered!: () => void;
+  const saving = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  const paused = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const original = store.put.bind(store);
+  vi.spyOn(store, 'put').mockImplementation(async (key, value) => {
+    if (key.startsWith('background:')) {
+      entered();
+      await paused;
+    }
+    return original(key, value);
+  });
+  await runtime.submit(c.id, '/bg echo wrong > /workspace/late');
+  const running = runtime.run(c.id);
+  await saving;
+  await runtime.stop(c.id);
+  release();
+  await running;
+  await runtime.background.drain();
+  // Allow the aborted tool's persistence continuation to settle.
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  expect((await runtime.background.list(c.id))[0].state).toBe('cancelled');
+  await expect(runtime.exportFile('/workspace/late')).rejects.toThrow();
+});
+
+test('provider failure wakes the conversation with an interruption result', async () => {
+  const store = new Store(crypto.randomUUID());
+  await store.put('plugins', [
+    plugin(`return {tools: {exec: {
+    description: 'remote', inputSchema: {type: 'object'},
+    async execute() { throw new Error('connection lost'); }
+  }}, replacements: {exec: 'exec'}}`),
+  ]);
+  const runtime = new Runtime(store);
+  const c = await runtime.create();
+  await runtime.submit(c.id, '/bg run');
+  await runtime.run(c.id);
+  await runtime.background.drain();
+  expect((await runtime.background.list(c.id))[0].state).toBe('interrupted');
+  expect((await read(store, c.id)).messages.at(-1)?.text).toContain('connection lost');
+  expect((await read(store, c.id)).messages.at(-1)?.text).toContain('do not automatically retry');
+});
+
+test('background timeout wakes the agent even if a provider ignores abort', async () => {
+  const store = new Store(crypto.randomUUID());
+  await store.put('plugins', [
+    plugin(`return {tools: {exec: {
+    description: 'remote', inputSchema: {type: 'object'},
+    execute() { return new Promise(() => {}); }
+  }}, replacements: {exec: 'exec'}}`),
+  ]);
+  const runtime = new Runtime(store);
+  const c = await runtime.create();
+  await runtime.submit(
+    c.id,
+    '/tool background {"action":"start","tool":"exec","input":{},"timeoutMs":1000}',
+  );
+  await runtime.run(c.id);
+  expect((await read(store, c.id)).status).toBe('idle');
+  await runtime.background.drain();
+  expect((await read(store, c.id)).messages.at(-1)?.text).toContain('Background job timed out');
+  expect((await runtime.background.list(c.id))[0].state).toBe('interrupted');
+});

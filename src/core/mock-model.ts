@@ -18,6 +18,8 @@ export class MockModel implements Model {
   async next(request: ModelRequest, signal: AbortSignal): Promise<ModelStep> {
     await delay(80, signal);
     if (request.result !== undefined) return { type: 'text', text: request.result || 'Done.' };
+    if (request.message.startsWith('Background job '))
+      return { type: 'text', text: request.message };
     const [line, ...lines] = request.message.split('\n');
     const match = /^\/(\w+)\s*([\s\S]*)$/.exec(line.trim());
     if (!match)
@@ -27,6 +29,12 @@ export class MockModel implements Model {
       };
     const [, command, arg] = match;
     if (command === 'skills') return { type: 'text', text: request.instructions };
+    if (command === 'bg')
+      return {
+        type: 'tool',
+        name: 'background',
+        input: { action: 'start', tool: 'exec', input: { command: [arg, ...lines].join('\n') } },
+      };
     if (command === 'exec')
       return { type: 'tool', name: 'exec', input: { command: [arg, ...lines].join('\n') } };
     if (command === 'write')
