@@ -16,6 +16,7 @@ export interface BackgroundProcess {
   delivered?: boolean;
   cancelRequested?: boolean;
   deadline: number;
+  startedAt?: number;
 }
 interface Host {
   resolve(job: BackgroundProcess): Promise<Binding>;
@@ -130,6 +131,7 @@ export class BackgroundProcesses {
             plugins,
             input: args as Record<string, unknown>,
             state: 'running',
+            startedAt: Date.now(),
             deadline: Date.now() + Number(input.timeoutMs ?? 300000),
           };
           await this.store.put(key(id), job);

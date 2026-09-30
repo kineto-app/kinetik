@@ -113,8 +113,43 @@ dialog:not(.connection-setup) {
   padding-block: 28px;
 }
 .message[data-role='user'] {
+  background: transparent;
+  padding: 0;
+}
+.message[data-role='user'] > .message-content {
   background: var(--glyph-bg);
   border-radius: 24px 24px 6px 24px;
+  padding: var(--space-content) var(--space-section);
+  margin: 0;
+}
+.message-time,
+.elapsed-time,
+.work-duration {
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.message[data-role='user'] > .message-time {
+  display: block;
+  text-align: right;
+  margin: var(--space-inline) var(--space-inline) 0;
+}
+.message-actions {
+  align-items: center;
+  gap: var(--space-inline);
+}
+.work-duration {
+  display: flex;
+  align-items: center;
+  gap: var(--space-inline);
+  margin-bottom: var(--space-section);
+}
+.work-duration .icon {
+  width: 16px;
+  height: 16px;
+}
+.elapsed-time {
+  white-space: nowrap;
 }
 .message-content {
   overflow-wrap: anywhere;

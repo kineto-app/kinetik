@@ -178,3 +178,32 @@ test('an explicitly shared background result is visible without its internal rec
   await expect(page.locator('.tool-group')).toHaveCount(0);
   await expect(page.locator('#timeline')).not.toContainText('internal sharing receipt');
 });
+
+test('widget refreshes stay out of the agent timeline after its final reply', async ({ page }) => {
+  await seed(page, [
+    msg('u', 'user', 'Create a track.'),
+    msg('n', 'assistant', 'I will create the track.'),
+    action('generate', 'exec · charms', { command: 'generate-audio' }),
+    msg('final', 'assistant', 'Your track is ready.'),
+    action('poll-legacy', 'App · refresh', {}),
+    {
+      ...action('poll', 'App · refresh', {}),
+      activity: { scope: 'app:player', input: {}, outcome: 'completed' },
+    },
+  ]);
+  await expect(page.locator('.tool-group')).toHaveCount(1);
+  await expect(
+    page.locator('[data-message-id="poll"], [data-message-id="poll-legacy"]'),
+  ).toHaveCount(0);
+  expect(
+    await page
+      .locator('#timeline > .tool-group, #timeline > [data-role=assistant]')
+      .evaluateAll((nodes) =>
+        nodes.map((node) =>
+          node.classList.contains('tool-group')
+            ? 'tools'
+            : node.querySelector('.message-content')?.textContent?.trim(),
+        ),
+      ),
+  ).toEqual(['I will create the track.', 'tools', 'Your track is ready.']);
+});

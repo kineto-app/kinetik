@@ -239,11 +239,12 @@ sw.addEventListener('message', (event) => {
               automations: await runtime.automations.list(),
               background: (await store.entries<BackgroundProcess>('background:'))
                 .filter(([, job]) => ['running', 'waiting'].includes(job.state))
-                .map(([, { id, conversationId, tool, state }]) => ({
+                .map(([, { id, conversationId, tool, state, startedAt }]) => ({
                   id,
                   conversationId,
                   tool,
                   state,
+                  startedAt,
                 })),
               conversations: (await runtime.conversations()).map((c) => ({
                 ...c,

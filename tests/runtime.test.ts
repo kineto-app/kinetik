@@ -42,12 +42,48 @@ test('incoming messages steer at a tool boundary', async () => {
   await runtime.submit(c.id, '/exec sleep 0.3; echo original');
   const run = runtime.run(c.id);
   await waitFor(async () => (await read(store, c.id)).call?.state === 'pending');
+  const started = (await read(store, c.id)).workStartedAt!;
+  expect(started).toBeGreaterThan(0);
   await runtime.submit(c.id, '/write /workspace/steered\nnew direction');
+  expect((await read(store, c.id)).workStartedAt).toBe(started);
   await run;
   expect((await read(store, c.id)).pending).toEqual([]);
+  const finished = await read(store, c.id);
+  expect(finished.workStartedAt).toBeUndefined();
+  expect(finished.messages.at(-1)?.durationMs).toBeGreaterThanOrEqual(200);
   expect(new TextDecoder().decode(await runtime.exportFile('/workspace/steered'))).toBe(
     'new direction',
   );
+});
+
+test('elapsed time survives a new runtime and a connection wait', async () => {
+  const store = new Store(crypto.randomUUID());
+  const offline = new Runtime(store, undefined, {
+    async next() {
+      throw new TypeError('Failed to fetch');
+    },
+  });
+  const c = await offline.create();
+  await offline.submit(c.id, 'Continue my work');
+  await offline.run(c.id);
+  const waiting = await read(store, c.id);
+  expect(waiting.status).toBe('waiting');
+  expect(waiting.workStartedAt).toBeGreaterThan(0);
+  const started = waiting.workStartedAt! - 10000;
+  await store.put('conversation:' + c.id, { ...waiting, workStartedAt: started });
+  const reopened = new Runtime(store, undefined, {
+    async next() {
+      return { type: 'text', text: 'Finished' };
+    },
+  });
+  await reopened.recover();
+  await reopened.run(c.id);
+  const finished = await read(store, c.id);
+  expect(finished.workStartedAt).toBeUndefined();
+  expect(finished.messages.at(-1)?.durationMs).toBeGreaterThanOrEqual(10000);
+  await reopened.submit(c.id, 'New request');
+  await reopened.run(c.id);
+  expect((await read(store, c.id)).messages.at(-1)?.durationMs).toBeLessThan(10000);
 });
 test('stop leaves interrupted effects explicit and does not retry them', async () => {
   const store = new Store(crypto.randomUUID());
