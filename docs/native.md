@@ -6,7 +6,7 @@ Android uses a main-frame-only WebMessageListener for native IPC. The invoke key
 
 ## Build
 
-Install Node.js 22.12+, Rust stable, and the [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/) for the target platform. Android requires Java 21, the Android SDK, and NDK 28.2.13676358. Set `ANDROID_HOME` and `NDK_HOME`. Generated Android sources are committed so signing and manifest settings remain consistent.
+Install Node.js 22.12+, Rust stable, and the [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/) for the target platform. Android requires Java 21, Android SDK platform `platforms;android-37.0`, build tools 37.0.0, and NDK 28.2.13676358. Set `ANDROID_HOME` and `NDK_HOME`. Generated Android sources are committed so signing and manifest settings remain consistent.
 
 ```sh
 npm ci

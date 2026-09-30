@@ -42,11 +42,17 @@ export function setupDataTransfer() {
       status.textContent = 'Export ready. Keep it private; it contains your chats and files.';
     });
   async function restore(text: string) {
-    if (
-      !confirm(
-        'Replace the chats, local files, and routines on this device with this export? Your sign-ins stay on this device. Imported connections need to be enabled again.',
-      )
-    ) {
+    const message =
+      'Replace the chats, local files, and routines on this device with this export? Your sign-ins stay on this device. Imported connections need to be enabled again.';
+    const accepted = isNative
+      ? await (
+          await import('@tauri-apps/plugin-dialog')
+        ).confirm(message, {
+          title: 'Import workspace',
+          kind: 'warning',
+        })
+      : confirm(message);
+    if (!accepted) {
       status.textContent = '';
       return;
     }
