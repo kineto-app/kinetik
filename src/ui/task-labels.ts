@@ -1,5 +1,7 @@
 export function taskLabel(name: string, complete = false): string {
   switch (name.split(' · ')[0]) {
+    case 'exec':
+      return complete ? 'Ran a command' : 'Running a command';
     case 'write':
       return complete ? 'Created a file' : 'Creating your file';
     case 'edit':

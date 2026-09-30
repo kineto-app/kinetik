@@ -2,7 +2,7 @@ import { expect, test, vi } from 'vitest';
 import { Store } from '../src/browser/store';
 import { Runtime } from '../src/core/runtime';
 import { MockModel } from '../src/core/mock-model';
-import type { BackgroundProcess } from '../src/core/background';
+import { BackgroundProcesses, type BackgroundProcess } from '../src/core/background';
 import type { Conversation, InstalledPlugin, ModelRequest } from '../src/core/types';
 
 const read = async (store: Store, id: string) =>
@@ -335,4 +335,131 @@ test('background completion and user steering join the same next model request a
   expect((await read(store, c.id)).messages.at(-1)?.text).toBe(
     'Used the completed job and your correction.',
   );
+});
+
+test('a disconnected completion reply resumes once without repeating completed work', async () => {
+  const store = new Store(crypto.randomUUID());
+  const model = new MockModel();
+  let offline = true;
+  const runtime = new Runtime(store, undefined, {
+    next(request, signal) {
+      if (offline && request.message.startsWith('Background job '))
+        throw new TypeError('Failed to fetch');
+      return model.next(request, signal);
+    },
+  });
+  const c = await runtime.create();
+  await runtime.submit(c.id, '/bg sleep 0.1; echo once >> /workspace/result');
+  await runtime.run(c.id);
+  await runtime.background.drain();
+  expect((await read(store, c.id)).status).toBe('waiting');
+  expect((await runtime.background.list(c.id))[0].state).toBe('completed');
+  offline = false;
+  await runtime.recover();
+  await runtime.run(c.id);
+  const final = await read(store, c.id);
+  expect(final.status).toBe('idle');
+  expect(final.messages.at(-1)?.text).toBe('Background task completed.');
+  expect(final.messages.filter((m) => m.source === 'background')).toHaveLength(1);
+  expect(final.messages.some((m) => m.text === 'Failed to fetch')).toBe(false);
+  expect(new TextDecoder().decode(await runtime.exportFile('/workspace/result'))).toBe('once\n');
+});
+
+test('a disconnected remote wait recovers its job ID even after the original deadline', async () => {
+  const store = new Store(crypto.randomUUID());
+  await store.put('plugins', [
+    plugin(`return {tools: {exec: {
+    description: 'remote', inputSchema: {type: 'object'},
+    async execute(input, context) { await context.checkpoint('saved-job'); return {status: 'running'}; },
+    async wait() { throw new TypeError('Failed to fetch'); },
+    async recover(id) { return {done: true, result: 'recovered ' + id}; }
+  }}, replacements: {exec: 'exec'}}`),
+  ]);
+  const runtime = new Runtime(store);
+  const c = await runtime.create();
+  await runtime.submit(c.id, '/bg work');
+  await runtime.run(c.id);
+  await runtime.background.drain();
+  const job = (await runtime.background.list(c.id))[0];
+  expect(job.state).toBe('waiting');
+  expect(completion(await read(store, c.id))).toBeUndefined();
+  await store.put('background:' + job.id, { ...job, deadline: Date.now() - 1000 });
+  await runtime.recover();
+  await runtime.background.drain();
+  expect(completion(await read(store, c.id))?.text).toContain('recovered saved-job');
+  expect((await runtime.background.list(c.id))[0].state).toBe('completed');
+});
+
+test('Stop during a connection interruption stays stopped on return', async () => {
+  const store = new Store(crypto.randomUUID());
+  let calls = 0;
+  const runtime = new Runtime(store, undefined, {
+    next() {
+      calls++;
+      throw new TypeError('Failed to fetch');
+    },
+  });
+  const c = await runtime.create();
+  await runtime.submit(c.id, 'hello');
+  await runtime.run(c.id);
+  expect((await read(store, c.id)).status).toBe('waiting');
+  await runtime.stop(c.id);
+  await runtime.recover();
+  await runtime.run(c.id);
+  expect((await read(store, c.id)).status).toBe('stopped');
+  expect(calls).toBe(1);
+});
+
+test('cancelling while a provider reconnects cannot resurrect its job', async () => {
+  const store = new Store(crypto.randomUUID());
+  const job: BackgroundProcess = {
+    id: 'job',
+    conversationId: 'chat',
+    tool: 'exec',
+    provider: 'remote',
+    plugins: [],
+    input: {},
+    state: 'waiting',
+    operationId: 'remote-job',
+    deadline: Date.now() + 60000,
+  };
+  await store.put('background:job', job);
+  const recover = vi.fn(async () => ({ done: true, result: 'done' }));
+  const binding = {
+    provider: 'remote',
+    tool: {
+      description: 'Remote',
+      inputSchema: {},
+      execute: async () => '',
+      recover,
+      cancel: async () => {},
+    },
+  };
+  let release!: () => void;
+  let started!: () => void;
+  const ready = new Promise<void>((resolve) => {
+    started = resolve;
+  });
+  let calls = 0;
+  const jobs = new BackgroundProcesses(store, {
+    async resolve() {
+      if (++calls === 1) {
+        started();
+        await new Promise<void>((resolve) => {
+          release = resolve;
+        });
+      }
+      return binding;
+    },
+    wake: async () => {},
+    changed: () => {},
+  });
+  const reconnect = jobs.recover();
+  await ready;
+  await jobs.cancel(job);
+  release();
+  await reconnect;
+  await jobs.drain();
+  expect((await jobs.list('chat'))[0].state).toBe('cancelled');
+  expect(recover).not.toHaveBeenCalled();
 });

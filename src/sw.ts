@@ -8,6 +8,7 @@ import { loadConfiguration } from './connections/config';
 import { BrowserChatGPT } from './connections/chatgpt';
 import { Connections } from './connections/manager';
 import { OpenAIModel } from './core/openai-model';
+import { ConnectionError, SignInRequired } from './core/connection-error';
 declare const __PRECACHE__: string[];
 declare const __BUILD_ID__: string;
 const sw = globalThis as unknown as ServiceWorkerGlobalScope;
@@ -55,9 +56,13 @@ function initialize() {
                 cache: 'no-store',
                 signal: AbortSignal.timeout(5000),
               });
-              if (!response.ok) throw new Error('Connect ChatGPT in Connections to continue.');
+              if (response.status >= 500 || [408, 429].includes(response.status))
+                throw new ConnectionError('The model connection is unavailable.');
+              if (!response.ok)
+                throw new SignInRequired('Connect ChatGPT in Connections to continue.');
               const status = await response.json();
-              if (!status.connected) throw new Error('Connect ChatGPT in Connections to continue.');
+              if (!status.connected)
+                throw new SignInRequired('Connect ChatGPT in Connections to continue.');
               return { account: status.account ?? 'default', model: status.model };
             })
           : undefined,
@@ -230,8 +235,13 @@ sw.addEventListener('message', (event) => {
             result = {
               automations: await runtime.automations.list(),
               background: (await store.entries<BackgroundProcess>('background:'))
-                .filter(([, job]) => job.state === 'running')
-                .map(([, { id, conversationId, tool }]) => ({ id, conversationId, tool })),
+                .filter(([, job]) => ['running', 'waiting'].includes(job.state))
+                .map(([, { id, conversationId, tool, state }]) => ({
+                  id,
+                  conversationId,
+                  tool,
+                  state,
+                })),
               conversations: (await runtime.conversations()).map((c) => ({
                 ...c,
                 plugins: undefined,
@@ -245,6 +255,7 @@ sw.addEventListener('message', (event) => {
             };
             break;
           case 'tick':
+          case 'resume':
             break;
           case 'automationCreate':
             result = await runtime.automations.create(data.input as Record<string, unknown>);
@@ -327,10 +338,11 @@ sw.addEventListener('message', (event) => {
             throw new Error('Unknown request.');
         }
         port.postMessage({ ok: true, result });
+        if (data.op === 'resume') await runtime.recover();
         if (followup) await runtime.run(followup);
         if (['tick', 'automationCreate', 'automationStatus', 'event'].includes(data.op as string))
           await runtime.automations.tick();
-        if (data.op === 'state')
+        if (data.op === 'state' || data.op === 'resume')
           await Promise.all(
             (await runtime.conversations())
               .filter((c) => c.status === 'queued' || c.status === 'running')

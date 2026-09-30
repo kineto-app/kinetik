@@ -93,7 +93,7 @@ test('installed launch resumes setup without the deep link and completes the ext
   await page.getByRole('button', { name: 'Start chatting' }).click();
   await page.reload();
   await expect(page.locator('#connection-setup')).toBeHidden();
-  await expect(page.locator('#connection-status')).toContainText('Charms connected');
+  await expect(page.locator('#connection-status')).toHaveAttribute('title', 'Charms connected');
 });
 
 test('repository-run configuration skips installation', async ({ page, request }) => {
