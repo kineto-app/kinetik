@@ -52,7 +52,7 @@ through the same-origin `jwksUrl`, without forwarding cookies, credentials, or r
 This endpoint returns public signing keys only. Codes, tokens, refreshes and model requests
 travel directly between the browser worker and OpenAI. The paste-back flow checks state,
 PKCE, the ID-token signature, issuer, audience, nonce, expiry and plan permission. Credentials
-persist separately from workspace files and chat in IndexedDB. Trusted plugins still share
+remain only in worker memory, separately from workspace files and chat. Sign-in must be repeated after worker termination, even if the PWA is still open. The short-lived OAuth transaction and public registration persist in IndexedDB to support the return flow. Trusted plugins still share
 origin privileges. This mode deliberately departs from OpenAI's documented token-storage
 guidance and has no claim of official browser support. Use it only on a trusted personal device.
 

@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { generateKeyPairSync, sign, createHash } from 'node:crypto';
 const base = 'http://127.0.0.1:4174/onboarding/';
-test('browser login survives reload and drives a real worker model request without exposing tokens in chat', async ({
+test('browser login drives a worker request, keeps tokens off disk, and ends when worker memory is lost', async ({
   page,
   context,
   request,
@@ -116,4 +116,31 @@ test('browser login survives reload and drives a real worker model request witho
   );
   expect(requests).toBe(1);
   expect(await page.locator('body').innerText()).not.toContain('browser-secret');
+  const saved = await page.evaluate(
+    () =>
+      new Promise<string>((resolve, reject) => {
+        const open = indexedDB.open('kinetik-chatgpt-v1');
+        open.onerror = () => reject(open.error);
+        open.onsuccess = () => {
+          const read = open.result.transaction('records').objectStore('records').getAll();
+          read.onsuccess = () => {
+            resolve(JSON.stringify(read.result));
+            open.result.close();
+          };
+          read.onerror = () => reject(read.error);
+        };
+      }),
+  );
+  expect(saved).not.toContain('browser-secret');
+  const devtools = await context.newCDPSession(page);
+  await devtools.send('ServiceWorker.enable');
+  await devtools.send('ServiceWorker.stopAllWorkers');
+  await devtools.detach();
+  await page.getByRole('textbox', { name: 'Message', exact: true }).fill('Hello again');
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Connect ChatGPT' })).toBeVisible();
+  expect(requests).toBe(1);
+  await expect(page.getByRole('textbox', { name: 'Message', exact: true })).toHaveValue(
+    'Hello again',
+  );
 });

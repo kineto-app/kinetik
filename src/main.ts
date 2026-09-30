@@ -387,13 +387,16 @@ byId('composer').onsubmit = (event) => {
     const input = byId<HTMLTextAreaElement>('prompt');
     const text = input.value;
     if (!text.trim() || submitting) return;
-    if (connectionState?.chatgpt.available && !connectionState.chatgpt.connected) {
-      connectionSetup.open();
-      return;
-    }
     submitting = true;
     updateComposer();
     try {
+      if (connectionState?.chatgpt.available) {
+        await connectionSetup.refresh();
+        if (!connectionState.chatgpt.connected) {
+          connectionSetup.open();
+          return;
+        }
+      }
       if (!current()) selected = (await rpc<Conversation>('create')).id;
       followNextMessage = true;
       await rpc('submit', { id: selected, text });
@@ -557,8 +560,9 @@ const connectionSetup = setupConnections((value) => {
       ? 'ChatGPT subscription'
       : 'Connect ChatGPT to chat';
     byId('model-settings-title').textContent = 'ChatGPT subscription';
-    byId('model-settings-description').textContent =
-      'Your account connection is managed by this host’s credential helper. Your agent and tools run in this browser.';
+    byId('model-settings-description').textContent = value.chatgpt.browser
+      ? 'Sign-in lasts for this browser session. If it ends, sign in again.'
+      : 'Your account connection is managed by this host’s credential helper. Your agent and tools run in this browser.';
   }
   if (!current()?.messages.length) lastMessages = '';
   render();

@@ -130,13 +130,20 @@ function callback() {
     })
   );
 }
-test('validates callback, persists across restart, and never returns credentials to UI', async () => {
+test('keeps tokens only in memory, clears legacy storage, and signs out after worker restart', async () => {
+  await store.put('session', { access: 'placeholder-old-access', refresh: 'placeholder-old-refresh' });
   await begin();
   const host = flow.searchParams.get('ext_agent_host_id');
   await client.callback(callback());
+  expect(await client.status()).toEqual({
+    connected: true,
+    model: 'available-model',
+    account: 'person',
+  });
+  expect(JSON.stringify(await store.entries(''))).not.toMatch(/placeholder-access-one|placeholder-refresh-one|old-saved/);
   expect(
     await new BrowserChatGPT(base + 'connections/chatgpt/keys', store, fetcher).status(),
-  ).toEqual({ connected: true, model: 'available-model', account: 'person' });
+  ).toEqual({ connected: false, model: '', account: '' });
   await expect(client.callback(callback())).rejects.toThrow('does not match');
   expect(tokenCalls).toBe(1);
   await client.login();
