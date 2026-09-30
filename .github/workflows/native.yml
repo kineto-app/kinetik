@@ -112,12 +112,10 @@ jobs:
           </dict></plist>
           PLIST
           /usr/bin/derq query -f xml -i /tmp/kinetik-simulator-entitlements.plist -o /tmp/kinetik-simulator-entitlements.der --raw
-          cat > /tmp/kinetik-simulator.xcconfig <<'CONFIG'
-          OTHER_LDFLAGS = $(inherited) -Wl,-sectcreate,__TEXT,__entitlements,/tmp/kinetik-simulator-entitlements.plist -Wl,-sectcreate,__TEXT,__ents_der,/tmp/kinetik-simulator-entitlements.der
-          CONFIG
+          python3 scripts/configure-ios-simulator.py \
+            src-tauri/gen/apple/kinetik.xcodeproj/project.pbxproj \
+            /tmp/kinetik-simulator-entitlements
       - run: npm run ios:build -- --debug --target aarch64-sim --no-sign --ci
-        env:
-          XCODE_XCCONFIG_FILE: /tmp/kinetik-simulator.xcconfig
       - name: Verify simulator identity sections
         run: |
           python3 - <<'PYTHON'

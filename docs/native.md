@@ -28,7 +28,7 @@ npm run ios:build -- --debug --target aarch64-sim --no-sign
 
 A physical iOS build needs an Apple development team and signing identity. Set `APPLE_DEVELOPMENT_TEAM`; use TestFlight before distributing a store release. Do not regenerate Android project files without reviewing the resulting manifest and signing changes.
 
-The unsigned simulator build also needs an app identity before testing Keychain access. Native CI embeds simulator-only XML and DER entitlements in Mach-O sections and checks the launch screenshot for startup errors. Follow its `Prepare simulator Keychain identity` step and the build step’s `XCODE_XCCONFIG_FILE` setting when building with `--no-sign` locally. Do not apply iOS entitlements to the simulator executable’s macOS code signature or use the simulator identity for a physical-device release.
+The unsigned simulator build also needs an app identity before testing Keychain access. Native CI embeds simulator-only XML and DER entitlements in Mach-O sections and checks the launch screenshot for startup errors. Follow its `Prepare simulator Keychain identity` step when building with `--no-sign` locally. The script adds simulator-only linker settings directly to the generated Xcode project because Tauri filters the environment passed to Xcode. Do not apply iOS entitlements to the simulator executable’s macOS code signature or use the simulator identity for a physical-device release.
 
 ## Distribution configuration
 
