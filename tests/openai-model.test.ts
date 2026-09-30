@@ -22,7 +22,7 @@ test('an interrupted stream cannot be accepted as completion', async () => {
     readResponse(new Response(event({ type: 'response.output_text.delta', delta: 'partial' }))),
   ).rejects.toThrow('interrupted');
 });
-test('model request uses subscription route requirements and maps real tool calls', async () => {
+test('model request uses subscription route requirements and maps namespaced tool calls', async () => {
   const fetcher = vi.spyOn(globalThis, 'fetch').mockImplementation(async (_url, options) => {
     const body = JSON.parse(String(options?.body));
     expect(body.request.store).toBe(false);
@@ -68,4 +68,57 @@ test('model request uses subscription route requirements and maps real tool call
   } finally {
     fetcher.mockRestore();
   }
+});
+
+test('completed subscription streams retain done items when the final output array is empty', async () => {
+  const reasoning = { type: 'reasoning', id: 'reasoning', encrypted_content: 'opaque' };
+  const call = {
+    type: 'function_call',
+    name: 'read',
+    call_id: 'call',
+    arguments: '{"path":"/workspace/note"}',
+  };
+  const result = await readResponse(
+    new Response(
+      event({ type: 'response.output_item.added', output_index: 0, item: { type: 'reasoning' } }) +
+        event({
+          type: 'response.output_item.added',
+          output_index: 1,
+          item: { type: 'function_call' },
+        }) +
+        event({ type: 'response.output_item.done', output_index: 1, item: call }) +
+        event({ type: 'response.output_item.done', output_index: 0, item: reasoning }) +
+        event({ type: 'response.completed', response: { output: [] } }),
+    ),
+  );
+  expect(result).toEqual([reasoning, call]);
+});
+
+test('completed subscription streams retain the assistant message delivered before the terminal event', async () => {
+  const message = {
+    type: 'message',
+    role: 'assistant',
+    content: [{ type: 'output_text', text: 'KINETIK_SUBSCRIPTION_OK' }],
+  };
+  const result = await readResponse(
+    new Response(
+      event({ type: 'response.output_item.done', output_index: 0, item: message }) +
+        event({ type: 'response.completed', response: { output: [] } }),
+    ),
+  );
+  expect(result).toEqual([message]);
+});
+
+test('an incomplete item cannot be mistaken for a completed tool call', async () => {
+  await expect(
+    readResponse(
+      new Response(
+        event({
+          type: 'response.output_item.added',
+          output_index: 0,
+          item: { type: 'function_call' },
+        }) + event({ type: 'response.completed', response: { output: [] } }),
+      ),
+    ),
+  ).rejects.toThrow('without all streamed output items');
 });
