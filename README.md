@@ -140,7 +140,7 @@ Set environment variables in the shell; `.env` files are not automatically loade
 
 Static `dist/` files can be self-hosted. Serve `sw.js` as JavaScript with CSP permitting trusted factory compilation (`script-src 'self' 'unsafe-eval'`) and network destinations needed by plugins. The UI itself does not require `unsafe-eval`. See [deployment notes](docs/deployment.md). A remote machine requires HTTPS, not plain LAN HTTP, for service workers. This is a static delivery option, not a remote agent runner.
 
-Hosting at `kineto.app/kinetik-oss` shares the main site's origin. Worker scope does not isolate plugin privileges. The owner accepted this choice for now; no hosted deployment has been made.
+The planned `kineto.app/kinetik-oss` entry point needs an isolated hosting origin or a plugin execution boundary before production use. Worker scope does not isolate plugin privileges from a signed-in Kineto account. The companion Kineto integration builds the latest Kinetik `main` during each frontend deployment, but initially blocks production serving. See [the build handoff and deployment requirements](docs/deployment.md#build-handoff-to-kineto).
 
 ## Development and checks
 
