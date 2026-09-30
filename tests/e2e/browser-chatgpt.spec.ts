@@ -72,14 +72,22 @@ for (const relay of [false, true]) {
         }
         expect(route.request().headers().authorization).toBe('Bearer browser-secret-access');
         if (route.request().url().endsWith('/models')) {
-          await route.fulfill({ json: { models: [{ slug: 'test-model', visibility: 'list' }] } });
+          await route.fulfill({
+            json: {
+              models: [
+                { slug: 'test-model', visibility: 'list' },
+                { slug: 'gpt-6.1-sol', visibility: 'list' },
+              ],
+            },
+          });
           return;
         }
         requests++;
         const body = route.request().postDataJSON();
         expect(body.store).toBe(false);
         expect(body.stream).toBe(true);
-        expect(body.model).toBe('test-model');
+        expect(body.model).toBe('gpt-6.1-sol');
+        expect(body.reasoning).toEqual({ effort: 'medium' });
         await route.fulfill({
           contentType: 'text/event-stream',
           body:
