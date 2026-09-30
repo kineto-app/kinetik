@@ -203,12 +203,8 @@ test('MCP Apps handshake, tool interaction, visibility and origin isolation', as
   await app.getByRole('button', { name: 'Forbidden tool' }).click();
   await expect(app.locator('#result')).toHaveText('Denied');
   await app.getByRole('button', { name: 'Increment' }).click();
-  const action = page.locator('.tool-details').filter({ hasText: 'Increment' });
-  await page.locator('.tool-group').filter({ has: action }).locator(':scope > summary').click();
-  await action.locator(':scope > summary').click();
-  await action.getByText('Technical details', { exact: true }).click();
-  await expect(action).toContainText('App · increment');
   await expect(app.locator('#result')).toHaveText('Incremented');
+  await expect(page.locator('.tool-details').filter({ hasText: 'Increment' })).toHaveCount(0);
   const saved = await rpc<{ conversations: Conversation[] }>(page, 'state');
   const messages = saved.conversations.flatMap((conversation) => conversation.messages);
   expect(messages.find((message) => message.tool === 'App · increment')?.activity?.scope).toBe(

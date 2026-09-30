@@ -1,5 +1,6 @@
 import { setupViewport } from './browser/viewport';
 import { renderToolActivity } from './ui/tool-activity';
+import { isInternalActivity } from './ui/activity-data';
 import './ui/styles.css';
 import './ui/chat.css';
 import './ui/islands.css';
@@ -176,10 +177,7 @@ function render() {
       timeline.append(empty);
     }
     for (const item of c?.messages ?? []) {
-      const hiddenActivity =
-        item.visibility === 'internal' ||
-        item.id.startsWith('background-completed:') ||
-        item.tool?.startsWith('background ·');
+      const hiddenActivity = isInternalActivity(item);
       if ((hiddenActivity && !item.app && !item.file) || renderedMessages.has(item.id)) continue;
       renderedMessages.add(item.id);
       const article = document.createElement('article');

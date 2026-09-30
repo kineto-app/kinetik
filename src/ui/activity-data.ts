@@ -2,6 +2,18 @@ import type { Message } from '../core/types';
 import { toolOutcome } from '../core/tool-outcome';
 import { taskAction, taskKind, taskLabel } from './task-labels';
 
+/** Widget RPCs and background receipts are not foreground agent activity. */
+export function isInternalActivity(message: Message): boolean {
+  return (
+    message.visibility === 'internal' ||
+    message.source === 'background' ||
+    message.id.startsWith('background-completed:') ||
+    Boolean(message.tool?.startsWith('background ·')) ||
+    Boolean(message.tool?.startsWith('App · ')) ||
+    Boolean(message.activity?.scope?.startsWith('app:'))
+  );
+}
+
 export interface Activity {
   message: Message;
   outcome: NonNullable<Message['activity']>['outcome'];
