@@ -2,12 +2,17 @@
 param([string]$Executable = 'src-tauri/target/release/kinetik.exe')
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes, System.Drawing
+$debugPolicy = 'HKLM:\SOFTWARE\Policies\Microsoft\Edge\WebView2\AdditionalBrowserArguments'
+$previousDebugArgs = Get-ItemPropertyValue -Path $debugPolicy -Name 'kinetik.exe' -ErrorAction SilentlyContinue
+# Hosted CI runs elevated. WebView2 ignores environment overrides there, but honors HKLM policy.
+New-Item -Path $debugPolicy -Force | Out-Null
+New-ItemProperty -Path $debugPolicy -Name 'kinetik.exe' -Value '--remote-debugging-port=9222' -PropertyType String -Force | Out-Null
 $start = [System.Diagnostics.ProcessStartInfo]::new()
 $start.FileName = (Resolve-Path $Executable).Path
 $start.UseShellExecute = $false
 $start.EnvironmentVariables['WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS'] = '--remote-debugging-port=9222'
-$app = [System.Diagnostics.Process]::Start($start)
 try {
+    $app = [System.Diagnostics.Process]::Start($start)
     $ready = $false
     $names = @()
     for ($attempt = 0; $attempt -lt 30; $attempt++) {
@@ -44,6 +49,11 @@ try {
             ConvertTo-Json | Set-Content windows-processes.json
         node scripts/inspect-windows-webview.mjs
     } finally {
-        if (-not $app.HasExited) { Stop-Process -Id $app.Id }
+        if ($app -and -not $app.HasExited) { Stop-Process -Id $app.Id }
+        if ($null -eq $previousDebugArgs) {
+            Remove-ItemProperty -Path $debugPolicy -Name 'kinetik.exe' -ErrorAction SilentlyContinue
+        } else {
+            Set-ItemProperty -Path $debugPolicy -Name 'kinetik.exe' -Value $previousDebugArgs
+        }
     }
 }
