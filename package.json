@@ -1,0 +1,55 @@
+{
+  "name": "kinetik-oss",
+  "version": "0.1.0",
+  "description": "A local-first browser agent prototype with replaceable tools and native skills",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "bin": {
+    "kinetik-oss": "bin/kinetik.mjs"
+  },
+  "files": [
+    "bin",
+    "dist",
+    "README.md",
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md"
+  ],
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "build": "node scripts/build.mjs",
+    "start": "node bin/kinetik.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:e2e": "playwright test",
+    "check": "npm run format:check && npm run typecheck && npm test && npm run build && npm run test:e2e",
+    "prepack": "npm run typecheck && npm run build",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "dependencies": {
+    "ajv": "8.20.0",
+    "just-bash": "3.4.2"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.13.0",
+    "@playwright/test": "1.63.0",
+    "@types/node": "^24.0.0",
+    "esbuild": "^0.28.2",
+    "fake-indexeddb": "^6.0.0",
+    "prettier": "3.9.9",
+    "typescript": "7.0.2",
+    "vite": "8.3.1",
+    "vitest": "5.0.2"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kineto-app/kinetik.git"
+  },
+  "bugs": {
+    "url": "https://github.com/kineto-app/kinetik/issues"
+  },
+  "homepage": "https://github.com/kineto-app/kinetik#readme"
+}
