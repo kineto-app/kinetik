@@ -10,7 +10,9 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "verbatimModuleSyntax": true,
-    "types": ["vite/client", "node"]
+    "types": ["vite/client", "node"],
+    "jsx": "preserve",
+    "jsxImportSource": "solid-js"
   },
   "include": ["src", "tests", "playwright.config.ts", "vitest.config.ts"]
 }

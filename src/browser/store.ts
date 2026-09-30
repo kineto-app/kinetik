@@ -46,6 +46,24 @@ export class Store {
   async put<T>(key: string, value: T): Promise<void> {
     await this.update(key, () => value);
   }
+  /** Replace application records atomically, retaining device-owned records selected by the caller. */
+  async replace(records: [string, unknown][], retain: (key: string) => boolean): Promise<void> {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('records', 'readwrite');
+      const objectStore = tx.objectStore('records');
+      const cursorRequest = objectStore.openCursor();
+      cursorRequest.onsuccess = () => {
+        const cursor = cursorRequest.result;
+        if (cursor) {
+          if (!retain(String(cursor.key))) cursor.delete();
+          cursor.continue();
+        } else for (const [key, value] of records) objectStore.put(value, key);
+      };
+      tx.oncomplete = () => resolve();
+      tx.onabort = tx.onerror = () => reject(tx.error ?? new Error('Import transaction aborted'));
+    });
+  }
   async entries<T>(prefix: string): Promise<[string, T][]> {
     const db = await this.open();
     return new Promise((resolve, reject) => {

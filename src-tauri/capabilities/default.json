@@ -1,0 +1,33 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Capabilities for the trusted main app; MCP widgets remain sandboxed.",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "native:default",
+    "opener:default",
+    "dialog:default",
+    "fs:default",
+    {
+      "identifier": "http:default",
+      "allow": [
+        {
+          "url": "https://*"
+        },
+        {
+          "url": "http://127.0.0.1:*/*"
+        },
+        {
+          "url": "http://localhost:*/*"
+        }
+      ]
+    },
+    "deep-link:default",
+    "fs:allow-read-file",
+    "fs:allow-write-file",
+    "fs:allow-open",
+    "fs:allow-read",
+    "hot-update:default"
+  ]
+}

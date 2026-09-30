@@ -328,3 +328,17 @@ test('logout removes durable credentials even when remote revocation fails', asy
   expect(await store.get('session')).toBeNull();
   expect((await client.status()).connected).toBe(false);
 });
+
+test('native callback ports remain bound to the attempt and reauthorization retains the identity hint', async () => {
+  flow = new URL((await client.login('http://127.0.0.1:43561/auth/callback')).url);
+  await expect(client.callback(callback())).rejects.toThrow('does not match');
+  await client.callback(callback().replace(':1455/', ':43561/'));
+  const session = await store.get<{ idToken: string; scopes: string[] }>('session');
+  expect(session?.scopes).toContain('chatgpt.tokens.use.direct');
+  const returning = new URL((await client.login('http://127.0.0.1:43562/auth/callback')).url);
+  expect(returning.searchParams.get('client_id')).toBe('client-one');
+  expect(returning.searchParams.get('id_token_hint')).toBe(session?.idToken);
+  await client.logout();
+  const afterLogout = new URL((await client.login()).url);
+  expect(afterLogout.searchParams.has('id_token_hint')).toBe(false);
+});

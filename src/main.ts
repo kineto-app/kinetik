@@ -1,19 +1,23 @@
+import { MessageBubble } from './ui/message';
+import { setupDataTransfer } from './ui/data-transfer';
+import { createSignal } from 'solid-js';
+import { ConversationList, PluginList } from './ui/lists';
+import { isNative } from './platform/environment';
 import { setupViewport } from './browser/viewport';
 import { renderToolActivity } from './ui/tool-activity';
 import { isInternalActivity } from './ui/activity-data';
-import { elapsed, messageTime, workDuration } from './ui/time';
+import { elapsed } from './ui/time';
 import './ui/styles.css';
 import './ui/chat.css';
 import './ui/islands.css';
-import { renderMessageContent, copyButton } from './ui/message-content';
-import { mountApp } from './ui/mcp-app';
 import { setupAutomations, renderAutomations } from './ui/automations';
 import type { Automation } from './core/automation';
-import { shell } from './ui/shell';
+import { Shell } from './ui/shell';
+import { render as renderSolid } from 'solid-js/web';
 import { icon, type IconName } from './ui/icons';
 import { demoTasks } from './core/demo-tasks';
 import { taskLabel } from './ui/task-labels';
-import { setupFiles, mountFile } from './ui/files';
+import { setupFiles } from './ui/files';
 import { setupUpdates } from './browser/updates';
 import { connect, rpc } from './browser/client';
 import type { Conversation, InstalledPlugin } from './core/types';
@@ -33,7 +37,7 @@ type State = {
   plugins: Pick<InstalledPlugin, 'manifest' | 'source' | 'enabledAt' | 'digest'>[];
 };
 const root = document.querySelector<HTMLDivElement>('#app')!;
-root.innerHTML = shell;
+renderSolid(Shell, root);
 setupViewport();
 const byId = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 let state: State = { conversations: [], plugins: [], automations: [], background: [] };
@@ -41,7 +45,6 @@ let connectionState: SetupState | undefined;
 let selected = sessionStorage.getItem('kinetik-conversation') ?? '';
 let refreshGeneration = 0;
 let lastMessages = '';
-let lastNavigation = '';
 let followNextMessage = false;
 let disposeContent: (() => void)[] = [];
 let timelineConversation = '';
@@ -79,31 +82,41 @@ function choose(id: string) {
   closeDrawer(false);
   byId('prompt').focus();
 }
+const [view, setView] = createSignal({ state, selected });
+renderSolid(
+  () =>
+    ConversationList({
+      get conversations() {
+        return view().state.conversations;
+      },
+      get selected() {
+        return view().selected;
+      },
+      background: isBackgroundTurn,
+      choose,
+    }),
+  byId('conversations'),
+);
+renderSolid(
+  () =>
+    PluginList({
+      get plugins() {
+        return view().state.plugins;
+      },
+      enable: async (id, enabled) => {
+        await rpc('enable', { id, enabled });
+        await refresh();
+      },
+      update: async (id) => {
+        await rpc('update', { id });
+        await refresh();
+      },
+      error: (error) => showError(error, 'plugin-error'),
+    }),
+  byId('plugin-list'),
+);
 function render() {
-  const nav = byId('conversations');
-  const navigation = JSON.stringify([
-    selected,
-    state.conversations.map((c) => [c.id, c.title, c.status, isBackgroundTurn(c)]),
-  ]);
-  if (navigation !== lastNavigation) {
-    lastNavigation = navigation;
-    nav.replaceChildren();
-    for (const c of state.conversations) {
-      const entry = button(
-        (c.status === 'running' && !isBackgroundTurn(c) ? '• ' : '') + c.title,
-        () => choose(c.id),
-        'conversation',
-      );
-      entry.setAttribute('aria-current', String(c.id === selected));
-      nav.append(entry);
-    }
-    if (!state.conversations.length) {
-      const hint = document.createElement('p');
-      hint.className = 'history-empty';
-      hint.textContent = 'No chats yet.';
-      nav.append(hint);
-    }
-  }
+  setView({ state, selected });
   const c = current();
   const foreground = c?.status === 'running' && !isBackgroundTurn(c);
   const jobs = state.background ?? [];
@@ -192,53 +205,13 @@ function render() {
       article.className = 'message message-enter';
       article.dataset.role = item.role;
       article.dataset.messageId = item.id;
-      if (hiddenActivity && item.app && c) {
-        // A rendered result is user-facing even when its producing tool call is internal.
-        timeline.insertBefore(article, timeline.querySelector('[data-draft]'));
-        disposeContent.push(
-          mountApp(article, item.app, c.id, document.querySelector<HTMLElement>('.composer-area')!),
-        );
-        continue;
-      }
-      const label = document.createElement('div');
-      label.className = 'message-label';
-      label.textContent =
-        item.role === 'user'
-          ? 'You'
-          : item.role === 'assistant'
-            ? 'Kinetik'
-            : (item.tool ?? 'Workspace notice');
-      const content =
-        item.role === 'assistant' ? renderMessageContent(item.text) : document.createElement('pre');
-      content.classList.add('message-content');
-      if (item.role !== 'assistant') content.textContent = item.text;
-      if (item.role === 'assistant') {
-        const avatar = document.createElement('img');
-        avatar.src = './icon.svg';
-        avatar.alt = '';
-        avatar.width = 24;
-        avatar.height = 24;
-        label.prepend(avatar);
-      }
-      if (item.role === 'tool') {
-        if (item.file) disposeContent.push(mountFile(article, item.file, updateJumpButton));
-      } else {
-        if (item.role === 'assistant' && item.durationMs !== undefined)
-          article.append(workDuration(item.durationMs));
-        article.append(label, content);
-        if (item.role === 'assistant') {
-          const actions = document.createElement('div');
-          actions.className = 'message-actions';
-          actions.append(copyButton(item.text, 'Copy reply'), messageTime(item.createdAt));
-          article.append(actions);
-        }
-        if (item.role === 'user') article.append(messageTime(item.createdAt));
-      }
       timeline.insertBefore(article, timeline.querySelector('[data-draft]'));
-      if (item.app && c)
-        disposeContent.push(
-          mountApp(article, item.app, c.id, document.querySelector<HTMLElement>('.composer-area')!),
-        );
+      disposeContent.push(
+        renderSolid(
+          () => MessageBubble({ item, article, conversationId: c!.id, resized: updateJumpButton }),
+          article,
+        ),
+      );
     }
     if (c?.draft && !isBackgroundTurn(c)) {
       let draft = timeline.querySelector<HTMLElement>('[data-draft]');
@@ -267,43 +240,6 @@ function render() {
   byId('plugin-count').textContent = String(
     state.plugins.filter((p) => p.enabledAt !== null).length,
   );
-  const list = byId('plugin-list');
-  list.replaceChildren();
-  if (!state.plugins.length)
-    list.innerHTML = `<div class="plugins-empty">${icon('plug')}<div><strong>No connections yet</strong></div></div>`;
-  for (const plugin of state.plugins) {
-    const row = document.createElement('div');
-    row.className = 'plugin-row';
-    const name = document.createElement('strong');
-    name.textContent = plugin.manifest.name;
-    const version = document.createElement('p');
-    version.className = 'small muted';
-    version.textContent = `${plugin.manifest.version} · ${plugin.enabledAt === null ? 'Off' : 'On'}`;
-    const actions = document.createElement('div');
-    actions.className = 'plugin-actions';
-    actions.append(
-      button(
-        plugin.enabledAt === null ? 'Enable' : 'Disable',
-        async () => {
-          await rpc('enable', { id: plugin.manifest.id, enabled: plugin.enabledAt === null });
-          await refresh();
-        },
-        'secondary',
-      ),
-    );
-    actions.append(
-      button('Update', async () => {
-        try {
-          await rpc('update', { id: plugin.manifest.id });
-          await refresh();
-        } catch (error) {
-          showError(error, 'plugin-error');
-        }
-      }),
-    );
-    row.append(name, version, actions);
-    list.append(row);
-  }
 }
 async function refresh() {
   const generation = ++refreshGeneration;
@@ -440,7 +376,21 @@ function openDialog(name: string) {
 }
 for (const name of ['plugins', 'automations', 'settings'])
   byId(name + '-open').onclick = () => openDialog(name);
-byId('attach').onclick = () => byId<HTMLInputElement>('upload').click();
+byId('attach').onclick = () => {
+  if (!isNative) {
+    byId<HTMLInputElement>('upload').click();
+    return;
+  }
+  void import('./platform/files')
+    .then(async ({ importNativeFile }) => {
+      const file = await importNativeFile();
+      if (file) {
+        await rpc('import', file);
+        await refresh();
+      }
+    })
+    .catch(showError);
+};
 for (const close of document.querySelectorAll<HTMLButtonElement>('[data-close]'))
   close.onclick = () => byId<HTMLDialogElement>(close.dataset.close!).close();
 byId('menu').onclick = openDrawer;
@@ -527,6 +477,13 @@ setInterval(() => {
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden) updateElapsed();
 });
+window.addEventListener('kinetik-changed', () => {
+  clearTimeout(refreshTimer);
+  refreshTimer = setTimeout(() => void refresh().catch(showError), 30);
+});
+window.addEventListener('kinetik-native-error', (event) =>
+  showError((event as CustomEvent).detail),
+);
 navigator.serviceWorker?.addEventListener('message', (event) => {
   if (event.data?.type === 'changed') {
     clearTimeout(refreshTimer);
@@ -537,13 +494,16 @@ navigator.serviceWorker?.addEventListener('message', (event) => {
 });
 async function start() {
   const registration = await connect();
-  const updatesReady = setupUpdates(registration);
+  const updatesReady = registration
+    ? setupUpdates(registration)
+    : import('./platform/updates').then(({ setupNativeUpdates }) => setupNativeUpdates());
   await refresh();
   await connectionSetup.initialize();
   await rpc('resume');
   await rpc('tick');
   await updatesReady;
   // The build is complete before the one-shot local launcher is allowed to exit.
+  if (!registration) return;
   if (registration.installing)
     await new Promise<void>((resolve) => {
       registration.installing!.addEventListener('statechange', () => {
@@ -570,6 +530,7 @@ async function start() {
   }
 }
 setupFiles();
+setupDataTransfer();
 setupAutomations(refresh);
 const connectionSetup = setupConnections((value) => {
   if (JSON.stringify(connectionState) === JSON.stringify(value)) return;
@@ -620,7 +581,9 @@ const connectionSetup = setupConnections((value) => {
       : 'Connect ChatGPT to chat';
     byId('model-settings-title').textContent = 'ChatGPT subscription';
     byId('model-settings-description').textContent = value.chatgpt.browser
-      ? 'Sign-in lasts for this browser session. If it ends, sign in again.'
+      ? isNative
+        ? 'Your sign-in is protected on this device.'
+        : 'Your sign-in is saved on this device.'
       : 'Your account connection is managed by this host’s credential helper. Your agent and tools run in this browser.';
   }
   if (!current()?.messages.length) lastMessages = '';

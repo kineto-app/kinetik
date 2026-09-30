@@ -4,6 +4,7 @@ import type { Configuration, ConnectionPreset } from './config';
 import { credentialKey, usable, type Credential } from './credentials';
 
 interface Connection {
+  redirectUri?: string;
   preset: ConnectionPreset;
   clientId?: string;
   revocationEndpoint?: string;
@@ -24,6 +25,7 @@ export interface ConnectionState {
   status: 'not-connected' | 'connected' | 'disabled' | 'reconnect';
 }
 export interface SetupState {
+  native?: boolean;
   installation: { required: boolean };
   charms: ConnectionState;
   chatgpt: { available: boolean; connected: boolean; apiBase?: string; browser?: boolean };
@@ -125,6 +127,7 @@ export class Connections {
       }
     }
     return {
+      native: this.config.native,
       installation: { required: this.config.installation?.required === true },
       charms: {
         available: Boolean(preset),
@@ -157,7 +160,7 @@ export class Connections {
     if (enabled && plugin?.settings.connection === id) await this.activate();
     else await this.plugins.enable(id, enabled);
   }
-  async begin(handoff = false): Promise<string> {
+  async begin(handoff = false, nativeRedirect?: string): Promise<string> {
     await this.prepare();
     const { plugin, connection } = await this.assertManaged();
     const preset = this.preset();
@@ -188,8 +191,22 @@ export class Connections {
       : undefined;
     const redirect = new URL(this.base);
     redirect.search = '?connection_callback=charms';
-    const redirectUri = redirect.href;
-    let clientId = connection.clientId;
+    if (nativeRedirect) {
+      const local = new URL(nativeRedirect);
+      if (
+        local.protocol !== 'http:' ||
+        local.hostname !== '127.0.0.1' ||
+        local.pathname !== '/charms/callback' ||
+        local.username ||
+        local.password ||
+        local.search ||
+        local.hash
+      )
+        throw new Error('Invalid local callback address.');
+    }
+    const redirectUri = nativeRedirect ?? redirect.href;
+    let clientId =
+      nativeRedirect && connection.redirectUri !== nativeRedirect ? undefined : connection.clientId;
     if (!clientId) {
       const registration = await json(endpoint(metadata.registration_endpoint), {
         method: 'POST',
@@ -209,7 +226,7 @@ export class Connections {
       )
         throw new Error('Charms did not return a client identifier.');
       clientId = registration.client_id;
-      await this.store.put(recordKey, { ...connection, clientId });
+      await this.store.put(recordKey, { ...connection, clientId, redirectUri });
     }
     const verifier = random();
     // The prefix selects return instructions only; the full random value is still verified.

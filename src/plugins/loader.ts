@@ -1,3 +1,4 @@
+import { isNative } from '../platform/environment';
 import { Store } from '../browser/store';
 import {
   errorText,
@@ -18,6 +19,7 @@ export function allowedURL(value: string): URL {
   if (url.username || url.password) throw new Error('URLs must not contain credentials.');
   if (
     url.protocol !== 'https:' &&
+    !(isNative && url.protocol === 'tauri:' && url.hostname === 'localhost') &&
     !(url.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname))
   )
     throw new Error('Use HTTPS, or HTTP on localhost.');

@@ -28,16 +28,34 @@
     "check": "npm run format:check && npm run typecheck && npm test && npm run build && npm run test:e2e",
     "prepack": "npm run typecheck && npm run build",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "tauri": "tauri",
+    "android:dev": "tauri android dev",
+    "android:build": "tauri android build",
+    "ios:dev": "tauri ios dev",
+    "ios:build": "tauri ios build",
+    "desktop:build": "tauri build",
+    "build:native": "node scripts/build.mjs --native",
+    "android:release": "node scripts/build-android.mjs",
+    "package:native-update": "node scripts/package-native-update.mjs"
   },
   "dependencies": {
+    "@kobalte/core": "^0.13.14",
+    "@tauri-apps/api": "^2.12.0",
+    "@tauri-apps/plugin-dialog": "^2.8.0",
+    "@tauri-apps/plugin-fs": "^2.6.0",
+    "@tauri-apps/plugin-http": "^2.8.0",
+    "@tauri-apps/plugin-opener": "^2.7.0",
     "ajv": "8.20.0",
     "just-bash": "3.4.2",
-    "markdown-it": "15.0.2"
+    "markdown-it": "15.0.2",
+    "solid-js": "^1.9.15",
+    "tauri-plugin-hot-update-api": "^0.1.0"
   },
   "devDependencies": {
     "@axe-core/playwright": "4.13.0",
     "@playwright/test": "1.63.0",
+    "@tauri-apps/cli": "^2.12.0",
     "@types/markdown-it": "14.2.0",
     "@types/node": "^24.0.0",
     "esbuild": "^0.28.2",
@@ -45,6 +63,7 @@
     "prettier": "3.9.9",
     "typescript": "7.0.2",
     "vite": "8.3.1",
+    "vite-plugin-solid": "^2.11.14",
     "vitest": "5.0.2"
   },
   "repository": {

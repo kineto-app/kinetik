@@ -1,3 +1,4 @@
+import { isNative } from '../platform/environment';
 import { rpc } from '../browser/client';
 import type { Message } from '../core/types';
 import { icon, type IconName } from './icons';
@@ -35,6 +36,14 @@ function control(name: IconName, label: string, action: () => void) {
   return button;
 }
 function download(file: SharedFile, bytes: Uint8Array) {
+  if (isNative) {
+    void import('../platform/files')
+      .then(({ saveNativeFile }) => saveNativeFile(file.name, bytes))
+      .catch((error) =>
+        window.dispatchEvent(new CustomEvent('kinetik-native-error', { detail: error })),
+      );
+    return;
+  }
   const url = URL.createObjectURL(new Blob([bytes as BlobPart]));
   const link = document.createElement('a');
   link.href = url;

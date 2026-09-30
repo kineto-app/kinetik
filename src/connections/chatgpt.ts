@@ -19,12 +19,15 @@ interface Registration {
   subject?: string;
 }
 interface Pending {
+  redirectUri?: string;
   state: string;
   nonce: string;
   verifier: string;
   expires: number;
 }
 interface Session {
+  idToken?: string;
+  scopes?: string[];
   access: string;
   refresh: string;
   expires: number;
@@ -80,10 +83,23 @@ export class BrowserChatGPT {
     const session = await this.storedSession();
     return { connected: !!session, model: session?.model ?? '', account: session?.account ?? '' };
   }
-  async login() {
+  async login(callbackUri = redirectUri) {
+    const callback = new URL(callbackUri);
+    if (
+      callback.protocol !== 'http:' ||
+      callback.hostname !== '127.0.0.1' ||
+      callback.pathname !== '/auth/callback' ||
+      callback.username ||
+      callback.password ||
+      callback.search ||
+      callback.hash
+    )
+      throw new Error('Invalid local callback address.');
     return navigator.locks.request('kinetik-chatgpt', async () => {
       const registration = await this.registration();
+      const retained = await this.storedSession();
       const pending: Pending = {
+        redirectUri: callbackUri,
         state: random(),
         nonce: random(),
         verifier: random(),
@@ -95,7 +111,7 @@ export class BrowserChatGPT {
         client_id: registration.clientId ?? 'dynamic_agent_client',
         ext_agent_host_id: registration.hostId,
         response_type: 'code',
-        redirect_uri: redirectUri,
+        redirect_uri: callbackUri,
         scope: 'openid profile email offline_access resource.invoke chatgpt.tokens.use.direct',
         resource,
         state: pending.state,
@@ -107,6 +123,7 @@ export class BrowserChatGPT {
           ),
         ),
         ...(!registration.clientId ? { agent_name_hint: 'Kinetik OSS' } : {}),
+        ...(registration.clientId && retained?.idToken ? { id_token_hint: retained.idToken } : {}),
       }).toString();
       return { url: url.href };
     });
@@ -124,7 +141,7 @@ export class BrowserChatGPT {
       if (
         !pending ||
         pending.expires < Date.now() ||
-        url.origin !== new URL(redirectUri).origin ||
+        url.origin !== new URL(pending.redirectUri ?? redirectUri).origin ||
         url.pathname !== '/auth/callback' ||
         url.username ||
         url.password ||
@@ -160,7 +177,7 @@ export class BrowserChatGPT {
             client_id: clientId,
             code,
             code_verifier: pending.verifier,
-            redirect_uri: redirectUri,
+            redirect_uri: pending.redirectUri ?? redirectUri,
             resource,
           }),
         },
@@ -214,6 +231,11 @@ export class BrowserChatGPT {
     const refresh = (tokens.refresh_token as string | undefined) ?? previous?.refresh;
     if (!refresh) throw new Error('ChatGPT did not grant renewable access.');
     return {
+      idToken: typeof tokens.id_token === 'string' ? tokens.id_token : previous?.idToken,
+      scopes:
+        typeof tokens.scope === 'string'
+          ? tokens.scope.split(/\s+/).filter(Boolean)
+          : previous?.scopes,
       access: tokens.access_token,
       refresh,
       expires: Date.now() + tokens.expires_in * 1000,
@@ -221,7 +243,7 @@ export class BrowserChatGPT {
       model: previous?.model ?? '',
     };
   }
-  private async identity(raw: unknown, clientId: string, nonce: string) {
+  private async identity(raw: unknown, clientId: string, nonce?: string) {
     if (typeof raw !== 'string' || raw.length > 65536 || raw.split('.').length !== 3)
       throw new Error('Invalid ChatGPT identity.');
     const [head, payload, signature] = raw.split('.');
@@ -261,7 +283,7 @@ export class BrowserChatGPT {
       typeof claims.exp !== 'number' ||
       claims.exp <= now ||
       (claims.nbf !== undefined && (typeof claims.nbf !== 'number' || claims.nbf > now + 30)) ||
-      claims.nonce !== nonce ||
+      (nonce !== undefined && claims.nonce !== nonce) ||
       typeof claims.sub !== 'string' ||
       !claims.sub
     )
@@ -294,7 +316,21 @@ export class BrowserChatGPT {
           }
           throw new ConnectionError('ChatGPT session could not be renewed.');
         }
-        session = this.session(await response.json(), session.account, session);
+        const tokens = await response.json();
+        if (
+          tokens.scope !== undefined &&
+          (typeof tokens.scope !== 'string' ||
+            !tokens.scope.split(/\s+/).includes('chatgpt.tokens.use.direct'))
+        ) {
+          await this.store.put('session', null);
+          throw new SignInRequired('Reconnect ChatGPT to grant plan access.');
+        }
+        if (tokens.id_token !== undefined) {
+          const identity = await this.identity(tokens.id_token, registration.clientId!);
+          if (identity.sub !== session.account)
+            throw new Error('ChatGPT account changed during renewal.');
+        }
+        session = this.session(tokens, session.account, session);
         await this.store.put('session', session);
       }
       return session;
