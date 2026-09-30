@@ -192,3 +192,64 @@ test('returning online resumes a persisted reply without rerunning its tool', as
     await page.locator('.composer').evaluate((el) => getComputedStyle(el).backdropFilter),
   ).not.toBe('none');
 });
+
+test('a transient connection failure reconnects automatically while the app stays visible', async ({
+  page,
+  request,
+}) => {
+  const base = 'http://127.0.0.1:4174/onboarding/';
+  await request.get(base + 'reset');
+  await request.post(base + 'connections/chatgpt/callback', { data: {} });
+  await request.get(base + 'fail-model');
+  await page.goto(base);
+  await expect(page.locator('#status')).toHaveText('Ready');
+  await send(page, 'Hello');
+  await expect(page.locator('#connection-wait')).toBeVisible();
+  await expect(page.locator('[data-role=assistant]')).toContainText(
+    'Your Charms workspace is ready.',
+    { timeout: 8000 },
+  );
+  await expect(page.locator('#connection-wait')).toBeHidden();
+  expect((await (await request.get(base + 'stats')).json()).modelRequests).toBe(2);
+});
+
+test('narration persists and separates consecutive tools into distinct activity groups', async ({
+  page,
+  request,
+}) => {
+  const base = 'http://127.0.0.1:4174/onboarding/';
+  await request.get(base + 'reset');
+  await request.post(base + 'connections/chatgpt/callback', { data: {} });
+  await request.get(base + 'narrated-model');
+  await page.goto(base);
+  await expect(page.locator('#status')).toHaveText('Ready');
+  await send(page, 'Create slides');
+  await expect(page.locator('[data-role=assistant]').last()).toContainText('The slides are ready.');
+  await expect(page.locator('[data-role=assistant]')).toHaveCount(3);
+  await expect(page.locator('.tool-group')).toHaveCount(2);
+  await expect(page.locator('.tool-group').nth(0).locator('.tool-details')).toHaveCount(2);
+  await expect(page.locator('.tool-group').nth(1).locator('.tool-details')).toHaveCount(1);
+  expect(
+    await page
+      .locator('#timeline > .tool-group, #timeline > [data-role=assistant]')
+      .evaluateAll((nodes) =>
+        nodes.map((n) =>
+          n.classList.contains('tool-group')
+            ? 'tools'
+            : n.querySelector('.message-content')?.textContent?.trim(),
+        ),
+      ),
+  ).toEqual([
+    'I will create the slides.',
+    'tools',
+    'The draft is ready. I will check it.',
+    'tools',
+    'The slides are ready.',
+  ]);
+  await page.reload();
+  await expect(page.locator('[data-role=assistant]')).toHaveCount(3);
+  await expect(page.locator('.tool-group')).toHaveCount(2);
+  await page.evaluate(() => (document.documentElement.dataset.theme = 'dark'));
+  await page.locator('.tool-group > summary').first().click();
+  await page.screenshot({ path: test.info().outputPath('narration-persisted.png') });
+});

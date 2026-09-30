@@ -35,6 +35,11 @@ test('model request uses subscription route requirements and maps namespaced too
         response: {
           output: [
             {
+              type: 'message',
+              role: 'assistant',
+              content: [{ type: 'output_text', text: 'I will read the note.' }],
+            },
+            {
               type: 'function_call',
               name: body.request.tools[0].tools[0].name,
               call_id: 'call-1',
@@ -63,6 +68,7 @@ test('model request uses subscription route requirements and maps namespaced too
       type: 'tool',
       name: 'read',
       callId: 'call-1',
+      narration: 'I will read the note.',
       input: { path: '/workspace/note' },
     });
   } finally {

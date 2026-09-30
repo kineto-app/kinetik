@@ -337,3 +337,138 @@ test('returning to the app leaves a live embedded-app call alone', async () => {
   await call;
   expect((await read(store, c.id)).messages.map((m) => m.text)).toEqual(['Saved']);
 });
+
+test('completed narration stays between tool groups, including after reconnecting', async () => {
+  const { ConnectionError } = await import('../src/core/connection-error');
+  const store = new Store(crypto.randomUUID());
+  let calls = 0;
+  const runtime = new Runtime(store, undefined, {
+    async next() {
+      calls++;
+      if (calls === 2) throw new ConnectionError('Disconnected');
+      if (calls === 1 || calls === 3)
+        return {
+          type: 'tool',
+          name: 'exec',
+          input: { command: 'echo step >> /workspace/actions' },
+          narration:
+            calls === 1 ? 'I will create the slides.' : 'The draft is ready. I will check it.',
+        };
+      return { type: 'text', text: 'Done.' };
+    },
+  });
+  const c = await runtime.create();
+  await runtime.submit(c.id, 'Create slides');
+  await runtime.run(c.id);
+  expect((await read(store, c.id)).status).toBe('waiting');
+  expect((await read(store, c.id)).messages.map((m) => m.role)).toEqual([
+    'user',
+    'assistant',
+    'tool',
+  ]);
+  await runtime.recover();
+  await runtime.run(c.id);
+  const messages = (await read(store, c.id)).messages;
+  expect(messages.map((m) => m.role)).toEqual([
+    'user',
+    'assistant',
+    'tool',
+    'assistant',
+    'tool',
+    'assistant',
+  ]);
+  expect(messages.filter((m) => m.role === 'assistant').map((m) => m.text)).toEqual([
+    'I will create the slides.',
+    'The draft is ready. I will check it.',
+    'Done.',
+  ]);
+  expect(new TextDecoder().decode(await runtime.exportFile('/workspace/actions'))).toBe(
+    'step\nstep\n',
+  );
+});
+
+test('a transport failure after a remote checkpoint recovers the same operation without user intervention', async () => {
+  const store = new Store(crypto.randomUUID());
+  let step = 0;
+  const runtime = new Runtime(store, undefined, {
+    async next(request) {
+      if (++step === 1) return { type: 'tool', name: 'exec', input: {} };
+      return { type: 'text', text: request.result! };
+    },
+  });
+  const execute = vi.fn(async (_input, context) => {
+    await context.checkpoint('existing-job');
+    throw new TypeError('Failed to fetch');
+  });
+  const recover = vi
+    .fn()
+    .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+    .mockResolvedValueOnce({ done: false })
+    .mockResolvedValueOnce({ done: true, result: 'Saved remote result' });
+  vi.spyOn(runtime.plugins, 'snapshot').mockResolvedValue({
+    bindings: {
+      exec: {
+        provider: 'remote',
+        tool: { description: 'Remote', inputSchema: {}, execute, recover },
+      },
+    },
+    sources: [],
+  });
+  const c = await runtime.create();
+  await runtime.submit(c.id, 'Do remote work');
+  await runtime.run(c.id);
+  expect((await read(store, c.id)).status).toBe('waiting');
+  await runtime.recover();
+  expect((await read(store, c.id)).status).toBe('waiting');
+  await runtime.recover();
+  expect((await read(store, c.id)).status).toBe('waiting');
+  await runtime.recover();
+  expect((await read(store, c.id)).status).toBe('queued');
+  await runtime.run(c.id);
+  expect((await read(store, c.id)).messages.at(-1)?.text).toBe('Saved remote result');
+  expect(execute).toHaveBeenCalledTimes(1);
+  expect(recover.mock.calls.every(([id]) => id === 'existing-job')).toBe(true);
+});
+
+test('Stop during a remote recovery check does not restart the conversation', async () => {
+  const store = new Store(crypto.randomUUID());
+  const runtime = new Runtime(store);
+  const c = await runtime.create();
+  await store.update<Conversation>('conversation:' + c.id, (value) => ({
+    ...value!,
+    status: 'waiting',
+    waitingFor: 'connection',
+    call: {
+      id: 'call',
+      name: 'exec',
+      provider: 'remote',
+      input: {},
+      state: 'pending',
+      operationId: 'job',
+    },
+  }));
+  let finish!: (value: { done: boolean; result: string }) => void;
+  vi.spyOn(runtime.plugins, 'snapshot').mockResolvedValue({
+    bindings: {
+      exec: {
+        provider: 'remote',
+        tool: {
+          description: 'Remote',
+          inputSchema: {},
+          execute: async () => {},
+          recover: () =>
+            new Promise((resolve) => {
+              finish = resolve;
+            }),
+        },
+      },
+    },
+    sources: [],
+  });
+  const recovering = runtime.recover();
+  await waitFor(async () => Boolean(finish));
+  await runtime.stop(c.id);
+  finish({ done: true, result: 'Finished after Stop' });
+  await recovering;
+  expect((await read(store, c.id)).status).toBe('stopped');
+});

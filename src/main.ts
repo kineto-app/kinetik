@@ -117,8 +117,13 @@ function render() {
     : 'Enter to send · Shift + Enter for a new line';
   byId('connection-wait').hidden = c?.status !== 'waiting';
   byId('connection-wait-label').textContent =
-    c?.waitingFor === 'signin' ? 'Sign in to continue' : 'Connection interrupted';
-  byId('resume-work').textContent = c?.waitingFor === 'signin' ? 'Sign in' : 'Retry';
+    c?.waitingFor === 'signin'
+      ? 'Sign in to continue'
+      : navigator.onLine
+        ? 'Reconnecting…'
+        : 'Waiting for connection…';
+  scheduleReconnect();
+  byId('resume-work').textContent = c?.waitingFor === 'signin' ? 'Sign in' : 'Retry now';
   updateComposer();
   byId('status').dataset.state = c?.status ?? 'idle';
   byId('activity').hidden = !foreground;
@@ -630,6 +635,21 @@ window.addEventListener('online', () => {
 });
 void start().catch(showError);
 
+let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
+function scheduleReconnect() {
+  clearTimeout(reconnectTimer);
+  if (document.visibilityState !== 'visible' || !navigator.onLine) return;
+  const waiting = state.conversations.filter(
+    (c) => c.status === 'waiting' && c.waitingFor === 'connection',
+  );
+  if (!waiting.length) return;
+  const next = Math.min(...waiting.map((c) => c.retryAt ?? Date.now() + 2000));
+  reconnectTimer = setTimeout(() => void resumeWork(), Math.max(250, next - Date.now()));
+}
+window.addEventListener('offline', () => {
+  clearTimeout(reconnectTimer);
+  render();
+});
 let resuming: Promise<void> | undefined;
 function resumeWork() {
   return (resuming ??= rpc('resume')
@@ -648,6 +668,7 @@ window.addEventListener('online', () => {
 });
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') void resumeWork();
+  else clearTimeout(reconnectTimer);
 });
 setInterval(() => {
   if (
