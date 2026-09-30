@@ -1,12 +1,11 @@
 import { addPluginListener, invoke } from '@tauri-apps/api/core';
-import { fetch as nativeFetch } from '@tauri-apps/plugin-http';
+import { platformFetch } from './native-fetch';
 import { RuntimeHost } from '../core/host';
 import { BrowserChatGPT } from '../connections/chatgpt';
 import { parseConfiguration, type Configuration } from '../connections/config';
 import { NativeStore } from './secure-store';
 
 declare const __NATIVE_CONFIG__: unknown;
-const browserFetch = globalThis.fetch.bind(globalThis);
 let host: RuntimeHost;
 let ready: Promise<void> | undefined;
 let lastActive = false;
@@ -21,19 +20,7 @@ export function connectNative() {
 }
 async function boot() {
   // Only the trusted application uses native transport. Sandboxed MCP frames do not inherit it.
-  globalThis.fetch = async (input, init) => {
-    const value = input instanceof Request ? input.url : String(input);
-    const url = new URL(value, document.baseURI);
-    if (url.origin === location.origin || !['http:', 'https:'].includes(url.protocol))
-      return browserFetch(input, init);
-    const response = await nativeFetch(input, {
-      ...init,
-      maxRedirections: init?.redirect === 'error' ? 0 : 5,
-    });
-    if (init?.redirect === 'error' && response.status >= 300 && response.status < 400)
-      throw new Error('Unexpected redirect.');
-    return response;
-  };
+  globalThis.fetch = platformFetch;
   const base = new URL('./', document.baseURI);
   const config: Configuration = {
     ...parseConfiguration(__NATIVE_CONFIG__ ?? { connections: {} }, base),

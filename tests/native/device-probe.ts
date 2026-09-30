@@ -4,6 +4,7 @@ import { Store } from '../../src/browser/store';
 import { NativeStore } from '../../src/platform/secure-store';
 import { invoke, addPluginListener } from '@tauri-apps/api/core';
 import { fetch as nativeFetch } from '@tauri-apps/plugin-http';
+import { platformFetch } from '../../src/platform/native-fetch';
 export { importNativeFile, saveNativeFile } from '../../src/platform/files';
 
 let heartbeat: ReturnType<typeof setInterval>;
@@ -54,5 +55,16 @@ export async function credentials(write = false) {
 export async function transport(url: string) {
   const response = await nativeFetch(url, { redirect: 'error', maxRedirections: 0 });
   return { status: response.status, body: await response.json() };
+}
+// Point at a test receiver that rejects Origin and verifies these exact binary bytes.
+export async function upload(url: string) {
+  const response = await platformFetch(url, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/octet-stream' },
+    body: new Uint8Array([0, 255, 42]),
+    credentials: 'omit',
+    redirect: 'error',
+  });
+  return { status: response.status, body: await response.text() };
 }
 export const rpc = call;

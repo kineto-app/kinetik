@@ -4,6 +4,8 @@ Kinetik shares its SolidJS interface and TypeScript runtime between the PWA and 
 
 Android uses a main-frame-only WebMessageListener for native IPC. The invoke key is installed only in the top frame; sandboxed widgets cannot invoke native commands. Android System WebView must support document-start scripts and WebMessageListener. Older WebViews show an update requirement instead of loading an unsafe fallback.
 
+Native HTTP omits the synthetic WebView `Origin` by default. The HTTP plugin enables `unsafe-headers` so an empty `Origin` suppresses its automatic header; explicit caller origins remain supported. Local assets still use WebView fetch, and sandboxed widgets do not receive native transport. This prevents capability-authenticated uploads from being rejected by servers that do not allow the app's local origin.
+
 ## Build
 
 Install Node.js 22.12+, Rust stable, and the [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/) for the target platform. Android requires Java 21, Android SDK platform `platforms;android-37.0`, build tools 37.0.0, and NDK 28.2.13676358. Set `ANDROID_HOME` and `NDK_HOME`. Generated Android sources are committed so signing and manifest settings remain consistent.
