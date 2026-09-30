@@ -487,3 +487,57 @@ test('tool receipts retain arguments and unsuccessful command outcomes across re
     (await read(store, c.id)).messages.find((item) => item.id === saved?.id)?.activity,
   ).toEqual(saved?.activity);
 });
+
+test('only show_file shares a durable snapshot; later writes and deletes leave it unchanged', async () => {
+  const database = crypto.randomUUID();
+  const store = new Store(database);
+  const runtime = new Runtime(store);
+  const c = await runtime.create();
+  const run = async (text: string) => {
+    await runtime.submit(c.id, text);
+    await runtime.run(c.id);
+  };
+  await run('/write /workspace/final.txt\nFirst version');
+  expect((await read(store, c.id)).messages.some((m) => m.file)).toBe(false);
+  await run('/show_file /workspace/final.txt');
+  const file = (await read(store, c.id)).messages.find((m) => m.file)?.file;
+  expect(file).toMatchObject({ name: 'final.txt', path: '/workspace/final.txt' });
+  expect(file?.snapshotId).toBeTruthy();
+  await run('/write /workspace/final.txt\nSecond version');
+  await run('/exec rm final.txt');
+  const restored = new Runtime(new Store(database));
+  expect(new TextDecoder().decode(await restored.exportSharedFile(file!.snapshotId!))).toBe(
+    'First version',
+  );
+  expect((await read(store, c.id)).messages.filter((m) => m.file)).toHaveLength(1);
+  await expect(restored.exportSharedFile('missing')).rejects.toThrow('Shared file not found');
+});
+
+test('plugin can disable show_file without replacing it; disabling plugin restores local sharing', async () => {
+  const store = new Store(crypto.randomUUID());
+  const runtime = new Runtime(store);
+  await store.put('plugins', [plugin('remote', 1, 'return {replacements:{show_file:null}}')]);
+  const c = await runtime.create();
+  await runtime.submit(c.id, '/write /workspace/final.txt\nFinal');
+  await runtime.run(c.id);
+  const snapshot = await runtime.plugins.snapshot({});
+  expect(snapshot.bindings).not.toHaveProperty('show_file');
+  await runtime.submit(c.id, '/show_file /workspace/final.txt');
+  await runtime.run(c.id);
+  expect((await read(store, c.id)).messages.some((m) => m.file)).toBe(false);
+  await runtime.plugins.enable('remote', false);
+  await runtime.submit(c.id, '/show_file /workspace/final.txt');
+  await runtime.run(c.id);
+  expect((await read(store, c.id)).messages.filter((m) => m.file)).toHaveLength(1);
+});
+
+test('plugins cannot disable native read_skill or point replacements at missing tools', async () => {
+  const runtime = new Runtime(new Store(crypto.randomUUID()));
+  for (const replacements of [{ read_skill: null }, { show_file: 'missing' }]) {
+    await expect(
+      runtime.plugins.instantiate(
+        plugin('invalid', 1, `return {replacements:${JSON.stringify(replacements)}}`),
+      ),
+    ).rejects.toThrow('Invalid replacement');
+  }
+});

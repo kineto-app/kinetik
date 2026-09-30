@@ -25,6 +25,8 @@ export function taskLabel(name: string, complete = false, count = 1): string {
   switch (taskKind(name)) {
     case 'exec':
       return complete ? (many ? `Ran ${count} commands` : 'Ran a command') : 'Running a command';
+    case 'show_file':
+      return complete ? (many ? `Shared ${count} files` : 'Shared a file') : 'Sharing a file';
     case 'write':
       return complete ? (many ? `Saved ${count} files` : 'Saved a file') : 'Saving a file';
     case 'edit':
@@ -66,6 +68,7 @@ export function taskAction(name: string): string {
         exec: 'Run command',
         read: 'Read file',
         write: 'Save file',
+        show_file: 'Share file',
         edit: 'Update file',
         list: 'List files',
         read_skill: 'Read instructions',

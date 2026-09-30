@@ -160,3 +160,21 @@ test('a live command keeps the activity card open when its result arrives', asyn
   await expect(action.locator(':scope > summary')).toBeFocused();
   await expect(page.locator('[data-role=assistant]')).toContainText('finished');
 });
+
+test('an explicitly shared background result is visible without its internal receipt', async ({
+  page,
+}) => {
+  await seed(page, [
+    msg('u', 'user', 'Prepare a file'),
+    {
+      ...action('share', 'show_file · local', { path: '/workspace/result.txt' }),
+      visibility: 'internal',
+      text: 'internal sharing receipt',
+      file: { path: '/workspace/result.txt', name: 'result.txt' },
+    },
+    msg('a', 'assistant', 'Your file is ready.'),
+  ]);
+  await expect(page.locator('.file-card')).toHaveText('result.txtOpenDownload');
+  await expect(page.locator('.tool-group')).toHaveCount(0);
+  await expect(page.locator('#timeline')).not.toContainText('internal sharing receipt');
+});

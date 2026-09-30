@@ -67,10 +67,6 @@ test('light and dark workspace, dialogs and messages are accessible', async ({ p
     await accessible(page);
     await page.screenshot({ path: info.outputPath(`plugins-${theme}.png`) });
     await page.getByRole('button', { name: 'Close connections', exact: true }).click();
-    await page.getByRole('button', { name: 'Add or open files' }).click();
-    await accessible(page);
-    await page.screenshot({ path: info.outputPath(`files-${theme}.png`) });
-    await page.getByRole('button', { name: 'Close files' }).click();
     await drawer(page);
     await page.locator('#automations-open').click();
     await accessible(page);
@@ -121,7 +117,7 @@ test('mobile drawer traps focus and narrow or landscape layouts keep controls re
   await expect(page.locator('[data-role="assistant"] .message-content')).toHaveText('reachable\n');
 });
 
-test('plugin and file dialogs complete their visible workflows', async ({ page }) => {
+test('connections and composer uploads complete their visible workflows', async ({ page }) => {
   await page.goto('/');
   await expect(page.locator('#status')).toHaveText('Ready');
   await drawer(page);
@@ -138,23 +134,32 @@ test('plugin and file dialogs complete their visible workflows', async ({ page }
   await expect(page.locator('[data-role="assistant"] .message-content')).toHaveText(
     'Example plugin received: from the UI',
   );
-  await page.getByRole('button', { name: 'Add or open files' }).click();
-  await page.locator('#upload').setInputFiles({
+  const choosing = page.waitForEvent('filechooser');
+  await page.getByRole('button', { name: 'Add a file', exact: true }).click();
+  await (
+    await choosing
+  ).setFiles({
     name: 'example.txt',
     mimeType: 'text/plain',
     buffer: Buffer.from('local file'),
   });
-  await expect(page.locator('#file-result')).toHaveText('Added example.txt');
-  await page.getByRole('button', { name: 'example.txt', exact: true }).click();
+  await expect(page.locator('#error')).toHaveText('Added example.txt');
+  await expect(page.locator('#files-open')).toHaveCount(0);
+  await expect(page.locator('.file-card')).toHaveCount(0);
+  await page
+    .getByRole('textbox', { name: 'Message', exact: true })
+    .fill('/show_file /workspace/example.txt');
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await page.locator('.file-card').getByRole('button', { name: 'Open', exact: true }).click();
   await expect(page.locator('#file-preview-text')).toHaveText('local file');
   const downloading = page.waitForEvent('download');
-  await page.getByRole('button', { name: 'Download example.txt', exact: true }).click();
+  await page.locator('#file-preview-download').click();
   const download = await downloading;
   expect(download.suggestedFilename()).toBe('example.txt');
   expect(await download.failure()).toBeNull();
 });
 
-test('everyday examples create browsable files without commands or paths', async ({
+test('everyday examples explicitly share files that reopen offline', async ({
   page,
   context,
 }, info) => {
@@ -168,7 +173,8 @@ test('everyday examples create browsable files without commands or paths', async
   );
   await page.getByRole('button', { name: 'Send', exact: true }).click();
   await expect(page.locator('[data-role=assistant]')).toContainText('weekend packing list');
-  await expect(page.locator('.tool-details')).not.toHaveAttribute('open');
+  await expect(page.locator('.tool-details')).toHaveCount(2);
+  await expect(page.locator('.tool-details[open]')).toHaveCount(0);
   await expect(page.locator('.file-card')).toContainText('Weekend packing list.txt');
   await page.screenshot({ path: info.outputPath('everyday-chat.png') });
   await page.locator('.file-card').getByRole('button', { name: 'Open', exact: true }).click();
@@ -181,14 +187,13 @@ test('everyday examples create browsable files without commands or paths', async
     await page.screenshot({ path: info.outputPath(`everyday-files-${theme}.png`) });
   }
   const downloadReady = page.waitForEvent('download');
-  await page.getByRole('button', { name: 'Download Weekend packing list.txt' }).click();
+  await page.locator('#file-preview-download').click();
   const download = await downloadReady;
   expect(download.suggestedFilename()).toBe('Weekend packing list.txt');
   expect(await download.failure()).toBeNull();
   await context.setOffline(true);
   await page.reload();
   await expect(page.locator('#status')).toHaveText('Ready');
-  await page.getByRole('button', { name: 'Add or open files' }).click();
-  await page.getByRole('button', { name: 'Weekend packing list.txt', exact: true }).click();
+  await page.locator('.file-card').getByRole('button', { name: 'Open', exact: true }).click();
   await expect(page.locator('#file-preview-text')).toContainText('Toiletries');
 });

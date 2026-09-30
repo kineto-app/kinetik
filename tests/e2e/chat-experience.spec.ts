@@ -131,7 +131,7 @@ test('tool activity is collapsed while result files remain visible', async ({ pa
   await page.goto('/');
   await expect(page.locator('#status')).toHaveText('Ready');
   await send(page, '/write /workspace/note.txt\nA useful note');
-  await expect(page.locator('.file-card')).toBeVisible();
+  await expect(page.locator('.file-card')).toHaveCount(0);
   const group = page.locator('.tool-group');
   await expect(group).toHaveCount(1);
   await expect(group).not.toHaveAttribute('open');
@@ -143,6 +143,12 @@ test('tool activity is collapsed while result files remain visible', async ({ pa
   await expect(group.locator('.tool-details pre')).toHaveCount(0);
   await group.getByText('Technical details', { exact: true }).click();
   await expect(group.locator('.tool-details pre')).toBeVisible();
+  await send(page, '/show_file /workspace/note.txt');
+  await expect(page.locator('.file-card')).toBeVisible();
+  await send(page, '/write /workspace/note.txt\nNew working version');
+  await page.reload();
+  await page.locator('.file-card').getByRole('button', { name: 'Open', exact: true }).click();
+  await expect(page.locator('#file-preview-text')).toHaveText('A useful note');
 });
 
 test('returning online resumes a persisted reply without rerunning its tool', async ({ page }) => {

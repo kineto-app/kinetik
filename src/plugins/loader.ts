@@ -218,8 +218,8 @@ export class Plugins {
     }
     for (const [target, name] of Object.entries(plugin.replacements ?? {})) {
       if (
-        !['exec', 'read', 'write', 'edit', 'list'].includes(target) ||
-        !Object.hasOwn(plugin.tools ?? {}, name!)
+        !['exec', 'read', 'write', 'edit', 'list', 'show_file'].includes(target) ||
+        (name !== null && (typeof name !== 'string' || !Object.hasOwn(plugin.tools ?? {}, name)))
       )
         throw new Error('Invalid replacement: ' + target);
     }
@@ -243,8 +243,10 @@ export class Plugins {
       const provider = installed.manifest.id;
       for (const [name, tool] of Object.entries(plugin.tools ?? {}))
         bindings[`${provider}__${name}`] = { provider, tool };
-      for (const [target, name] of Object.entries(plugin.replacements ?? {}))
-        bindings[target] = { provider, tool: plugin.tools![name!] };
+      for (const [target, name] of Object.entries(plugin.replacements ?? {})) {
+        if (name === null) delete bindings[target];
+        else bindings[target] = { provider, tool: plugin.tools![name!] };
+      }
       sources.push({ installed, plugin });
     }
     return { bindings, sources };

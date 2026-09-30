@@ -128,6 +128,7 @@ export function activityTitle(item: Activity): string {
             : 'Update';
     return `${verb} ${filename}`;
   }
+  if (kind === 'show_file' && filename) return `${complete ? 'Shared' : 'Share'} ${filename}`;
   if (kind === 'read_skill' && filename) return `Read ${path.at(-2) ?? filename} instructions`;
   if (kind === 'exec' && typeof input.command === 'string') {
     const command = input.command.trim().match(/^[a-zA-Z][\w.-]{0,31}(?=\s|$)/)?.[0];
@@ -153,6 +154,8 @@ export function activityExplanation(item: Activity): string {
   switch (taskKind(item.message.tool ?? '')) {
     case 'read':
       return `Read ${file}.`;
+    case 'show_file':
+      return `Shared ${file}.`;
     case 'write':
       return `Saved ${file}.`;
     case 'edit':
