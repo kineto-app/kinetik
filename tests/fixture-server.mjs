@@ -1,6 +1,7 @@
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { renderConnectPage } from '../bin/connect-page.mjs';
+import { onboardingFixture } from './onboarding-fixture.mjs';
 let revision = 1,
   fail = false;
 const manifest = {
@@ -19,6 +20,7 @@ const server = createServer(async (req, res) => {
   );
   res.setHeader('Cache-Control', 'no-store');
   if (req.method === 'OPTIONS') return res.end();
+  if (await onboardingFixture(req, res)) return;
   if (req.url === '/connect') {
     res.setHeader('Content-Type', 'text/html');
     res.setHeader(

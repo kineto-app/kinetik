@@ -1,5 +1,7 @@
 // Kinetik Charms icons. See THIRD_PARTY_NOTICES.md.
 const paths = {
+  external: ['M14 3h7v7', 'M21 3 10 14', 'M10 3H3v18h18v-7'],
+  stop: ['M6 6h12v12H6z'],
   file: ['M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z', 'M14 2v4a2 2 0 0 0 2 2h4'],
   folder: ['M3 6a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z'],
   spark: ['M12 3.5 13.9 9l5.6 2-5.6 2-1.9 5.5L10.1 13 4.5 11l5.6-2z'],

@@ -12,6 +12,8 @@ import { setupFiles, refreshFiles, previewFile, downloadFile } from './ui/files'
 import { setupUpdates } from './browser/updates';
 import { connect, rpc } from './browser/client';
 import type { Conversation, InstalledPlugin } from './core/types';
+import { setupConnections } from './ui/onboarding';
+import type { SetupState } from './connections/manager';
 
 type State = {
   background: { id: string; conversationId: string; tool: string }[];
@@ -23,6 +25,7 @@ const root = document.querySelector<HTMLDivElement>('#app')!;
 root.innerHTML = shell;
 const byId = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 let state: State = { conversations: [], plugins: [], automations: [], background: [] };
+let connectionState: SetupState | undefined;
 let selected = sessionStorage.getItem('kinetik-conversation') ?? '';
 let refreshGeneration = 0;
 let lastMessages = '';
@@ -136,6 +139,14 @@ function render() {
       const empty = document.createElement('div');
       empty.className = 'empty';
       empty.innerHTML = `<div class="welcome-mark" aria-hidden="true">${icon('spark')}</div><p class="welcome-eyebrow eyebrow">A LITTLE HELP. A LOT MORE POSSIBLE.</p><h2>What can we get done today?</h2><p>Try a sample task. Make a file you can keep.<br class="desktop-break" /> Your chats and files stay in this browser.</p><div class="starter"><h3 class="section-label">A place to start</h3><div class="suggestions"></div></div><p class="preview-note">This preview uses sample replies. Open-ended AI chat and ChatGPT sign-in are not connected yet.</p>`;
+      if (connectionState?.chatgpt.available) {
+        empty.querySelector('.welcome-eyebrow')!.textContent = 'YOUR EVERYDAY WORKSPACE';
+        empty.querySelector('h2 + p')!.textContent =
+          'Bring an idea, a question, or something you’d like a hand with.';
+        empty.querySelector('.preview-note')!.textContent = connectionState.chatgpt.connected
+          ? 'Connected to your ChatGPT subscription.'
+          : 'Connect ChatGPT to start a conversation.';
+      }
       const examples: [string, string, IconName, string][] = [
         ...demoTasks.map((task): [string, string, IconName, string] => [
           task.title,
@@ -384,6 +395,10 @@ byId('composer').onsubmit = (event) => {
     const input = byId<HTMLTextAreaElement>('prompt');
     const text = input.value;
     if (!text.trim() || submitting) return;
+    if (connectionState?.chatgpt.available && !connectionState.chatgpt.connected) {
+      connectionSetup.open();
+      return;
+    }
     submitting = true;
     updateComposer();
     try {
@@ -488,6 +503,7 @@ async function start() {
   const registration = await connect();
   const updatesReady = setupUpdates(registration);
   await refresh();
+  await connectionSetup.initialize();
   await rpc('tick');
   await updatesReady;
   // The build is complete before the one-shot local launcher is allowed to exit.
@@ -518,6 +534,64 @@ async function start() {
 }
 setupFiles();
 setupAutomations(refresh);
+const connectionSetup = setupConnections((value) => {
+  if (JSON.stringify(connectionState) === JSON.stringify(value)) return;
+  connectionState = value;
+  const configured = value.charms.available || value.chatgpt.available;
+  byId('connection-status').hidden = !configured;
+  byId('managed-section').hidden = !configured;
+  byId('connection-status').innerHTML =
+    icon('plug') + (value.charms.status === 'connected' ? 'Charms connected' : 'Connections');
+  byId('charms-state').textContent =
+    value.charms.status === 'connected'
+      ? 'Connected · cloud workspace'
+      : value.charms.status === 'disabled'
+        ? 'Disabled'
+        : value.charms.status === 'reconnect'
+          ? 'Reconnect to continue'
+          : 'Not connected';
+  byId('chatgpt-state').textContent = value.chatgpt.connected
+    ? 'Connected'
+    : value.chatgpt.available
+      ? 'Not connected'
+      : 'Unavailable on this host';
+  byId('connection-disconnect').hidden = !['connected', 'disabled', 'reconnect'].includes(
+    value.charms.status,
+  );
+  byId('chatgpt-disconnect').hidden = !value.chatgpt.connected;
+  if (value.chatgpt.available) {
+    byId('model-label').textContent = 'ChatGPT';
+    byId('model-status').textContent = value.chatgpt.connected
+      ? 'ChatGPT subscription'
+      : 'Connect ChatGPT to chat';
+    byId('model-settings-title').textContent = 'ChatGPT subscription';
+    byId('model-settings-description').textContent =
+      'Your account connection is managed by this host’s credential helper. Your agent and tools run in this browser.';
+  }
+  if (!current()?.messages.length) lastMessages = '';
+  render();
+});
+for (const id of ['connection-status', 'connection-open', 'chatgpt-open'])
+  byId(id).onclick = () => {
+    for (const dialog of document.querySelectorAll<HTMLDialogElement>('dialog[open]'))
+      dialog.close();
+    connectionSetup.open();
+  };
+byId('connection-disconnect').onclick = () => {
+  void connectionSetup
+    .disconnectCharms()
+    .then(refresh)
+    .catch((e) => showError(e, 'error'));
+};
+byId('chatgpt-disconnect').onclick = () => {
+  void connectionSetup.disconnectChatGPT().catch((e) => showError(e, 'error'));
+};
+window.addEventListener('focus', () => {
+  void connectionSetup.refresh().catch(() => {});
+});
+setInterval(() => {
+  void connectionSetup.refresh().catch(() => {});
+}, 30000);
 updateComposer();
 setInterval(() => {
   void rpc('tick')

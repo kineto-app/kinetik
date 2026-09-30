@@ -59,6 +59,8 @@ export interface AppView extends AppResource {
   result: unknown;
 }
 export interface ToolDefinition {
+  /** Foreground request budget, clamped to 1–60 seconds. Defaults to 30 seconds. */
+  timeoutMs?: number;
   visibility?: ('model' | 'app')[];
   app?: {
     resource(signal: AbortSignal): Promise<AppResource>;

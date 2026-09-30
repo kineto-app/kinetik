@@ -1,4 +1,4 @@
-import { expect, test } from 'vitest';
+import { expect, test, vi } from 'vitest';
 import { Store } from '../src/browser/store';
 import { Runtime } from '../src/core/runtime';
 import type { Conversation, InstalledPlugin } from '../src/core/types';
@@ -265,4 +265,26 @@ test('file browser lists nested files and does not follow directory symlinks', a
   const files = await runtime.files();
   expect(files).toContainEqual({ path: '/workspace/folder/note.txt', name: 'note.txt', size: 5 });
   expect(files.some((file) => file.path.includes('/loop/'))).toBe(false);
+});
+
+test('foreground tools can request a longer bounded response budget', async () => {
+  const store = new Store(crypto.randomUUID());
+  const runtime = new Runtime(store);
+  const timeout = vi.spyOn(AbortSignal, 'timeout');
+  try {
+    await store.put('plugins', [
+      plugin(
+        'slow',
+        1,
+        "return {tools:{remote:{timeoutMs:120000,description:'remote',inputSchema:{type:'object'},async execute(){return 'done'}}},replacements:{exec:'remote'}}",
+      ),
+    ]);
+    const c = await runtime.create();
+    await runtime.submit(c.id, '/exec slow command');
+    await runtime.run(c.id);
+    expect(timeout).toHaveBeenCalledWith(60000);
+    expect((await read(store, c.id)).messages.at(-1)?.text).toBe('done');
+  } finally {
+    timeout.mockRestore();
+  }
 });

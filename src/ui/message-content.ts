@@ -11,16 +11,16 @@ export function copyButton(text: string, label: string) {
   action.className = 'copy-action';
   action.setAttribute('aria-label', label);
   action.title = label;
-  action.innerHTML = icon('copy') + '<span>Copy</span>';
+  action.innerHTML = icon('copy') + (label === 'Copy reply' ? '' : '<span>Copy</span>');
   action.onclick = async () => {
     try {
       await navigator.clipboard.writeText(text);
-      action.innerHTML = icon('check') + '<span>Copied</span>';
+      action.innerHTML = icon('check') + (label === 'Copy reply' ? '' : '<span>Copied</span>');
       const announcement = document.getElementById('ui-announcement');
       if (announcement)
         announcement.textContent = `${label === 'Copy reply' ? 'Reply' : 'Code'} copied to clipboard.`;
       setTimeout(() => {
-        action.innerHTML = icon('copy') + '<span>Copy</span>';
+        action.innerHTML = icon('copy') + (label === 'Copy reply' ? '' : '<span>Copy</span>');
       }, 1800);
     } catch {
       const announcement = document.getElementById('ui-announcement');

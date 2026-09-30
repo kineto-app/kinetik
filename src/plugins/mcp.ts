@@ -1,15 +1,21 @@
 import Ajv from 'ajv';
 import type { AppResource, ToolDefinition } from '../core/types';
 
+const clientInfo = { name: 'kinetik-oss', version: '0.1.0' };
+const capabilities = {
+  extensions: { 'io.modelcontextprotocol/ui': { mimeTypes: ['text/html;profile=mcp-app'] } },
+};
+
 type Rpc = { id?: string; result?: unknown; error?: { message: string } };
-/** Minimal Streamable HTTP client. Auth is a supplied bearer token; no OAuth UI yet. */
+/** Minimal Streamable HTTP client. Managed credentials are read on every request. */
 export class McpClient {
   private session?: string;
   private protocol = '2025-11-25';
   private initialized?: Promise<void>;
   constructor(
     private url: string,
-    private token?: string,
+    private token?: string | (() => Promise<string>),
+    private unauthorized?: (token: string) => Promise<void>,
   ) {}
   private async send(
     method: string,
@@ -18,20 +24,37 @@ export class McpClient {
     notification = false,
   ): Promise<unknown> {
     const id = crypto.randomUUID();
+    const requestParams = {
+      ...(params as Record<string, unknown>),
+      _meta: {
+        'io.modelcontextprotocol/clientInfo': clientInfo,
+        'io.modelcontextprotocol/clientCapabilities': capabilities,
+      },
+    };
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       Accept: 'application/json, text/event-stream',
       'MCP-Protocol-Version': this.protocol,
     };
-    if (this.token) headers.Authorization = `Bearer ${this.token}`;
+    const token = typeof this.token === 'function' ? await this.token() : this.token;
+    if (token) headers.Authorization = `Bearer ${token}`;
     if (this.session) headers['Mcp-Session-Id'] = this.session;
     const response = await fetch(this.url, {
       method: 'POST',
       headers,
       credentials: 'omit',
       signal,
-      body: JSON.stringify({ jsonrpc: '2.0', ...(notification ? {} : { id }), method, params }),
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        ...(notification ? {} : { id }),
+        method,
+        params: requestParams,
+      }),
     });
+    if (response.status === 401 && token && this.unauthorized) {
+      await this.unauthorized(token);
+      throw new Error('Reconnect Charms in Connections to continue.');
+    }
     if (!response.ok) throw new Error(`MCP ${method}: HTTP ${response.status}`);
     const session = response.headers.get('Mcp-Session-Id');
     if (session) this.session = session;
@@ -90,12 +113,8 @@ export class McpClient {
         'initialize',
         {
           protocolVersion: '2025-11-25',
-          capabilities: {
-            extensions: {
-              'io.modelcontextprotocol/ui': { mimeTypes: ['text/html;profile=mcp-app'] },
-            },
-          },
-          clientInfo: { name: 'kinetik-oss', version: '0.1.0' },
+          capabilities,
+          clientInfo,
         },
         signal,
       )) as { protocolVersion: string };
