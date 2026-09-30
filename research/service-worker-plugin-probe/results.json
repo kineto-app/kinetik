@@ -1,0 +1,40 @@
+{
+  "browser": "HeadlessChrome/154.0.0.0",
+  "csp": "default-src 'self'; script-src 'self' 'unsafe-eval'; worker-src 'self'; connect-src 'self'",
+  "install": {
+    "ok": true,
+    "boot": "253b40f8-9569-4594-86f3-5eea7b3e2d9b",
+    "name": "probe",
+    "result": 42
+  },
+  "esm": {
+    "ok": false,
+    "error": "TypeError: import() is disallowed on ServiceWorkerGlobalScope by the HTML specification. See https://github.com/w3c/ServiceWorker/issues/1356."
+  },
+  "late_importscripts": {
+    "ok": false,
+    "error": "NetworkError: Failed to execute 'importScripts' on 'WorkerGlobalScope': The script at 'http://127.0.0.1:18763/late.js' failed to load."
+  },
+  "after_forced_restart": {
+    "ok": true,
+    "boot": "7fd3eb86-cc82-4529-8629-fd3e9507ea5c",
+    "name": "probe",
+    "result": 42
+  },
+  "source_removed_and_restarted": {
+    "ok": true,
+    "boot": "faa761b8-c831-42dd-9856-817dac965a0c",
+    "name": "probe",
+    "result": 42
+  },
+  "cleanup": {
+    "browser": "closed",
+    "server_exit_code": 130
+  },
+  "limits": [
+    "One Chromium build",
+    "No natural eviction or app-closed wake test",
+    "No full agent or just-bash",
+    "No cross-origin plugin CORS browser test"
+  ]
+}

@@ -1,0 +1,2 @@
+globalThis.ready = navigator.serviceWorker.register('/sw.js').then(() => navigator.serviceWorker.ready);
+globalThis.send = async (data) => { const reg = await ready; return new Promise((resolve,reject) => { const c = new MessageChannel(); const timer=setTimeout(()=>reject(new Error('timeout')),10000); c.port1.onmessage=e=>{clearTimeout(timer);resolve(e.data)}; reg.active.postMessage(data,[c.port2]); }); };

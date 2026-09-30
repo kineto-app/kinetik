@@ -1,0 +1,25 @@
+/* Adapted from Kineto Charms widget styles.css, commit abfb798c. See THIRD_PARTY_NOTICES.md. */
+:root {
+  color-scheme: light dark;
+  --accent: light-dark(rgb(119, 101, 226), rgb(158, 143, 245));
+  --on-accent: light-dark(white, rgb(25, 22, 22));
+  --panel: light-dark(rgba(119, 101, 226, 0.07), rgba(119, 101, 226, 0.13));
+  --glyph-bg: light-dark(rgba(119, 101, 226, 0.1), rgba(119, 101, 226, 0.22));
+  --card: light-dark(white, rgba(255, 255, 255, 0.055));
+  --ground: light-dark(white, rgb(28, 28, 27));
+  --ink: light-dark(rgb(25, 22, 22), rgba(255, 255, 255, 0.92));
+  --muted: light-dark(rgba(25, 22, 22, 0.66), rgba(255, 255, 255, 0.65));
+  --line: light-dark(rgba(25, 22, 22, 0.06), rgba(255, 255, 255, 0.07));
+  --control-line: light-dark(rgba(25, 22, 22, 0.14), rgba(255, 255, 255, 0.18));
+  --hover: light-dark(rgba(25, 22, 22, 0.06), rgba(255, 255, 255, 0.09));
+  --ok: light-dark(rgb(58, 150, 96), rgb(114, 196, 148));
+  --bad: light-dark(rgb(198, 74, 74), rgb(226, 124, 124));
+  --radius: 18px;
+  --radius-inner: 12px;
+  --radius-control: 8px;
+  --space-section: 16px;
+  --space-inline: 8px;
+  --space-content: 12px;
+  --target: 44px;
+  --font-sans: system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
