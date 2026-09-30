@@ -39,7 +39,9 @@ Serve deployment-owned `config.json` beside `index.html` with `Cache-Control: no
 
 `resource` is the canonical OAuth resource identifier, even when `url` is a same-origin relay. `metadataUrl` must return the configured issuer, S256 PKCE support, public-client authentication (`none`), code responses, and authorization, registration, and token endpoints. Backchannel endpoints may use the app’s origin for a fixed-endpoint relay; the authorization page must belong to the issuer’s origin. Use HTTPS outside localhost. Direct requests need CORS; a relay must strip cookies, restrict upstream targets and methods, reject redirects, and preserve relevant MCP headers. The callback returns to the app root with `connection_callback=charms`; the app consumes the code and removes callback parameters from the address bar. Neither OAuth endpoints nor plugin source URLs come from deep-link parameters.
 
-The guided flow offers ChatGPT sign-in, prepares Charms, obtains authorization, verifies its tools, and loads native skills. Existing connections skip completed steps. A manually disabled connection requires an explicit Enable action. If the deployment configuration changes, existing settings are preserved rather than silently redirecting credentials to a new service.
+The guided flow offers ChatGPT sign-in, prepares Charms, obtains authorization, verifies its tools, and loads native skills. Existing connections skip completed steps. Installed-app callbacks always show return-link instructions, even if the callback window also opens in standalone mode. Only the initiating window consumes the code after paste.
+
+If tool or skill loading fails after sign-in, the setup clears the consumed return link and offers Enable Charms to retry activation with the saved credential. A manually disabled connection requires an explicit Enable action. If the deployment configuration changes, existing settings are preserved rather than silently redirecting credentials to a new service.
 
 For experimental browser-owned sign-in, add:
 

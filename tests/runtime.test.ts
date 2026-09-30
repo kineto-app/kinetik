@@ -91,7 +91,7 @@ test('last enabled plugin wins, disable restores prior provider, read_skill stay
   const store = new Store(crypto.randomUUID());
   const runtime = new Runtime(store);
   const code = (value: string) =>
-    `return {tools:{remote:{description:'remote',inputSchema:{type:'object'},async execute(){return '${value}'}}},replacements:{exec:'remote'}}`;
+    `return {tools:{remote:{description:'remote',inputSchema:{type:'object'},async execute(){return '${value}'}}},replacements:{exec:'remote'},skills:{async sync(){return {revision:'1',skills:[{name:'guide',description:'Provider guide',path:'guide/SKILL.md',content:'Remote provider instructions'}]}}}}`;
   await store.put('plugins', [
     plugin('first', 1, code('first')),
     plugin('second', 2, code('second')),
@@ -104,9 +104,16 @@ test('last enabled plugin wins, disable restores prior provider, read_skill stay
   await runtime.submit(c.id, '/exec echo ignored');
   await runtime.run(c.id);
   expect((await read(store, c.id)).messages.at(-1)?.text).toBe('first');
-  await runtime.submit(c.id, '/read_skill skills/local/workspace/SKILL.md');
+  await runtime.submit(c.id, '/read_skill skills/first/guide/SKILL.md');
   await runtime.run(c.id);
-  expect((await read(store, c.id)).messages.at(-1)?.text).toContain('Local workspace');
+  expect((await read(store, c.id)).messages.at(-1)?.text).toContain('Remote provider instructions');
+  await runtime.submit(c.id, '/skills');
+  await runtime.run(c.id);
+  expect((await read(store, c.id)).messages.at(-1)?.text).not.toContain('skills/local/workspace');
+  await runtime.plugins.enable('first', false);
+  await runtime.submit(c.id, '/skills');
+  await runtime.run(c.id);
+  expect((await read(store, c.id)).messages.at(-1)?.text).toContain('skills/local/workspace');
 });
 test('a failed plugin does not fall back to local shell', async () => {
   const store = new Store(crypto.randomUUID());
