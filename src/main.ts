@@ -360,7 +360,7 @@ byId('sidebar').addEventListener('keydown', (event) => {
   if (event.key === 'Tab') {
     const items = [
       ...byId('sidebar').querySelectorAll<HTMLElement>('button:not([disabled]),select'),
-    ];
+    ].filter((item) => item.getClientRects().length > 0);
     const first = items[0],
       last = items.at(-1)!;
     if (event.shiftKey && document.activeElement === first) {

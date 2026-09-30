@@ -18,7 +18,7 @@ export const shell = `
   <button id="drawer-scrim" class="drawer-scrim" aria-label="Close chats" tabindex="-1" hidden></button>
   <main class="main" id="main">
     <header class="topbar"><button id="menu" class="icon-button" aria-label="Toggle chats" aria-expanded="false" aria-controls="sidebar">${icon('menu')}</button><div class="heading"><h1 id="title">New chat</h1></div><button id="connection-status" hidden aria-label="Manage connections"></button><span class="status" id="status" role="status">Getting ready</span></header>
-    <div id="app-update" class="app-update" role="status" hidden><div><strong>Update available</strong><span id="app-update-feedback" class="field-hint">Apply when you’re ready. Your workspace will be kept.</span></div><button id="app-update-apply" class="primary">Update</button></div>
+    <div id="app-update" class="app-update" role="status" hidden><div><strong>Update available</strong><span id="app-update-feedback" class="field-hint"></span></div><button id="app-update-apply" class="primary">Update</button></div>
     <div class="conversation-stage"><section id="timeline" aria-label="Conversation" aria-live="polite" aria-relevant="additions text"></section><button id="jump-latest" class="jump-latest" type="button" hidden>Latest message ${icon('download')}</button></div>
     <section class="composer-area">
       <div id="background-activity" class="activity background-activity" role="status" hidden><span class="spinner" aria-hidden="true"></span><span id="background-label"></span></div>
