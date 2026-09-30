@@ -463,3 +463,80 @@ test('cancelling while a provider reconnects cannot resurrect its job', async ()
   expect((await jobs.list('chat'))[0].state).toBe('cancelled');
   expect(recover).not.toHaveBeenCalled();
 });
+
+test('a rejected background tool returns to the agent so it can correct the request', async () => {
+  const store = new Store(crypto.randomUUID());
+  let step = 0;
+  const runtime = new Runtime(store, undefined, {
+    async next(request) {
+      if (++step === 1)
+        return {
+          type: 'tool',
+          name: 'background',
+          callId: 'invalid',
+          input: { action: 'start', tool: 'missing_tool', input: {} },
+        };
+      if (step === 2) {
+        expect(JSON.parse(request.result!)).toMatchObject({
+          started: false,
+          error: 'Tool is unavailable for background execution.',
+        });
+        return {
+          type: 'tool',
+          name: 'write',
+          input: { path: '/workspace/corrected', content: 'done' },
+        };
+      }
+      return { type: 'text', text: 'Done.' };
+    },
+  });
+  const c = await runtime.create();
+  await runtime.submit(c.id, 'Do the work');
+  await runtime.run(c.id);
+  expect((await read(store, c.id)).status).toBe('idle');
+  expect(await runtime.background.list(c.id)).toEqual([]);
+  expect(new TextDecoder().decode(await runtime.exportFile('/workspace/corrected'))).toBe('done');
+});
+
+test('opening an older chat repairs the known pre-dispatch background rejection', async () => {
+  const store = new Store(crypto.randomUUID());
+  const runtime = new Runtime(store, undefined, {
+    async next(request) {
+      expect(JSON.parse(request.result!)).toMatchObject({ started: false });
+      return { type: 'text', text: 'Continued automatically.' };
+    },
+  });
+  const c = await runtime.create();
+  await runtime.submit(c.id, 'Create slides');
+  await store.update<Conversation>('conversation:' + c.id, (value) => ({
+    ...value!,
+    status: 'needs_review',
+    activeMessage: value!.pending[0],
+    pending: [],
+    call: {
+      id: 'rejected',
+      callId: 'call',
+      name: 'background',
+      provider: 'local',
+      input: { action: 'start', tool: 'missing' },
+      state: 'unknown',
+    },
+    messages: [
+      ...value!.messages,
+      {
+        id: 'notice',
+        role: 'notice',
+        text: 'Tool outcome needs review: Tool is unavailable for background execution.. Changes may already have happened.',
+        createdAt: Date.now(),
+      },
+    ],
+  }));
+  await runtime.recover();
+  expect((await read(store, c.id)).status).toBe('queued');
+  await runtime.run(c.id);
+  expect((await read(store, c.id)).status).toBe('idle');
+  expect((await read(store, c.id)).messages.find((m) => m.id === 'notice')?.visibility).toBe(
+    'internal',
+  );
+  expect((await read(store, c.id)).messages.at(-1)?.text).toBe('Continued automatically.');
+});

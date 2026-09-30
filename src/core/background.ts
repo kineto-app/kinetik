@@ -48,6 +48,11 @@ export class BackgroundProcesses {
     plugins: InstalledPlugin[],
     bindings: Record<string, Binding>,
   ): Binding {
+    const availableTools = Object.keys(bindings).filter(
+      (name) =>
+        !['background', 'automation'].includes(name) &&
+        (!bindings[name].tool.visibility || bindings[name].tool.visibility.includes('model')),
+    );
     return {
       provider: 'local',
       tool: {
@@ -57,7 +62,7 @@ export class BackgroundProcesses {
           type: 'object',
           properties: {
             action: { type: 'string', enum: ['start', 'list', 'cancel'] },
-            tool: { type: 'string' },
+            tool: { type: 'string', description: 'Available tools: ' + availableTools.join(', ') },
             input: { type: 'object' },
             id: { type: 'string' },
             timeoutMs: { type: 'integer', minimum: 1000, maximum: 900000 },
@@ -93,16 +98,24 @@ export class BackgroundProcesses {
             !binding ||
             (binding.tool.visibility && !binding.tool.visibility.includes('model'))
           )
-            throw new Error('Tool is unavailable for background execution.');
+            return {
+              started: false,
+              error: 'Tool is unavailable for background execution.',
+              availableTools,
+            };
           const args = input.input ?? {};
           if (!new Ajv({ strict: false }).compile(binding.tool.inputSchema)(args))
-            throw new Error('Invalid background tool arguments.');
+            return { started: false, error: 'Invalid background tool arguments.' };
           if (
             (await this.list(conversationId)).filter((job) =>
               ['running', 'waiting'].includes(job.state),
             ).length >= 8
           )
-            throw new Error('Maximum eight background jobs per conversation.');
+            return {
+              started: false,
+              error:
+                'Maximum eight background jobs per conversation. Wait for a running job to finish.',
+            };
           const conversation = await this.store.get<Conversation>('conversation:' + conversationId);
           if (!conversation?.call)
             throw new Error('Background start requires a journaled tool call.');

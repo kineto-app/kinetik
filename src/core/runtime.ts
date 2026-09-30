@@ -286,6 +286,8 @@ export class Runtime {
             await this.update(id, (value) => ({
               ...value,
               messages: [...value.messages, message('assistant', output.text)],
+              retryAt: undefined,
+              retryAttempts: undefined,
               turn: undefined,
               modelInput: [...(value.modelInput ?? []), ...(output.items ?? [])],
               activeMessage: undefined,
@@ -303,6 +305,17 @@ export class Runtime {
           await this.update(id, (value) => ({
             ...value,
             modelInput: [...(value.modelInput ?? []), ...(output.items ?? [])],
+            messages: output.narration
+              ? [
+                  ...value.messages,
+                  {
+                    ...message('assistant', output.narration),
+                    visibility: backgroundTurn ? 'internal' : undefined,
+                  },
+                ]
+              : value.messages,
+            retryAt: undefined,
+            retryAttempts: undefined,
             call: {
               callId: output.callId,
               id: crypto.randomUUID(),
@@ -380,6 +393,16 @@ export class Runtime {
               ],
             }));
           } catch (error) {
+            const call = (await this.store.get<Conversation>(key(id)))?.call;
+            if (
+              !controller.signal.aborted &&
+              call?.operationId &&
+              binding.tool.recover &&
+              (isConnectionError(error) || error instanceof SignInRequired)
+            ) {
+              await this.waitForConnection(id, error);
+              return;
+            }
             await this.update(id, (value) => ({
               ...value,
               status: 'needs_review',
@@ -428,11 +451,7 @@ export class Runtime {
         !controller.signal.aborted &&
         (isConnectionError(error) || error instanceof SignInRequired)
       ) {
-        await this.update(id, (c) => ({
-          ...c,
-          status: 'waiting',
-          waitingFor: error instanceof SignInRequired ? 'signin' : 'connection',
-        }));
+        await this.waitForConnection(id, error);
         return;
       }
       await this.update(id, (c) => ({
@@ -459,6 +478,22 @@ export class Runtime {
       (next.pending.length || (next.status === 'queued' && next.activeMessage))
     )
       await this.run(id);
+  }
+  private waitForConnection(id: string, error?: unknown) {
+    return this.update(id, (c) =>
+      c.status === 'stopped' || c.status === 'needs_review'
+        ? c
+        : {
+            ...c,
+            status: 'waiting',
+            waitingFor: error instanceof SignInRequired ? 'signin' : 'connection',
+            retryAttempts: error instanceof SignInRequired ? undefined : (c.retryAttempts ?? 0) + 1,
+            retryAt:
+              error instanceof SignInRequired
+                ? undefined
+                : Date.now() + Math.min(30000, 2000 * 2 ** Math.min(c.retryAttempts ?? 0, 4)),
+          },
+    );
   }
   private async requestCancellation(binding: Binding, id: string): Promise<void> {
     const c = await this.store.get<Conversation>(key(id));
@@ -513,6 +548,44 @@ export class Runtime {
     }
     for (const c of await this.conversations()) {
       if (this.active.has(c.id)) continue;
+      // Older builds treated this pre-dispatch rejection as an uncertain side effect.
+      const last = c.messages.at(-1);
+      if (
+        c.status === 'needs_review' &&
+        c.call?.state === 'unknown' &&
+        c.call.name === 'background' &&
+        c.call.provider === 'local' &&
+        last?.role === 'notice' &&
+        last.text.startsWith(
+          'Tool outcome needs review: Tool is unavailable for background execution.',
+        ) &&
+        !(await this.store.get('background:' + c.call.id))
+      ) {
+        const result = JSON.stringify({
+          started: false,
+          error: 'The background tool was rejected before execution. Choose an available tool.',
+        });
+        await this.update(c.id, (value) =>
+          value.status !== 'needs_review' || value.call?.id !== c.call!.id
+            ? value
+            : {
+                ...value,
+                status: 'queued',
+                call: { ...value.call!, state: 'completed', result },
+                messages: value.messages.map((item) =>
+                  item.id === last.id ? { ...item, visibility: 'internal' } : item,
+                ),
+                modelInput: value.call?.callId
+                  ? [
+                      ...(value.modelInput ?? []),
+                      { type: 'function_call_output', call_id: value.call.callId, output: result },
+                    ]
+                  : value.modelInput,
+              },
+        );
+        continue;
+      }
+
       if (
         !['running', 'queued', 'waiting'].includes(c.status) &&
         !(c.status === 'stopped' && c.call?.state === 'pending')
@@ -548,11 +621,34 @@ export class Runtime {
             const tool = snapshot.bindings[c.call.name]?.tool;
             if (c.status !== 'stopped' && tool?.recover && c.call.operationId) {
               const signal = AbortSignal.timeout(10000);
-              const status = await abortable(tool.recover(c.call.operationId, signal), signal);
+              let status;
+              try {
+                status = await abortable(tool.recover(c.call.operationId, signal), signal);
+              } catch (error) {
+                if (isConnectionError(error) || error instanceof SignInRequired) {
+                  await this.waitForConnection(c.id, error);
+                  return;
+                }
+                throw error;
+              }
               if (status.done) {
                 await this.update(c.id, (value) => ({
                   ...value,
-                  status: 'queued',
+                  status: value.status === 'stopped' ? 'stopped' : 'queued',
+                  retryAt: undefined,
+                  retryAttempts: undefined,
+                  waitingFor: undefined,
+                  messages: [
+                    ...value.messages,
+                    {
+                      ...message(
+                        'tool',
+                        printable(status.result),
+                        `${value.call!.name} · ${value.call!.provider}`,
+                      ),
+                      visibility: value.turn === 'background' ? 'internal' : undefined,
+                    },
+                  ],
                   call: { ...value.call!, state: 'completed', result: printable(status.result) },
                   modelInput: value.call?.callId
                     ? [
@@ -567,6 +663,9 @@ export class Runtime {
                 }));
                 return;
               }
+              // The saved operation is still running. Check it again, never re-execute it.
+              await this.waitForConnection(c.id);
+              return;
             }
           } catch {
             /* Unavailable plugins or reconciliation failures leave an explicit unknown outcome. */
