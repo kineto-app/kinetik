@@ -11,9 +11,7 @@ test('hosted setup requires opening the installed app even after an accepted ins
   page,
 }) => {
   await page.goto(base + '?connect=charms');
-  await expect(
-    page.getByRole('heading', { name: 'Your assistant, one click away.' }),
-  ).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Install Kinetik' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Set up later' })).toBeHidden();
   await page.keyboard.press('Escape');
   await expect(page.locator('#connection-setup')).toBeVisible();
@@ -53,7 +51,7 @@ test('iPhone shows manual installation steps without pretending to open an insta
     }),
   );
   await page.goto(base);
-  await expect(page.getByRole('heading', { name: 'A place on your Home Screen.' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Install Kinetik' })).toBeVisible();
   await expect(page.locator('#setup-install-instructions')).toContainText('Add to Home Screen');
   await expect(page.getByRole('button', { name: 'Install Kinetik', exact: true })).toBeHidden();
 });
@@ -67,28 +65,24 @@ test('installed launch resumes setup without the deep link and completes the ext
     route.fulfill({ body: '<h1>ChatGPT sign-in fixture</h1>', contentType: 'text/html' }),
   );
   await page.goto(base);
-  await expect(
-    page.getByRole('heading', { name: 'Bring your ChatGPT subscription.' }),
-  ).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Connect ChatGPT' })).toBeVisible();
   const chatgpt = page.waitForEvent('popup');
   await page.getByRole('button', { name: 'Continue with ChatGPT' }).click();
   const signIn = await chatgpt;
   await expect(signIn.getByRole('heading', { name: 'ChatGPT sign-in fixture' })).toBeVisible();
   await signIn.close();
   await page.reload();
-  await page.getByRole('button', { name: 'Already signed in? Paste your return link' }).click();
+  await page.getByRole('button', { name: 'Paste return link' }).click();
   await page
     .getByLabel('Return link from your browser')
     .fill('http://127.0.0.1:1455/auth/callback?code=fixture&state=fixture');
   await page.getByRole('button', { name: 'Connect ChatGPT', exact: true }).click();
-  await expect(
-    page.getByRole('heading', { name: 'Give your assistant the tools to help.' }),
-  ).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Connect Charms' })).toBeVisible();
   const charms = page.waitForEvent('popup');
   await page.getByRole('button', { name: 'Connect Charms', exact: true }).click();
   const consent = await charms;
   await consent.getByRole('link', { name: 'Allow Charms' }).click();
-  await expect(consent.getByRole('heading', { name: 'Return to your Kinetik app.' })).toBeVisible();
+  await expect(consent.getByRole('heading', { name: 'Return to Kinetik' })).toBeVisible();
   const callback = await consent.getByLabel('Return link for Kinetik').inputValue();
   await consent.close();
   await page.reload();
@@ -105,9 +99,7 @@ test('installed launch resumes setup without the deep link and completes the ext
 test('repository-run configuration skips installation', async ({ page, request }) => {
   await request.get(base + 'reset');
   await page.goto(base + '?connect=charms');
-  await expect(
-    page.getByRole('heading', { name: 'Bring your ChatGPT subscription.' }),
-  ).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Connect ChatGPT' })).toBeVisible();
   await expect(page.locator('[data-step=install]')).toBeHidden();
   await expect(page.getByRole('button', { name: 'Set up later' })).toBeVisible();
 });
@@ -124,7 +116,7 @@ test('an optionally installed local app also receives the Charms return-link han
   await page.getByRole('button', { name: 'Connect Charms', exact: true }).click();
   const consent = await popup;
   await consent.getByRole('link', { name: 'Allow Charms' }).click();
-  await expect(consent.getByRole('heading', { name: 'Return to your Kinetik app.' })).toBeVisible();
+  await expect(consent.getByRole('heading', { name: 'Return to Kinetik' })).toBeVisible();
   const callback = await consent.getByLabel('Return link for Kinetik').inputValue();
   expect(new URL(callback).searchParams.get('state')).toMatch(/^app\./);
   await consent.close();

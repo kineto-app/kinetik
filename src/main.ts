@@ -88,7 +88,7 @@ function render() {
     if (!state.conversations.length) {
       const hint = document.createElement('p');
       hint.className = 'history-empty';
-      hint.textContent = 'A little space for each idea.';
+      hint.textContent = 'No chats yet.';
       nav.append(hint);
     }
   }
@@ -138,25 +138,17 @@ function render() {
     if (!c?.messages.length) {
       const empty = document.createElement('div');
       empty.className = 'empty';
-      empty.innerHTML = `<div class="welcome-mark" aria-hidden="true">${icon('spark')}</div><p class="welcome-eyebrow eyebrow">A LITTLE HELP. A LOT MORE POSSIBLE.</p><h2>What can we get done today?</h2><p>Try a sample task. Make a file you can keep.<br class="desktop-break" /> Your chats and files stay in this browser.</p><div class="starter"><h3 class="section-label">A place to start</h3><div class="suggestions"></div></div><p class="preview-note">This preview uses sample replies. Open-ended AI chat and ChatGPT sign-in are not connected yet.</p>`;
+      empty.innerHTML = `<div class="welcome-mark" aria-hidden="true">${icon('spark')}</div><h2>What can we get done today?</h2><div class="starter"><div class="suggestions"></div></div><p class="preview-note">Preview uses sample replies. ChatGPT is not connected.</p>`;
       if (connectionState?.chatgpt.available) {
-        empty.querySelector('.welcome-eyebrow')!.textContent = 'YOUR EVERYDAY WORKSPACE';
-        empty.querySelector('h2 + p')!.textContent =
-          'Bring an idea, a question, or something you’d like a hand with.';
         empty.querySelector('.preview-note')!.textContent = connectionState.chatgpt.connected
-          ? 'Connected to your ChatGPT subscription.'
+          ? ''
           : 'Connect ChatGPT to start a conversation.';
       }
-      const examples: [string, string, IconName, string][] = [
-        ...demoTasks.map((task): [string, string, IconName, string] => [
-          task.title,
-          task.description,
-          'file',
-          task.prompt,
-        ]),
-        ['Find my files', 'See what you’ve saved here', 'folder', 'Show my saved files.'],
+      const examples: [string, IconName, string][] = [
+        ...demoTasks.map((task): [string, IconName, string] => [task.title, 'file', task.prompt]),
+        ['Find my files', 'folder', 'Show my saved files.'],
       ];
-      for (const [label, description, glyph, text] of examples) {
+      for (const [label, glyph, text] of examples) {
         const action = button(
           '',
           () => {
@@ -166,7 +158,7 @@ function render() {
           },
           'action-row starter-card',
         );
-        action.innerHTML = `<span class="glyph">${icon(glyph)}</span><span class="action-main"><span class="action-title">${label}</span><span class="field-hint">${description}</span></span>${icon('chevron')}`;
+        action.innerHTML = `<span class="glyph">${icon(glyph)}</span><span class="action-main"><span class="action-title">${label}</span></span>${icon('chevron')}`;
         empty.querySelector('.suggestions')!.append(action);
       }
       timeline.append(empty);
@@ -282,7 +274,7 @@ function render() {
   const list = byId('plugin-list');
   list.replaceChildren();
   if (!state.plugins.length)
-    list.innerHTML = `<div class="plugins-empty">${icon('plug')}<div><strong>No connections yet</strong><p class="field-hint">Add a service when you need more help.</p></div></div>`;
+    list.innerHTML = `<div class="plugins-empty">${icon('plug')}<div><strong>No connections yet</strong></div></div>`;
   for (const plugin of state.plugins) {
     const row = document.createElement('div');
     row.className = 'plugin-row';

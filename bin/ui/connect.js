@@ -56,10 +56,10 @@ async function status() {
   $('setup').hidden = value.connected;
   $('success').hidden = !value.connected;
   $('status').textContent = value.connected
-    ? 'Your ChatGPT plan is connected to this preview.'
+    ? 'ChatGPT connected.'
     : signInStarted
-      ? 'Finish signing in, then copy the final address and paste it below.'
-      : 'Three quick steps. No API key needed.';
+      ? 'Paste the return link to finish.'
+      : 'No API key needed.';
   if (value.connected) {
     $('progress').textContent = 'Connected';
     $('callback').value = '';
@@ -107,7 +107,7 @@ $('login').addEventListener('click', async () => {
     $('callback').disabled = false;
     $('connect').disabled = false;
     $('status').textContent = popup
-      ? 'ChatGPT is open in another tab. Return here with the final address.'
+      ? 'Sign in, then paste the return link below.'
       : 'Your browser blocked the new tab. Use “Open sign-in page again” below.';
     step(2);
     if (popup) popup.location.replace(destination.href);

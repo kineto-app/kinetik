@@ -55,50 +55,42 @@ export function setupConnections(changed: (state: SetupState) => void) {
     <div class="setup-body">
       <section class="setup-main">
         <ol class="setup-steps" aria-label="Connection progress"><li data-step="install"><span>1</span>Install</li><li data-step="chatgpt"><span>2</span>ChatGPT</li><li data-step="charms"><span>3</span>Charms</li><li data-step="ready"><span>4</span>Ready</li></ol>
-        <p class="setup-eyebrow" id="setup-eyebrow">Your workspace</p>
-        <h1 id="setup-title" tabindex="-1">Give your assistant the tools to help.</h1>
+        <h1 id="setup-title" tabindex="-1">Connect Charms</h1>
         <p id="setup-description" class="setup-lead"></p>
         <div id="setup-install" hidden>
-          <div class="setup-install-benefits"><span>${icon('check')}Your own app window</span><span>${icon('check')}Chats saved on this device</span></div>
           <button id="setup-install-button" class="primary setup-primary">${icon('download')} Install Kinetik</button>
           <ol id="setup-install-instructions" class="setup-instructions"></ol>
           <p id="setup-install-hint" class="setup-hint"></p>
-          <div class="setup-notice setup-install-note">Installation comes first. Sign in to ChatGPT and Charms inside the Kinetik app.</div>
-          <details class="setup-install-help"><summary>Already installed or need help?</summary><p>Open Kinetik using its icon on your Home Screen, Dock, or app launcher. Setup continues in the app.</p><p>If this browser cannot install apps, open this address in Safari on iPhone or Mac, or Chrome or Edge on a supported desktop. On Android, use Chrome or Samsung Internet.</p></details>
+          <details class="setup-install-help"><summary>Need help?</summary><p>Already installed? Open Kinetik from your Home Screen, Dock, or apps.</p><p>Cannot install? Try Safari on iPhone or Mac, or Chrome on desktop or Android.</p></details>
         </div>
-        <div id="setup-handoff" hidden><p class="setup-lead">Copy this return link, open your Kinetik app, and paste it into the Charms connection step.</p><label for="setup-charms-return">Return link for Kinetik</label><textarea id="setup-charms-return" readonly rows="3" spellcheck="false"></textarea><button id="setup-copy-return" class="primary setup-primary">${icon('copy')} Copy return link</button><p class="setup-hint">Keep this link private. It finishes the sign-in you started.</p></div>
+        <div id="setup-handoff" hidden><label for="setup-charms-return">Return link for Kinetik</label><textarea id="setup-charms-return" readonly rows="3" spellcheck="false"></textarea><button id="setup-copy-return" class="primary setup-primary">${icon('copy')} Copy return link</button><p class="setup-hint">Keep this link private.</p></div>
         <div id="setup-charms">
-          <div class="setup-benefits">
-            <div>${icon('folder')}<div><strong>A workspace for your work</strong><p>Create and edit files in your Charms workspace.</p></div></div>
-            <div>${icon('spark')}<div><strong>Your skills, ready to use</strong><p>Kinetik finds and updates them automatically.</p></div></div>
-            <div>${icon('check')}<div><strong>You’re in control</strong><p>Review access in Kineto before you connect.</p></div></div>
-          </div>
           <button id="setup-connect-charms" class="primary setup-primary">Connect Charms ${icon('external')}</button>
           <p id="setup-charms-hint" class="setup-hint">Opens Kineto, then brings you back here.</p>
           <a id="setup-charms-authorize" class="setup-authorize" target="_blank" rel="noopener noreferrer" hidden>Sign in to Kineto ${icon('external')}</a>
-          <details id="setup-charms-return-option" class="setup-install-help" hidden><summary>Already signed in? Paste your return link</summary><form id="setup-charms-callback"><label for="setup-charms-link">Return link from Kineto</label><p class="setup-hint">After approving access, copy the return link shown in that tab and paste it here.</p><input id="setup-charms-link" type="text" autocomplete="off" spellcheck="false" placeholder="Paste the return link here"/><button class="primary setup-primary" type="submit">Finish connecting Charms ${icon('check')}</button></form></details>
+          <details id="setup-charms-return-option" class="setup-install-help" hidden><summary>Paste return link</summary><form id="setup-charms-callback"><label for="setup-charms-link">Return link from Kineto</label><p class="setup-hint">Copy the return link after signing in, then paste it here.</p><input id="setup-charms-link" type="text" autocomplete="off" spellcheck="false" placeholder="Paste the return link here"/><button class="primary setup-primary" type="submit">Finish connecting Charms ${icon('check')}</button></form></details>
           <button id="setup-back" class="setup-quiet">Back to ChatGPT</button>
         </div>
         <div id="setup-chatgpt" hidden>
-          <div id="setup-helper-missing" class="setup-notice" hidden>ChatGPT sign-in isn’t available on this host yet. Your Charms connection is saved. You can explore Kinetik and return when sign-in is available.</div>
+          <div id="setup-helper-missing" class="setup-notice" hidden>ChatGPT sign-in is unavailable here.</div>
           <button id="setup-login" class="primary setup-primary">Continue with ChatGPT ${icon('external')}</button>
-          <button id="setup-resume-chatgpt" class="setup-quiet">Already signed in? Paste your return link</button>
+          <button id="setup-resume-chatgpt" class="setup-quiet">Paste return link</button>
           <div id="setup-callback" hidden>
-            <ol class="setup-instructions"><li><div><strong>Sign in to ChatGPT in the new tab.</strong><a id="setup-authorize" target="_blank" rel="noopener noreferrer">Open sign-in page again ${icon('external')}</a></div></li>
-            <li><div><strong>Copy the full address after sign-in.</strong><p>The final page may say it can’t be reached. That’s expected. Copy its address, not the page text.</p><div class="setup-address">127.0.0.1:1455/auth/callback?code=…</div></div></li>
-            <li><div><strong>Return here and paste the address below.</strong></div></li></ol>
+            <ol class="setup-instructions"><li><div><strong>Sign in to ChatGPT.</strong><a id="setup-authorize" target="_blank" rel="noopener noreferrer">Reopen sign-in ${icon('external')}</a></div></li>
+            <li><div><strong>Copy the full address after sign-in.</strong><p>The final page may not load. Copy its full address anyway.</p><div class="setup-address">127.0.0.1:1455/auth/callback?code=…</div></div></li>
+            <li><div><strong>Paste it below.</strong></div></li></ol>
             <form id="setup-callback-form"><label for="setup-return-link">Return link from your browser</label><input id="setup-return-link" type="text" autocomplete="off" spellcheck="false" placeholder="http://127.0.0.1:1455/auth/callback?…" aria-describedby="setup-error"/><button id="setup-finish" class="primary setup-primary" type="submit">Connect ChatGPT ${icon('check')}</button></form>
           </div>
 
         </div>
-        <div id="setup-ready" hidden><div class="setup-ready-list"><p id="setup-charms-ready">${icon('check')}<span>Charms tools and skills</span><strong>Connected</strong></p><p>${icon('check')}<span>ChatGPT subscription</span><strong>Connected</strong></p></div><button id="setup-start" class="primary setup-primary">Start chatting ${icon('chevron')}</button></div>
+        <div id="setup-ready" hidden><div class="setup-ready-list"><p id="setup-charms-ready">${icon('check')}<span>Charms</span><strong>Connected</strong></p><p>${icon('check')}<span>ChatGPT</span><strong>Connected</strong></p></div><button id="setup-start" class="primary setup-primary">Start chatting ${icon('chevron')}</button></div>
         <p id="setup-progress" class="setup-hint" role="status"></p>
         <p id="setup-error" class="setup-error" role="alert" hidden></p>
         <button id="setup-retry" class="secondary" hidden>Try again</button>
       </section>
-      <aside id="setup-install-example" class="setup-example setup-install-example" hidden><img class="setup-app-icon" src="./icon.svg" width="90" height="90" alt=""/><h2>Always easy to find.</h2><p>One place for your ideas and everyday tasks.</p><div class="setup-app-preview"><div class="brand"><img src="./icon.svg" width="24" height="24" alt=""/>Kinetik</div><strong>What can we get done today?</strong><p>Help me plan a relaxed weekend…</p></div><p class="setup-hint">Connect ChatGPT and Charms after installation.</p></aside>
-      <aside id="setup-chat-example" class="setup-example" aria-label="Example conversation"><p class="setup-eyebrow">From a thought to a first draft</p><div class="setup-example-user">Help me plan a relaxed weekend in Amsterdam.</div><div class="setup-example-reply"><div class="brand"><img src="./icon.svg" width="28" height="28" alt=""/>Kinetik</div><p>A few good places, room to wander, and everything in one handy plan.</p><div class="setup-example-file">${icon('file')}<div><strong>Amsterdam weekend</strong><small>Your itinerary · ready to open</small></div></div></div><p class="setup-hint">An example of what you can make</p></aside>
-    </div><footer class="setup-footer">Your accounts stay separate. You can disconnect either one at any time.</footer>`;
+      <aside id="setup-install-example" class="setup-example setup-install-example" hidden><img class="setup-app-icon" src="./icon.svg" width="90" height="90" alt=""/><div class="setup-app-preview"><div class="brand"><img src="./icon.svg" width="24" height="24" alt=""/>Kinetik</div><strong>What can we get done today?</strong><p>Help me plan a relaxed weekend…</p></div></aside>
+      <aside id="setup-chat-example" class="setup-example" aria-label="Example conversation"><div class="setup-example-user">Help me plan a relaxed weekend in Amsterdam.</div><div class="setup-example-reply"><div class="brand"><img src="./icon.svg" width="28" height="28" alt=""/>Kinetik</div><p>Here’s your weekend plan.</p><div class="setup-example-file">${icon('file')}<div><strong>Amsterdam weekend</strong><small>Your itinerary · ready to open</small></div></div></div><p class="setup-hint">Example</p></aside>
+    </div>`;
   document.body.append(dialog);
   const $ = <T extends HTMLElement>(id: string) => dialog.querySelector<T>('#setup-' + id)!;
   function error(value: unknown) {
@@ -121,38 +113,21 @@ export function setupConnections(changed: (state: SetupState) => void) {
       if (li.dataset.step === next) li.setAttribute('aria-current', 'step');
       else li.removeAttribute('aria-current');
     }
-    $('eyebrow').textContent = {
-      install: 'First, make it yours',
-      handoff: 'One last step',
-      charms: 'Your workspace',
-      chatgpt: 'Your conversation',
-      ready: 'All connected',
-    }[next];
     $('title').textContent = {
-      install:
-        installation.platform === 'ios'
-          ? 'A place on your Home Screen.'
-          : 'Your assistant, one click away.',
-      handoff: 'Return to your Kinetik app.',
-      charms: 'Give your assistant the tools to help.',
-      chatgpt: 'Bring your ChatGPT subscription.',
-      ready: 'What can we get done today?',
+      install: 'Install Kinetik',
+      handoff: 'Return to Kinetik',
+      charms: 'Connect Charms',
+      chatgpt: 'Connect ChatGPT',
+      ready: "You're ready",
     }[next];
     $('description').textContent = {
-      install:
-        installation.platform === 'ios'
-          ? 'Add Kinetik to your phone, then open it to connect your accounts.'
-          : 'Install Kinetik on this device. Then connect your accounts and start a conversation.',
-      handoff: 'You can close this tab after finishing the connection in Kinetik.',
-      charms:
-        'Connect Charms to turn a conversation into useful work, with your files and skills in one place.',
-      chatgpt:
-        state.charms.status === 'connected'
-          ? 'Sign in to start talking with Kinetik. Your Charms workspace is already connected.'
-          : 'Sign in to start talking with Kinetik using your ChatGPT subscription.',
-      ready:
-        'Your assistant has the tools and skills to get started. Tell Kinetik what you have in mind.',
+      install: 'Install the app, then open it to sign in.',
+      handoff: 'Copy this link and paste it in the Kinetik app.',
+      charms: 'Use your Charms files, tools, and skills.',
+      chatgpt: 'Chat using your ChatGPT subscription.',
+      ready: '',
     }[next];
+    $('description').hidden = !$('description').textContent;
     $('later').hidden = blocked() || next === 'handoff';
     $('install-example').hidden = next !== 'install';
     $('chat-example').hidden = next === 'install' || next === 'handoff';
@@ -160,8 +135,7 @@ export function setupConnections(changed: (state: SetupState) => void) {
     if (next === 'handoff') $<HTMLTextAreaElement>('charms-return').value = callbackAddress;
     $('charms-ready').hidden = state.charms.status !== 'connected';
     $('back').hidden = !state.chatgpt.available;
-    $('helper-missing').textContent =
-      'ChatGPT sign-in isn’t available on this host yet. You can explore Kinetik and return when sign-in is available.';
+    $('helper-missing').textContent = 'ChatGPT sign-in is unavailable here.';
     $('helper-missing').hidden = state.chatgpt.available;
     $('login').hidden = !state.chatgpt.available || state.chatgpt.connected;
     $('callback').hidden = !signingIn;
@@ -177,7 +151,7 @@ export function setupConnections(changed: (state: SetupState) => void) {
             ? 'Reconnect Charms'
             : 'Connect Charms') + icon('external');
     $('charms-hint').textContent = state.charms.available
-      ? 'Opens Kineto, then brings you back here.'
+      ? 'Sign in with Kineto.'
       : 'Charms is not configured on this host.';
     $<HTMLButtonElement>('connect-charms').disabled = !state.charms.available;
     if (focus && dialog.open) {
@@ -191,17 +165,17 @@ export function setupConnections(changed: (state: SetupState) => void) {
   function renderInstallation() {
     $('install-button').hidden = !installation.available || installation.accepted;
     const steps = installation.accepted
-      ? [['Open Kinetik from your apps.', 'Use its icon to continue setup in the installed app.']]
+      ? [['Open Kinetik from your apps.', '']]
       : installation.platform === 'ios'
         ? [
-            ['Open the Share menu.', 'In Safari, look beside the address bar or under More.'],
-            ['Choose Add to Home Screen.', 'Keep “Open as Web App” on if shown, then tap Add.'],
-            ['Open Kinetik from your Home Screen.', 'We’ll help you connect your accounts there.'],
+            ['In Safari, open Share.', 'Look beside the address bar or under More.'],
+            ['Choose Add to Home Screen.', 'Keep “Open as Web App” on, then tap Add.'],
+            ['Open Kinetik from your Home Screen.', ''],
           ]
         : installation.platform === 'mac-safari'
           ? [
               ['Open Safari’s File or Share menu.', 'Choose Add to Dock, then Add.'],
-              ['Open Kinetik from your Dock.', 'Continue setup in its own app window.'],
+              ['Open Kinetik from your Dock.', ''],
             ]
           : installation.available
             ? []
@@ -209,19 +183,22 @@ export function setupConnections(changed: (state: SetupState) => void) {
               ? [
                   [
                     'Open your browser’s menu.',
-                    'Look for Install Kinetik, Install app, or Apps. On a computer it may be under Cast, save, and share.',
+                    'Choose Install app, sometimes under Cast, save, and share.',
                   ],
-                  ['Install, then open Kinetik.', 'Continue setup using the new app icon.'],
+                  ['Install, then open Kinetik.', ''],
                 ]
               : [
                   [
                     'Open this page in a browser that installs apps.',
                     'Use Safari on iPhone or Mac, Chrome or Edge on desktop, or Chrome on Android.',
                   ],
-                  ['Install and open Kinetik.', 'You’ll connect your accounts inside the app.'],
+                  ['Install and open Kinetik.', ''],
                 ];
     $('install-instructions').innerHTML = steps
-      .map(([title, text]) => `<li><div><strong>${title}</strong><p>${text}</p></div></li>`)
+      .map(
+        ([title, text]) =>
+          `<li><div><strong>${title}</strong>${text ? `<p>${text}</p>` : ''}</div></li>`,
+      )
       .join('');
     $('install-instructions').hidden = !steps.length;
     $('install-hint').textContent =
@@ -371,7 +348,7 @@ export function setupConnections(changed: (state: SetupState) => void) {
         $('login').innerHTML = 'Restart sign-in ' + icon('external');
         $('login').classList.replace('primary', 'secondary');
         if (tab) tab.location.replace(destination.href);
-        else $('progress').textContent = 'Use “Open sign-in page again” to continue.';
+        else $('progress').textContent = 'Use “Reopen sign-in” to continue.';
       } catch (e) {
         tab?.close();
         throw e;

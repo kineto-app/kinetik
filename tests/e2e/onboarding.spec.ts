@@ -30,9 +30,7 @@ test('guided setup authorizes Charms, loads native skills, connects ChatGPT and 
     route.fulfill({ body: '<h1>ChatGPT sign-in fixture</h1>', contentType: 'text/html' }),
   );
   await page.goto(base + '?connect=charms');
-  await expect(
-    page.getByRole('heading', { name: 'Bring your ChatGPT subscription.' }),
-  ).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Connect ChatGPT' })).toBeVisible();
   expect((await rpc(page, 'state')).plugins[0].enabledAt).toBeNull();
   const popup = page.waitForEvent('popup');
   await page.getByRole('button', { name: 'Continue with ChatGPT' }).click();
@@ -46,9 +44,7 @@ test('guided setup authorizes Charms, loads native skills, connects ChatGPT and 
     .getByLabel('Return link from your browser')
     .fill('http://127.0.0.1:1455/auth/callback?code=fixture&state=fixture');
   await page.getByRole('button', { name: 'Connect ChatGPT', exact: true }).click();
-  await expect(
-    page.getByRole('heading', { name: 'Give your assistant the tools to help.' }),
-  ).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Connect Charms' })).toBeVisible();
   await page.getByRole('button', { name: 'Connect Charms', exact: true }).click();
   await page.getByRole('link', { name: 'Allow Charms' }).click();
   await expect(page.getByRole('button', { name: 'Start chatting' })).toBeVisible();

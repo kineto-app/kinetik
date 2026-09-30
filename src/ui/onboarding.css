@@ -299,6 +299,8 @@
   min-height: 48px;
   font-size: 14px;
 }
+#setup-install,
+#setup-charms,
 #setup-chatgpt {
   margin-top: 24px;
 }

@@ -27,18 +27,13 @@
     </header>
     <main class="connect-main">
       <div class="connect-intro">
-        <span class="connect-eyebrow">YOUR AGENT, YOUR CHATGPT PLAN</span>
-        <h1>One connection.<br /><span>Ready to get things done.</span></h1>
-        <p>
-          Connect your ChatGPT account to start chatting with Kinetik. Sign in, then bring the final
-          link back here.
-        </p>
+        <h1>Connect ChatGPT</h1>
+        <p>Sign in, then paste the return link here.</p>
       </div>
       <section class="connect-card" aria-labelledby="connect-title">
         <div class="connect-card-heading">
           <div>
-            <span class="connect-eyebrow">ACCOUNT SETUP</span>
-            <h2 id="connect-title">Connect ChatGPT</h2>
+            <h2 id="connect-title">Sign in</h2>
           </div>
           <span class="connect-badge" id="progress">Getting ready</span>
         </div>
@@ -51,7 +46,6 @@
               <span class="connect-number" aria-hidden="true">1</span>
               <div class="connect-step-body">
                 <h3>Sign in to ChatGPT</h3>
-                <p>Open the sign-in page and allow Kinetik to use your ChatGPT plan.</p>
                 <button id="login" class="primary connect-action" type="button">
                   Continue with ChatGPT <span aria-hidden="true">↗</span></button
                 ><a
@@ -61,17 +55,13 @@
                   rel="noopener noreferrer"
                   hidden
                   >Open sign-in page again <span aria-hidden="true">↗</span></a
-                ><span class="connect-caption">Opens in a new tab. Keep this page open.</span>
+                ><span class="connect-caption">Opens in a new tab.</span>
               </div>
             </li>
             <li id="step-copy">
               <span class="connect-number" aria-hidden="true">2</span>
               <div class="connect-step-body">
                 <h3>Copy the final address</h3>
-                <p>
-                  After signing in, copy the
-                  <strong>entire link from your browser’s address bar.</strong>
-                </p>
                 <div class="connect-browser" aria-label="Example address, not a link to open">
                   <div class="connect-browser-top">
                     <span aria-hidden="true">○ ○ ○</span><span>Example address bar</span>
@@ -81,8 +71,7 @@
                   </div>
                 </div>
                 <p class="connect-note">
-                  You may see “This site can’t be reached.” That’s expected.
-                  <strong>Copy the address anyway</strong>, then return to this tab.
+                  The final page may not load. <strong>Copy the address anyway</strong>.
                 </p>
               </div>
             </li>
@@ -95,7 +84,7 @@
                   ><textarea
                     id="callback"
                     rows="3"
-                    placeholder="Paste the complete http://127.0.0.1:1455/auth/callback?… link"
+                    placeholder="http://127.0.0.1:1455/auth/callback?…"
                     autocomplete="off"
                     autocapitalize="off"
                     spellcheck="false"
@@ -103,8 +92,7 @@
                     disabled
                   ></textarea>
                   <p id="callback-hint" class="connect-caption">
-                    The link starts with 127.0.0.1 or localhost. Include everything after the
-                    question mark.
+                    Paste the full link, including everything after “?”.
                   </p>
                   <p id="callback-error" class="connect-error" role="alert" hidden></p>
                   <button id="connect" class="primary connect-action" type="submit" disabled>
@@ -118,9 +106,7 @@
         <div id="success" class="connect-success" hidden>
           <span class="connect-success-icon" aria-hidden="true">✓</span>
           <h3>You’re connected.</h3>
-          <p>
-            Your ChatGPT account is ready. Head to your workspace and give Kinetik something to do.
-          </p>
+          <p>Your ChatGPT account is ready.</p>
           <a id="open" class="primary connect-action" href="{{appUrl}}"
             >Start chatting <span aria-hidden="true">→</span></a
           ><button id="logout" type="button">Disconnect account</button>
@@ -130,14 +116,9 @@
             <rect x="5" y="10" width="14" height="11" rx="3" />
             <path d="M8 10V7a4 4 0 0 1 8 0v3" />
           </svg>
-          <p>
-            Sign in only on OpenAI’s website. Kinetik never asks for your password.<br /><span
-              >This preview connection is temporary.</span
-            >
-          </p>
+          <p>This preview connection is temporary.</p>
         </footer>
       </section>
-      <p class="connect-bottom">Your workspace stays in your browser.</p>
     </main>
   </body>
 </html>
