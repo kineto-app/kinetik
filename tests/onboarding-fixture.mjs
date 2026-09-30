@@ -5,6 +5,7 @@ import { extname, resolve, sep } from 'node:path';
 const base = 'http://127.0.0.1:4174';
 const prefix = '/onboarding/';
 let installRequired = false;
+let browserChatGPT = false;
 let connected = false,
   revoked = false;
 const flows = new Map();
@@ -34,7 +35,12 @@ export async function onboardingFixture(req, res) {
     installRequired = true;
     return reply({});
   }
+  if (url.pathname === prefix + 'browser-chatgpt') {
+    browserChatGPT = true;
+    return reply({});
+  }
   if (url.pathname === prefix + 'reset') {
+    browserChatGPT = false;
     installRequired = false;
     connected = false;
     revoked = false;
@@ -56,7 +62,9 @@ export async function onboardingFixture(req, res) {
           metadataUrl: base + prefix + 'connections/charms/metadata',
         },
       },
-      chatgpt: { apiBase: base + prefix + 'connections/chatgpt/' },
+      chatgpt: browserChatGPT
+        ? { mode: 'browser', jwksUrl: base + prefix + 'connections/chatgpt/keys' }
+        : { apiBase: base + prefix + 'connections/chatgpt/' },
     });
   if (url.pathname === prefix + 'connections/charms/metadata')
     return reply({
