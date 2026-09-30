@@ -1,5 +1,7 @@
 import { setupViewport } from './browser/viewport';
 import { renderToolActivity } from './ui/tool-activity';
+import { isInternalActivity } from './ui/activity-data';
+import { elapsed, messageTime, workDuration } from './ui/time';
 import './ui/styles.css';
 import './ui/chat.css';
 import './ui/islands.css';
@@ -19,7 +21,13 @@ import { setupConnections } from './ui/onboarding';
 import type { SetupState } from './connections/manager';
 
 type State = {
-  background: { id: string; conversationId: string; tool: string; state: string }[];
+  background: {
+    id: string;
+    conversationId: string;
+    tool: string;
+    state: string;
+    startedAt?: number;
+  }[];
   automations: Automation[];
   conversations: Conversation[];
   plugins: Pick<InstalledPlugin, 'manifest' | 'source' | 'enabledAt' | 'digest'>[];
@@ -128,7 +136,8 @@ function render() {
   byId('status').dataset.state = c?.status ?? 'idle';
   byId('activity').hidden = !foreground;
   byId('activity-label').textContent =
-    c?.call?.state === 'pending' ? taskLabel(c.call.name) : 'Working on your message';
+    c?.call?.state === 'pending' ? taskLabel(c.call.name) : 'Working';
+  updateElapsed();
   byId('recovery').hidden = c?.status !== 'needs_review';
   const serialized = JSON.stringify([selected, c?.messages, c?.draft, c?.call, c?.status]);
   if (serialized !== lastMessages) {
@@ -176,10 +185,7 @@ function render() {
       timeline.append(empty);
     }
     for (const item of c?.messages ?? []) {
-      const hiddenActivity =
-        item.visibility === 'internal' ||
-        item.id.startsWith('background-completed:') ||
-        item.tool?.startsWith('background ·');
+      const hiddenActivity = isInternalActivity(item);
       if ((hiddenActivity && !item.app && !item.file) || renderedMessages.has(item.id)) continue;
       renderedMessages.add(item.id);
       const article = document.createElement('article');
@@ -215,13 +221,16 @@ function render() {
       if (item.role === 'tool') {
         if (item.file) disposeContent.push(mountFile(article, item.file, updateJumpButton));
       } else {
+        if (item.role === 'assistant' && item.durationMs !== undefined)
+          article.append(workDuration(item.durationMs));
         article.append(label, content);
         if (item.role === 'assistant') {
           const actions = document.createElement('div');
           actions.className = 'message-actions';
-          actions.append(copyButton(item.text, 'Copy reply'));
+          actions.append(copyButton(item.text, 'Copy reply'), messageTime(item.createdAt));
           article.append(actions);
         }
+        if (item.role === 'user') article.append(messageTime(item.createdAt));
       }
       timeline.insertBefore(article, timeline.querySelector('[data-draft]'));
       if (item.app && c) disposeContent.push(mountApp(article, item.app, c.id));
@@ -477,6 +486,42 @@ byId('jump-latest').onclick = () => {
   });
 };
 let refreshTimer: ReturnType<typeof setTimeout>;
+function updateElapsed() {
+  const c = current();
+  const now = Date.now();
+  for (const id of ['activity', 'connection-wait', 'background-activity']) {
+    const parent = byId(id);
+    let timer = parent.querySelector<HTMLElement>('.elapsed-time');
+    const starts =
+      id === 'background-activity'
+        ? state.background
+            .map((job) => job.startedAt)
+            .filter((value): value is number => value !== undefined)
+        : c?.workStartedAt === undefined
+          ? []
+          : [c.workStartedAt];
+    if (parent.hidden || !starts.length) {
+      timer?.remove();
+      continue;
+    }
+    if (!timer) {
+      timer = document.createElement('span');
+      timer.className = 'elapsed-time';
+      timer.setAttribute('aria-live', 'off');
+      timer.title = 'Elapsed time, including connection waits';
+      const button = parent.querySelector('button');
+      if (button) button.before(timer);
+      else parent.append(timer);
+    }
+    timer.textContent = '· ' + elapsed(now - Math.min(...starts));
+  }
+}
+setInterval(() => {
+  if (!document.hidden) updateElapsed();
+}, 1000);
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) updateElapsed();
+});
 navigator.serviceWorker?.addEventListener('message', (event) => {
   if (event.data?.type === 'changed') {
     clearTimeout(refreshTimer);

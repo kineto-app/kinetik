@@ -3,6 +3,8 @@ export interface Message {
   role: 'user' | 'assistant' | 'tool' | 'notice';
   text: string;
   createdAt: number;
+  /** Elapsed time for the completed agent turn, including connection waits. */
+  durationMs?: number;
   visibility?: 'internal';
   source?: 'background';
   tool?: string;
@@ -40,6 +42,8 @@ export interface Conversation {
   plugins?: InstalledPlugin[];
   call?: ToolCall;
   updatedAt: number;
+  /** Persisted across steering and recovery; cleared when this turn ends. */
+  workStartedAt?: number;
   modelInput?: Record<string, unknown>[];
   draft?: string;
 }

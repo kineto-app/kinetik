@@ -3,6 +3,7 @@ import {
   activityBatches,
   activityExplanation,
   activityTitle,
+  isInternalActivity,
   technicalDetails,
   type Activity,
 } from './activity-data';
@@ -72,13 +73,7 @@ export function renderToolActivity(timeline: HTMLElement, conversation?: Convers
     ]),
   );
   for (const message of conversation.messages) {
-    if (
-      message.visibility === 'internal' ||
-      message.source === 'background' ||
-      message.id.startsWith('background-completed:') ||
-      message.tool?.startsWith('background ·')
-    )
-      continue;
+    if (isInternalActivity(message)) continue;
     if (message.role === 'user' || message.role === 'assistant') turn = message.id;
     if (message.role !== 'tool') continue;
     const article = articles.get(message.id);
