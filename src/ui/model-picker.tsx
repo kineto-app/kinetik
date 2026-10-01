@@ -1,5 +1,5 @@
 import { DropdownMenu } from '@kobalte/core/dropdown-menu';
-import { createEffect, createSignal, For, Show } from 'solid-js';
+import { createEffect, createSignal, For, onCleanup, Show } from 'solid-js';
 import { rpc } from '../browser/client';
 import type { ChatGPTModel } from '../connections/chatgpt';
 import { icon } from './icons';
@@ -15,6 +15,12 @@ export function ModelPicker(props: {
   onSelected: () => Promise<void>;
 }) {
   const [open, setOpen] = createSignal(false);
+  // Phones show the menu as a bottom sheet over a scrim.
+  const phone = matchMedia('(max-width: 700px)');
+  const [sheet, setSheet] = createSignal(phone.matches);
+  const watchPhone = () => setSheet(phone.matches);
+  phone.addEventListener('change', watchPhone);
+  onCleanup(() => phone.removeEventListener('change', watchPhone));
   const [models, setModels] = createSignal<ChatGPTModel[]>([]);
   const [selected, setSelected] = createSignal(props.model);
   const [reasoning, setReasoning] = createSignal<string>();
@@ -107,6 +113,17 @@ export function ModelPicker(props: {
             <span class="icon-slot" innerHTML={icon('spark')} />
           </DropdownMenu.Trigger>
           <DropdownMenu.Portal>
+            <Show when={sheet()}>
+              {/* Catches taps outside the sheet so they never reach the chat underneath. */}
+              <div
+                class="model-scrim"
+                aria-hidden="true"
+                onPointerDown={(event) => {
+                  event.preventDefault();
+                  setOpen(false);
+                }}
+              />
+            </Show>
             <DropdownMenu.Content class="model-menu" aria-label="Models">
               <div class="model-menu-label">Model</div>
               <Show when={loading()}>

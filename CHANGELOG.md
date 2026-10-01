@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Choose a reasoning level for the current ChatGPT model from the composer's model menu. Add several files at once from the file picker on web and Android.
+- Choose a reasoning level for the current ChatGPT model from the composer's model menu. Add several files at once from the file picker on web and Android. Saved widgets keep working after their plugin updates, so their images load again. Widgets have no host border, and the phone model sheet blocks taps on the chat behind it.
 
 - Show attached photos as thumbnails in the composer and as a swipeable row of photos and file cards in sent messages, with a full-screen photo viewer. Move the model picker into the composer as an icon that opens a list, or a bottom sheet on phones. Keep the one-line composer pill-shaped.
 

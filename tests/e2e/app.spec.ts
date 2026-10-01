@@ -244,6 +244,13 @@ test('MCP Apps fullscreen preserves the selected view and restores inline layout
     ),
   );
   await expect(page.locator('iframe.mcp-app')).toHaveCSS('height', '280px');
+  // Inline widgets draw their own surface; the host adds no frame around them.
+  for (const [property, value] of [
+    ['border-top-style', 'none'],
+    ['box-shadow', 'none'],
+    ['background-color', 'rgba(0, 0, 0, 0)'],
+  ])
+    await expect(panel).toHaveCSS(property, value);
   await page.screenshot({ path: testInfo.outputPath('widget-inline.png') });
   await app.getByRole('button', { name: 'Full screen', exact: true }).click();
   await expect(panel).toHaveJSProperty('open', true);

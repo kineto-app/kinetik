@@ -78,7 +78,19 @@
   opacity: 0.55;
   cursor: wait;
 }
-/* Phones get a bottom sheet; the shadow doubles as the scrim. */
+/* Phones get a bottom sheet over a scrim. */
+.model-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 99;
+  background: var(--scrim);
+  animation: model-scrim-in var(--duration) var(--ease-out);
+}
+@keyframes model-scrim-in {
+  from {
+    opacity: 0;
+  }
+}
 @media (max-width: 700px) {
   [data-popper-positioner]:has(> .model-menu) {
     position: fixed !important;
@@ -94,7 +106,7 @@
     border-width: 1px 0 0;
     border-radius: var(--radius-island) var(--radius-island) 0 0;
     background: var(--sidebar-fill);
-    box-shadow: 0 0 0 100vmax var(--scrim);
+    box-shadow: var(--shadow);
     animation-name: model-sheet-in;
   }
   .model-option {

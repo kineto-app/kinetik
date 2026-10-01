@@ -219,6 +219,13 @@ for (const relay of [false, true]) {
       [],
     );
     await page.screenshot({ path: test.info().outputPath('reasoning-menu.png') });
+    if (test.info().project.use.isMobile) {
+      // The sheet is modal: a tap outside closes it and reaches nothing underneath.
+      await page.mouse.click(20, 120);
+      await expect(page.getByRole('menuitemradio', { name: /^Low/ })).toBeHidden();
+      await expect(page.locator('#sidebar')).not.toHaveClass(/open/);
+      await testModel.click();
+    }
     const high = page.getByRole('menuitemradio', { name: /^High/ });
     if (test.info().project.use.isMobile) await high.tap();
     else await high.click();
