@@ -32,10 +32,10 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="kinetik" />
                 <data android:host="auth" />
-
-
+                
+                
                 <data android:pathPrefix="/complete" />
-
+                
             </intent-filter>
             <!-- DEEP LINK PLUGIN. AUTO-GENERATED. DO NOT REMOVE. -->
         </activity>

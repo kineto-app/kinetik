@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Show attached photos as thumbnails in the composer and as a swipeable row of photos and file cards in sent messages, with a full-screen photo viewer. Move the model picker into the composer as an icon that opens a list, or a bottom sheet on phones. Keep the one-line composer pill-shaped.
+
 - Add required installation for configured hosted apps, device-specific install guidance, and resumable account setup inside the installed PWA. Local repository runs skip installation.
 
 - Add guided Charms and ChatGPT connection setup, trusted preset deep links, Charms OAuth with PKCE, credential-separated plugin bindings, and an optional same-origin model-helper contract. Preserve manually disabled connections and partition skills by login.

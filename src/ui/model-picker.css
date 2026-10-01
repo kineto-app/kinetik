@@ -1,28 +1,13 @@
 .model-picker {
   display: flex;
-  margin-bottom: var(--space-inline);
+  flex: none;
 }
 .model-trigger {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-inline);
-  min-height: var(--target);
-  max-width: 100%;
-  padding: var(--space-inline) var(--space-content);
-  color: var(--ink);
-  background: var(--glass-panel);
-  border: 1px solid var(--control-line);
-  box-shadow: var(--chat-shadow);
-  border-radius: var(--radius-pill);
-  font-size: 0.8125rem;
+  height: var(--target);
 }
-.model-trigger > span:first-child {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.model-trigger svg {
-  transform: rotate(90deg);
+.model-trigger[data-expanded] {
+  color: var(--accent-ink);
+  background: var(--panel);
 }
 .model-menu {
   z-index: 100;
@@ -76,6 +61,38 @@
 .model-option[data-disabled] {
   opacity: 0.55;
   cursor: wait;
+}
+/* Phones get a bottom sheet; the shadow doubles as the scrim. */
+@media (max-width: 700px) {
+  [data-popper-positioner]:has(> .model-menu) {
+    position: fixed !important;
+    inset: auto 0 0 !important;
+    min-width: 0 !important;
+    transform: none !important;
+  }
+  .model-menu {
+    width: 100%;
+    max-height: 70dvh;
+    padding: var(--space-content) var(--space-inline)
+      max(var(--space-section), env(safe-area-inset-bottom));
+    border-width: 1px 0 0;
+    border-radius: var(--radius-island) var(--radius-island) 0 0;
+    background: var(--sidebar-fill);
+    box-shadow: 0 0 0 100vmax var(--scrim);
+    animation-name: model-sheet-in;
+  }
+  .model-option {
+    min-height: 52px;
+    font-size: 1rem;
+  }
+}
+@keyframes model-sheet-in {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
 }
 @keyframes model-menu-in {
   from {

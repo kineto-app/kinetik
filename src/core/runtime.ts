@@ -149,13 +149,25 @@ export class Runtime {
         await this.store.delete('attachment-bytes:' + attachment.id);
     });
   }
-  async stageAttachment(id: string, name: string, bytes: Uint8Array): Promise<StagedAttachment> {
+  async stageAttachment(
+    id: string,
+    name: string,
+    bytes: Uint8Array,
+    preview?: Uint8Array,
+  ): Promise<StagedAttachment> {
     if (!name || name.length > 255 || /[\/\\\x00-\x1f]/.test(name) || ['.', '..'].includes(name))
       throw new Error('Choose a file with a valid name.');
     if (!(bytes instanceof Uint8Array) || bytes.byteLength > 25 * 1024 * 1024)
       throw new Error('Choose a file smaller than 25 MB.');
+    if (
+      preview !== undefined &&
+      (!(preview instanceof Uint8Array) || preview.byteLength > 2 * 1024 * 1024)
+    )
+      throw new Error('Invalid file preview.');
     const file = { id: crypto.randomUUID(), name, size: bytes.byteLength };
     await this.store.put('attachment-bytes:' + file.id, bytes);
+    // Previews outlive sending: remote providers keep no local copy to show.
+    if (preview) await this.store.put('attachment-preview:' + file.id, preview);
     try {
       await this.update(id, (c) => {
         const files = c.attachments ?? [];
@@ -168,9 +180,13 @@ export class Runtime {
       });
     } catch (error) {
       await this.store.delete('attachment-bytes:' + file.id);
+      await this.store.delete('attachment-preview:' + file.id);
       throw error;
     }
     return file;
+  }
+  attachmentPreview(attachmentId: string): Promise<Uint8Array | undefined> {
+    return this.store.get<Uint8Array>('attachment-preview:' + attachmentId);
   }
   async removeAttachment(id: string, attachmentId: string): Promise<void> {
     await attachmentLock(id, async () => {
@@ -179,7 +195,10 @@ export class Runtime {
         removed = Boolean(c.attachments?.some((f) => f.id === attachmentId));
         return { ...c, attachments: c.attachments?.filter((f) => f.id !== attachmentId) };
       });
-      if (removed) await this.store.delete('attachment-bytes:' + attachmentId);
+      if (removed) {
+        await this.store.delete('attachment-bytes:' + attachmentId);
+        await this.store.delete('attachment-preview:' + attachmentId);
+      }
     });
   }
   private async prepareAttachments(

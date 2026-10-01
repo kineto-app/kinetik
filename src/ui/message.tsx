@@ -1,9 +1,10 @@
-import { For, onCleanup, onMount, Show } from 'solid-js';
+import { onCleanup, onMount, Show } from 'solid-js';
 import type { Message } from '../core/types';
 import { renderMessageContent, copyButton } from './message-content';
 import { messageTime, workDuration } from './time';
 import { mountApp } from './mcp-app';
 import { mountFile } from './files';
+import { attachmentCarousel } from './attachments';
 import { isInternalActivity } from './activity-data';
 
 /** A message mounts once. Widget adapters retain their iframe through streaming and fullscreen. */
@@ -49,18 +50,8 @@ export function MessageBubble(props: {
             ? 'Kinetik'
             : (item.tool ?? 'Workspace notice')}
       </div>
+      <Show when={item.attachments?.length}>{attachmentCarousel(item.attachments!)}</Show>
       {content}
-      <Show when={item.attachments?.length}>
-        <div class="attachment-list" aria-label="Sent files">
-          <For each={item.attachments}>
-            {(file) => (
-              <span class="attachment-chip" title={file.name}>
-                {file.name}
-              </span>
-            )}
-          </For>
-        </div>
-      </Show>
       <Show when={item.role === 'assistant'}>
         <div class="message-actions">
           {copyButton(item.text, 'Copy reply')}
