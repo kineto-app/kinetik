@@ -168,6 +168,11 @@ for (const relay of [false, true]) {
     expect(saved).toContain('browser-secret-access');
     expect(saved).toContain('browser-secret-refresh');
     const picker = page.getByRole('button', { name: 'Choose model, GPT-6.1 Sol' });
+    await expect(
+      page.locator('#composer').getByRole('button', { name: /^Choose model/ }),
+    ).toBeVisible();
+    const sentBefore = await page.locator('[data-role=user]').count();
+    await page.getByRole('textbox', { name: 'Message', exact: true }).fill('Draft stays');
     await picker.click();
     await expect(
       page.getByRole('menuitemradio', { name: 'Test model', exact: true }),
@@ -181,6 +186,11 @@ for (const relay of [false, true]) {
     await page.screenshot({ path: test.info().outputPath('model-picker-dark.png') });
     await page.keyboard.press('Escape');
     await expect(picker).toBeFocused();
+    await expect(page.locator('[data-role=user]')).toHaveCount(sentBefore);
+    await expect(page.getByRole('textbox', { name: 'Message', exact: true })).toHaveValue(
+      'Draft stays',
+    );
+    await page.getByRole('textbox', { name: 'Message', exact: true }).fill('');
     await picker.click();
     const otherModel = page.getByRole('menuitemradio', { name: 'Test model', exact: true });
     await expect(otherModel).toBeEnabled();

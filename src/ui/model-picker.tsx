@@ -76,9 +76,13 @@ export function ModelPicker(props: {
           placement="top-start"
           gutter={8}
         >
-          <DropdownMenu.Trigger class="model-trigger" aria-label={'Choose model, ' + name()}>
-            <span>{name()}</span>
-            <span class="icon-slot" innerHTML={icon('chevron')} />
+          <DropdownMenu.Trigger
+            class="model-trigger icon-button"
+            type="button"
+            aria-label={'Choose model, ' + name()}
+            title={name()}
+          >
+            <span class="icon-slot" innerHTML={icon('spark')} />
           </DropdownMenu.Trigger>
           <DropdownMenu.Portal>
             <DropdownMenu.Content class="model-menu" aria-label="Models">

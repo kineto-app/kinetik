@@ -1,0 +1,305 @@
+.file-badge {
+  display: inline-grid;
+  place-items: center;
+  min-width: 34px;
+  height: 22px;
+  padding: 0 6px;
+  border-radius: 6px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: color-mix(in srgb, var(--accent-ink) 80%, var(--ink));
+  background: var(--accent-soft);
+}
+.file-badge[data-kind='pdf'] {
+  color: color-mix(in srgb, var(--bad) 75%, var(--ink));
+  background: var(--bad-soft);
+}
+.file-badge[data-kind='sheet'] {
+  color: color-mix(in srgb, var(--ok) 60%, var(--ink));
+  background: var(--ok-soft);
+}
+.file-badge[data-kind='other'] {
+  color: var(--muted);
+  background: var(--hover);
+}
+
+/* Composer tray: one swipeable row of square previews. */
+.attachment-tray {
+  display: flex;
+  gap: var(--space-inline);
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  padding: 4px 4px var(--space-inline);
+}
+.attachment-tray[hidden] {
+  display: none;
+}
+.tray-item {
+  position: relative;
+  flex: none;
+  width: 64px;
+  height: 64px;
+  border-radius: 14px;
+  overflow: hidden;
+  background: var(--card);
+  border: 1px solid var(--control-line);
+}
+.tray-item:has(> .tray-file) {
+  width: 132px;
+}
+.tray-item > img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.tray-file {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  height: 100%;
+  padding: 6px;
+}
+.tray-file .file-badge {
+  align-self: flex-start;
+  min-width: 0;
+  height: 18px;
+  padding: 0 4px;
+  font-size: 9px;
+}
+.tray-name {
+  font-size: 12px;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* 24px visible mark, 40px touch area across the corner. */
+.tray-remove {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: start end;
+  padding: 4px;
+  border-radius: 0 0 0 var(--radius-inner);
+  background: transparent;
+}
+.tray-remove:hover {
+  background: transparent;
+}
+.tray-remove .icon {
+  width: 22px;
+  height: 22px;
+  padding: 4px;
+  border-radius: 50%;
+  stroke-width: 2.4;
+  color: white;
+  background: rgb(0 0 0 / 0.62);
+}
+.attachment-tray[aria-busy='true'] .tray-item::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: color-mix(in srgb, var(--ground) 45%, transparent);
+}
+
+/* Sent files: photos and files share one row that scrolls sideways. */
+.message[data-role='user']:has(.attachment-carousel) {
+  width: auto;
+  max-width: none;
+  margin-left: 0;
+}
+.message[data-role='user']:has(.attachment-carousel) > .message-content {
+  width: fit-content;
+  max-width: 85%;
+  margin-left: auto;
+}
+.message[data-role='user'] > .message-content:empty {
+  display: none;
+}
+.attachment-carousel {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x proximity;
+  scrollbar-width: none;
+  margin-bottom: var(--space-inline);
+  border-radius: 16px;
+}
+/* An auto margin right-aligns a short row but collapses once the row overflows. */
+.attachment-carousel > :first-child {
+  margin-left: auto;
+}
+@media (hover: hover) {
+  .attachment-carousel {
+    scrollbar-width: thin;
+  }
+}
+.attachment-card {
+  position: relative;
+  flex: none;
+  width: 132px;
+  height: 172px;
+  border-radius: 16px;
+  overflow: hidden;
+  scroll-snap-align: start;
+}
+.photo-card.loading {
+  background: var(--card);
+}
+.photo-open {
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border-radius: inherit;
+}
+.photo-open img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.photo-open:focus-visible {
+  outline-offset: -3px;
+}
+.file-card-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px;
+  background: var(--card);
+  border: 1px solid var(--control-line);
+}
+.file-card-tile .file-badge {
+  align-self: flex-start;
+  margin-bottom: auto;
+}
+.file-name {
+  font-size: 13px;
+  line-height: 1.3;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+.file-meta {
+  font-size: 12px;
+  line-height: 1.3;
+  color: var(--muted);
+}
+.card-download {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  height: var(--target);
+}
+
+/* Full-screen photo viewer. */
+html dialog.photo-viewer {
+  width: 100vw;
+  max-width: none;
+  height: 100dvh;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  overflow: hidden;
+  color: white;
+  background: rgb(0 0 0 / 0.94);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+.photo-viewer::backdrop {
+  background: black;
+}
+.viewer-head {
+  position: absolute;
+  inset: 0 0 auto;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: var(--space-inline);
+  padding: max(var(--space-inline), env(safe-area-inset-top)) var(--space-inline) 0
+    var(--space-section);
+}
+.viewer-counter {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.photo-viewer .icon-button {
+  height: var(--target);
+  color: white;
+}
+.photo-viewer .icon-button:hover {
+  background: rgb(255 255 255 / 0.12);
+}
+.viewer-track {
+  display: flex;
+  height: 100%;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;
+  overscroll-behavior: contain;
+}
+.viewer-track figure {
+  flex: none;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  display: grid;
+  place-items: center;
+  scroll-snap-align: center;
+  padding: calc(var(--target) + var(--space-section)) 0
+    max(var(--space-section), env(safe-area-inset-bottom));
+}
+.viewer-track img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+.viewer-step {
+  position: absolute;
+  top: 50%;
+  width: var(--target);
+  height: var(--target);
+  padding: 0;
+  display: grid;
+  place-items: center;
+  color: white;
+  background: rgb(0 0 0 / 0.5);
+  transform: translateY(-50%);
+}
+.viewer-step.previous {
+  left: var(--space-section);
+}
+.viewer-step.previous .icon {
+  transform: rotate(180deg);
+}
+.viewer-step.next {
+  right: var(--space-section);
+}
+.photo-viewer [hidden] {
+  display: none;
+}
+.viewer-step:disabled {
+  visibility: hidden;
+}
+@media (hover: none) {
+  .viewer-step {
+    display: none;
+  }
+}

@@ -257,7 +257,17 @@ export class RuntimeHost {
           break;
         case 'attachmentStage':
           if (!(data.bytes instanceof Uint8Array)) throw new Error('Invalid file bytes.');
-          result = await runtime.stageAttachment(string(data.id), string(data.name), data.bytes);
+          if (data.preview !== undefined && !(data.preview instanceof Uint8Array))
+            throw new Error('Invalid file preview.');
+          result = await runtime.stageAttachment(
+            string(data.id),
+            string(data.name),
+            data.bytes,
+            data.preview,
+          );
+          break;
+        case 'attachmentPreview':
+          result = (await runtime.attachmentPreview(string(data.attachmentId))) ?? null;
           break;
         case 'attachmentRemove':
           await runtime.removeAttachment(string(data.id), string(data.attachmentId));

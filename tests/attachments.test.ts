@@ -90,3 +90,30 @@ test('sent attachments survive workspace transfer with model context', async () 
   expect(restored.messages[0].attachments![0].name).toBe('portable.txt');
   expect(restored.modelInput![0].content).toContain(restored.messages[0].attachments![0].path);
 });
+
+test('image previews outlive sending and leave with removed staged files', async () => {
+  const store = new Store(crypto.randomUUID());
+  const runtime = new Runtime(store);
+  const chat = await runtime.create();
+  const preview = new Uint8Array([255, 216, 255]);
+  const kept = await runtime.stageAttachment(chat.id, 'kept.jpg', new Uint8Array([1]), preview);
+  const removed = await runtime.stageAttachment(
+    chat.id,
+    'removed.jpg',
+    new Uint8Array([2]),
+    preview,
+  );
+  await expect(
+    runtime.stageAttachment(
+      chat.id,
+      'big.jpg',
+      new Uint8Array([3]),
+      new Uint8Array(2 * 1024 * 1024 + 1),
+    ),
+  ).rejects.toThrow('Invalid file preview.');
+  await runtime.removeAttachment(chat.id, removed.id);
+  expect(await runtime.attachmentPreview(removed.id)).toBeUndefined();
+  await runtime.submit(chat.id, '', undefined, [kept.id]);
+  expect(await store.get('attachment-bytes:' + kept.id)).toBeUndefined();
+  expect(await runtime.attachmentPreview(kept.id)).toEqual(preview);
+});
