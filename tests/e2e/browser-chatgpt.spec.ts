@@ -184,10 +184,8 @@ for (const relay of [false, true]) {
     const sentBefore = await page.locator('[data-role=user]').count();
     await page.getByRole('textbox', { name: 'Message', exact: true }).fill('Draft stays');
     await picker.click();
-    await expect(
-      page.getByRole('menuitemradio', { name: 'Test model', exact: true }),
-    ).toBeVisible();
-    await expect(page.getByRole('menuitemradio', { name: 'Hidden model' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Test model', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Hidden model' })).toHaveCount(0);
     expect((await new AxeBuilder({ page }).include('.model-menu').analyze()).violations).toEqual(
       [],
     );
@@ -202,19 +200,23 @@ for (const relay of [false, true]) {
     );
     await page.getByRole('textbox', { name: 'Message', exact: true }).fill('');
     await picker.click();
-    const otherModel = page.getByRole('menuitemradio', { name: 'Test model', exact: true });
+    const otherModel = page.getByRole('button', { name: 'Test model', exact: true });
     await expect(otherModel).toBeEnabled();
     if (test.info().project.use.isMobile) await otherModel.tap();
     else {
-      await page.keyboard.press('Home');
+      // Opening focuses the current model; Test model is listed just before it.
+      await expect(page.getByRole('button', { name: 'GPT-6.1 Sol', exact: true })).toBeFocused();
+      await page.keyboard.press('Shift+Tab');
       await expect(otherModel).toBeFocused();
       await page.keyboard.press('Enter');
     }
     const testModel = page.getByRole('button', { name: 'Choose model, Test model' });
     await expect(testModel).toBeVisible();
     await testModel.click();
-    await expect(page.getByRole('menuitemradio', { name: /^Low/ })).toBeChecked();
-    await expect(page.getByRole('menuitemradio', { name: /^Ultra/ })).toHaveCount(0);
+    const slider = page.getByRole('slider', { name: 'Reasoning level' });
+    // Ultra is filtered out, so the catalog's three levels become Low and High.
+    await expect(slider).toHaveAttribute('aria-valuetext', 'Low');
+    await expect(slider).toHaveAttribute('max', '1');
     expect((await new AxeBuilder({ page }).include('.model-menu').analyze()).violations).toEqual(
       [],
     );
@@ -222,13 +224,30 @@ for (const relay of [false, true]) {
     if (test.info().project.use.isMobile) {
       // The sheet is modal: a tap outside closes it and reaches nothing underneath.
       await page.mouse.click(20, 120);
-      await expect(page.getByRole('menuitemradio', { name: /^Low/ })).toBeHidden();
+      await expect(slider).toBeHidden();
       await expect(page.locator('#sidebar')).not.toHaveClass(/open/);
       await testModel.click();
     }
-    const high = page.getByRole('menuitemradio', { name: /^High/ });
-    if (test.info().project.use.isMobile) await high.tap();
-    else await high.click();
+    if (test.info().project.use.isMobile) {
+      await page.waitForFunction(() =>
+        document
+          .querySelector('.model-menu')!
+          .getAnimations()
+          .every((a) => a.playState !== 'running'),
+      );
+      const box = (await slider.boundingBox())!;
+      await page.touchscreen.tap(box.x + box.width - 10, box.y + box.height / 2);
+    } else {
+      await slider.focus();
+      await page.keyboard.press('ArrowRight');
+    }
+    await expect(slider).toHaveAttribute('aria-valuetext', 'High');
+    await expect(page.getByText('Deeper reasoning')).toBeVisible();
+    await page.waitForFunction(() =>
+      document.getAnimations().every((animation) => animation.playState !== 'running'),
+    );
+    await page.screenshot({ path: test.info().outputPath('reasoning-high.png') });
+    await page.keyboard.press('Escape');
     await expect(testModel).toHaveAttribute('title', 'Test model · High reasoning');
     const devtools = await context.newCDPSession(page);
     await devtools.send('ServiceWorker.enable');
@@ -250,10 +269,8 @@ for (const relay of [false, true]) {
     await reopened.getByRole('button', { name: 'Choose model, Test model' }).click();
     await expect(reopened.getByRole('alert')).toContainText('Try again.');
     modelListUnavailable = false;
-    await reopened.getByRole('menuitem', { name: 'Try again' }).click();
-    await expect(
-      reopened.getByRole('menuitemradio', { name: 'Test model', exact: true }),
-    ).toBeEnabled();
+    await reopened.getByRole('button', { name: 'Try again' }).click();
+    await expect(reopened.getByRole('button', { name: 'Test model', exact: true })).toBeEnabled();
   });
 }
 

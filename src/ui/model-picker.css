@@ -22,7 +22,7 @@
   backdrop-filter: blur(var(--glass-blur));
   -webkit-backdrop-filter: blur(var(--glass-blur));
   box-shadow: var(--shadow);
-  transform-origin: var(--kb-menu-content-transform-origin);
+  transform-origin: var(--kb-popover-content-transform-origin);
   animation: model-menu-in var(--duration) var(--ease-out);
 }
 .model-menu-label,
@@ -48,33 +48,30 @@
   overflow-wrap: anywhere;
   outline-offset: -2px;
 }
-.model-option-text {
-  display: grid;
-  gap: 2px;
-  min-width: 0;
-}
-.model-option-description {
-  color: var(--muted);
-  font-size: 0.75rem;
-  line-height: 1.35;
-}
 .model-menu-separator {
   height: 1px;
+  border: 0;
   margin: var(--space-inline) var(--space-content);
   border: 0;
   background: var(--line);
 }
-.model-option[data-highlighted] {
+.model-option {
+  width: 100%;
+  text-align: left;
+  color: inherit;
+  background: transparent;
+}
+.model-option:hover {
   background: var(--hover);
 }
 .model-option:focus-visible {
   outline: 2px solid var(--accent-ink);
 }
-.model-option[data-checked] {
+.model-option[aria-pressed='true'] {
   color: var(--accent-ink);
   background: var(--panel);
 }
-.model-option[data-disabled] {
+.model-option:disabled {
   opacity: 0.55;
   cursor: wait;
 }
@@ -110,8 +107,7 @@
     animation-name: model-sheet-in;
   }
   .model-option {
-    min-height: 52px;
-    font-size: 1rem;
+    font-size: 0.9375rem;
   }
 }
 @keyframes model-sheet-in {
@@ -136,4 +132,135 @@
   .model-menu {
     animation: none;
   }
+}
+
+/* Reasoning: a finger-sized pill that warms from cool to accent to warm as it gets smarter. */
+.reasoning-slider {
+  --knob: var(--target);
+  position: relative;
+  cursor: pointer;
+  touch-action: pan-y;
+  height: 52px;
+  margin: 2px var(--space-content) 0;
+  border-radius: var(--radius);
+  background: var(--hover);
+}
+.reasoning-slider:has(input:focus-visible) {
+  outline: 2px solid var(--accent-ink);
+  outline-offset: 3px;
+}
+.reasoning-glow {
+  position: absolute;
+  inset: 0;
+  filter: drop-shadow(0 0 10px color-mix(in srgb, var(--accent) 55%, transparent));
+  pointer-events: none;
+}
+.reasoning-fill {
+  position: absolute;
+  inset: 0;
+  border-radius: var(--radius);
+  background: linear-gradient(
+    90deg,
+    var(--reasoning-cool),
+    var(--accent) 55%,
+    var(--reasoning-warm)
+  );
+  /* The gradient spans the whole track, so its colour follows the position. */
+  clip-path: inset(
+    0 calc(100% - var(--knob) - (100% - var(--knob)) * var(--position)) 0 0 round var(--radius)
+  );
+  transition: clip-path var(--duration) var(--ease-out);
+}
+.reasoning-ticks {
+  position: absolute;
+  inset: 16px calc(var(--knob) / 2);
+  display: flex;
+  justify-content: space-between;
+  pointer-events: none;
+}
+.reasoning-ticks i {
+  width: 2px;
+  border-radius: 1px;
+  background: color-mix(in srgb, var(--ink) 14%, transparent);
+}
+.reasoning-ticks i:first-child,
+.reasoning-ticks i:last-child {
+  visibility: hidden;
+}
+.reasoning-name {
+  position: absolute;
+  inset: 0 auto 0 var(--space-section);
+  display: flex;
+  align-items: center;
+  font-size: 0.9375rem;
+  font-weight: 700;
+  color: var(--on-accent);
+  pointer-events: none;
+}
+.reasoning-slider.is-low .reasoning-name {
+  left: calc(var(--knob) + var(--space-inline));
+  color: var(--ink);
+}
+.reasoning-knob {
+  position: absolute;
+  top: 50%;
+  left: calc(var(--knob) / 2 + (100% - var(--knob)) * var(--position));
+  width: 28px;
+  height: 28px;
+  margin: -14px 0 0 -14px;
+  border-radius: 50%;
+  background: white;
+  box-shadow:
+    0 0 0 5px color-mix(in srgb, white 22%, transparent),
+    0 0 16px color-mix(in srgb, white 60%, transparent);
+  transition: left var(--duration) var(--ease-out);
+  pointer-events: none;
+}
+.reasoning-slider input {
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+}
+.reasoning-slider input::-webkit-slider-runnable-track {
+  height: 100%;
+}
+/* Thumb width equals --knob, so the native value maps onto the drawn knob. */
+.reasoning-slider input::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: var(--knob);
+  height: 52px;
+}
+.reasoning-slider input::-moz-range-thumb {
+  width: var(--knob);
+  height: 52px;
+  border: 0;
+}
+.reasoning-ends {
+  display: flex;
+  justify-content: space-between;
+  margin: var(--space-inline) var(--space-content) 0;
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+.reasoning-ends > span {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.reasoning-ends .icon {
+  width: 14px;
+  height: 14px;
+}
+.reasoning-description {
+  margin: 6px var(--space-content) var(--space-inline);
+  color: var(--muted);
+  font-size: 0.75rem;
 }

@@ -1,7 +1,7 @@
-import { DropdownMenu } from '@kobalte/core/dropdown-menu';
-import { createEffect, createSignal, For, onCleanup, Show } from 'solid-js';
+import { Popover } from '@kobalte/core/popover';
+import { createEffect, createSignal, For, Index, onCleanup, Show } from 'solid-js';
 import { rpc } from '../browser/client';
-import type { ChatGPTModel } from '../connections/chatgpt';
+import type { ChatGPTModel, ReasoningLevel } from '../connections/chatgpt';
 import { icon } from './icons';
 import './model-picker.css';
 
@@ -15,6 +15,7 @@ export function ModelPicker(props: {
   onSelected: () => Promise<void>;
 }) {
   const [open, setOpen] = createSignal(false);
+  let panel: HTMLDivElement | undefined;
   // Phones show the menu as a bottom sheet over a scrim.
   const phone = matchMedia('(max-width: 700px)');
   const [sheet, setSheet] = createSignal(phone.matches);
@@ -79,7 +80,6 @@ export function ModelPicker(props: {
     try {
       await rpc('chatgpt', { action: 'reasoning', effort });
       setReasoning(effort);
-      setOpen(false);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -94,7 +94,7 @@ export function ModelPicker(props: {
   return (
     <Show when={props.enabled}>
       <div class="model-picker">
-        <DropdownMenu
+        <Popover
           modal={false}
           open={open()}
           onOpenChange={(value) => {
@@ -104,15 +104,15 @@ export function ModelPicker(props: {
           placement="top-start"
           gutter={8}
         >
-          <DropdownMenu.Trigger
+          <Popover.Trigger
             class="model-trigger icon-button"
             type="button"
             aria-label={'Choose model, ' + name()}
             title={name() + (reasoning() ? ' · ' + effortName(reasoning()!) + ' reasoning' : '')}
           >
             <span class="icon-slot" innerHTML={icon('spark')} />
-          </DropdownMenu.Trigger>
-          <DropdownMenu.Portal>
+          </Popover.Trigger>
+          <Popover.Portal>
             <Show when={sheet()}>
               {/* Catches taps outside the sheet so they never reach the chat underneath. */}
               <div
@@ -124,8 +124,21 @@ export function ModelPicker(props: {
                 }}
               />
             </Show>
-            <DropdownMenu.Content class="model-menu" aria-label="Models">
-              <div class="model-menu-label">Model</div>
+            <Popover.Content
+              class="model-menu"
+              aria-label="Model and reasoning"
+              ref={panel}
+              onOpenAutoFocus={(event) => {
+                event.preventDefault();
+                (
+                  panel?.querySelector<HTMLElement>('[aria-pressed="true"]') ??
+                  panel?.querySelector<HTMLElement>('button, input')
+                )?.focus();
+              }}
+            >
+              <div class="model-menu-label" id="model-list-label">
+                Model
+              </div>
               <Show when={loading()}>
                 <p class="model-menu-note" role="status">
                   Loading models…
@@ -135,81 +148,140 @@ export function ModelPicker(props: {
                 <p class="model-menu-error" role="alert">
                   {error()}
                 </p>
-                <DropdownMenu.Item
-                  class="model-option"
-                  closeOnSelect={false}
-                  onSelect={() => void load()}
-                >
+                <button type="button" class="model-option" onClick={() => void load()}>
                   Try again
-                </DropdownMenu.Item>
+                </button>
               </Show>
-              <DropdownMenu.RadioGroup
-                value={selected()}
-                onChange={(value) => void choose(value)}
-                aria-label="Available models"
-              >
-                <For each={models()}>
+              <div class="model-list" role="group" aria-labelledby="model-list-label">
+                {/* Index keeps buttons in place when the list reloads, so focus survives. */}
+                <Index each={models()}>
                   {(model) => (
-                    <DropdownMenu.RadioItem
+                    <button
+                      type="button"
                       class="model-option"
-                      value={model.slug}
-                      closeOnSelect={false}
-                      disabled={loading() || saving()}
+                      aria-pressed={model().slug === selected()}
+                      disabled={saving()}
+                      onClick={() => model().slug !== selected() && void choose(model().slug)}
                     >
-                      <DropdownMenu.ItemLabel>{model.name}</DropdownMenu.ItemLabel>
-                      <DropdownMenu.ItemIndicator>
+                      {model().name}
+                      <Show when={model().slug === selected()}>
                         <span class="icon-slot" innerHTML={icon('check')} />
-                      </DropdownMenu.ItemIndicator>
-                    </DropdownMenu.RadioItem>
+                      </Show>
+                    </button>
                   )}
-                </For>
-              </DropdownMenu.RadioGroup>
+                </Index>
+              </div>
               <Show when={!loading() && !error() && !models().length}>
                 <p class="model-menu-note">No models available.</p>
               </Show>
               <Show when={saving()}>
                 <p class="model-menu-note" role="status">
-                  Switching model…
+                  Saving…
                 </p>
               </Show>
-              <Show when={levels().length}>
-                <DropdownMenu.Separator class="model-menu-separator" />
-                <div class="model-menu-label">Reasoning</div>
-                <DropdownMenu.RadioGroup
-                  value={reasoning() ?? ''}
-                  onChange={(value) => void chooseReasoning(value)}
-                  aria-label="Reasoning levels"
-                >
-                  <For each={levels()}>
-                    {(level) => (
-                      <DropdownMenu.RadioItem
-                        class="model-option"
-                        value={level.effort}
-                        closeOnSelect={false}
-                        disabled={loading() || saving()}
-                      >
-                        <span class="model-option-text">
-                          <DropdownMenu.ItemLabel>
-                            {effortName(level.effort)}
-                          </DropdownMenu.ItemLabel>
-                          <Show when={level.description}>
-                            <DropdownMenu.ItemDescription class="model-option-description">
-                              {level.description}
-                            </DropdownMenu.ItemDescription>
-                          </Show>
-                        </span>
-                        <DropdownMenu.ItemIndicator>
-                          <span class="icon-slot" innerHTML={icon('check')} />
-                        </DropdownMenu.ItemIndicator>
-                      </DropdownMenu.RadioItem>
-                    )}
-                  </For>
-                </DropdownMenu.RadioGroup>
+              <Show when={levels().length > 1}>
+                <hr class="model-menu-separator" />
+                <ReasoningSlider
+                  levels={levels()}
+                  value={reasoning()}
+                  onChange={(effort) => void chooseReasoning(effort)}
+                />
               </Show>
-            </DropdownMenu.Content>
-          </DropdownMenu.Portal>
-        </DropdownMenu>
+            </Popover.Content>
+          </Popover.Portal>
+        </Popover>
       </div>
     </Show>
+  );
+}
+
+/** Faster ↔ Smarter. A native range input keeps drag, tap, keys and screen readers; the pill is drawn under it. */
+function ReasoningSlider(props: {
+  levels: ReasoningLevel[];
+  value?: string;
+  onChange: (effort: string) => void;
+}) {
+  const committed = () =>
+    Math.max(
+      0,
+      props.levels.findIndex((level) => level.effort === props.value),
+    );
+  const [index, setIndex] = createSignal(committed());
+  createEffect(() => setIndex(committed()));
+  const level = () => props.levels[index()];
+  const commit = (value: number) => {
+    const next = props.levels[value];
+    if (next.effort !== props.value) props.onChange(next.effort);
+  };
+  // Taps and drags are handled here so every platform jumps to the touched stop.
+  let dragging = false;
+  const indexAt = (event: PointerEvent) => {
+    const track = event.currentTarget as HTMLElement;
+    const box = track.getBoundingClientRect();
+    const knob = parseFloat(getComputedStyle(track).getPropertyValue('--knob'));
+    const t = (event.clientX - box.left - knob / 2) / Math.max(1, box.width - knob);
+    return Math.round(Math.min(1, Math.max(0, t)) * (props.levels.length - 1));
+  };
+  const position = () => index() / (props.levels.length - 1);
+  return (
+    <div class="reasoning" role="group" aria-label="Reasoning">
+      <div class="model-menu-label">Reasoning</div>
+      <div
+        class="reasoning-slider"
+        classList={{ 'is-low': index() === 0 }}
+        style={{ '--position': position() }}
+        onPointerDown={(event) => {
+          dragging = true;
+          event.currentTarget.setPointerCapture(event.pointerId);
+          event.currentTarget.querySelector('input')?.focus({ preventScroll: true });
+          setIndex(indexAt(event));
+        }}
+        onPointerMove={(event) => dragging && setIndex(indexAt(event))}
+        onPointerUp={() => {
+          if (!dragging) return;
+          dragging = false;
+          commit(index());
+        }}
+        onPointerCancel={() => {
+          dragging = false;
+          setIndex(committed());
+        }}
+      >
+        <div class="reasoning-glow">
+          <div class="reasoning-fill" />
+        </div>
+        <div class="reasoning-ticks" aria-hidden="true">
+          <For each={props.levels}>{() => <i />}</For>
+        </div>
+        <span class="reasoning-name" aria-hidden="true">
+          {effortName(level().effort)}
+        </span>
+        <span class="reasoning-knob" aria-hidden="true" />
+        <input
+          type="range"
+          min="0"
+          max={props.levels.length - 1}
+          step="1"
+          value={index()}
+          aria-label="Reasoning level"
+          aria-valuetext={effortName(level().effort)}
+          onInput={(event) => setIndex(Number(event.currentTarget.value))}
+          onChange={(event) => commit(Number(event.currentTarget.value))}
+        />
+      </div>
+      <div class="reasoning-ends" aria-hidden="true">
+        <span>
+          <span class="icon-slot" innerHTML={icon('bolt')} />
+          Faster
+        </span>
+        <span>
+          Smarter
+          <span class="icon-slot" innerHTML={icon('brain')} />
+        </span>
+      </div>
+      <Show when={level().description}>
+        <p class="reasoning-description">{level().description}</p>
+      </Show>
+    </div>
   );
 }
