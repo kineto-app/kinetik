@@ -136,7 +136,7 @@ test('connections and composer uploads complete their visible workflows', async 
     'Example plugin received: from the UI',
   );
   const choosing = page.waitForEvent('filechooser');
-  await page.getByRole('button', { name: 'Add a file', exact: true }).click();
+  await page.getByRole('button', { name: 'Add files', exact: true }).click();
   await (
     await choosing
   ).setFiles({

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Choose a reasoning level for the current ChatGPT model from the composer's model menu. Add several files at once from the file picker on web and Android.
+
 - Show attached photos as thumbnails in the composer and as a swipeable row of photos and file cards in sent messages, with a full-screen photo viewer. Move the model picker into the composer as an icon that opens a list, or a bottom sheet on phones. Keep the one-line composer pill-shaped.
 
 - Add required installation for configured hosted apps, device-specific install guidance, and resumable account setup inside the installed PWA. Local repository runs skip installation.

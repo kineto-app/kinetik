@@ -48,6 +48,22 @@
   overflow-wrap: anywhere;
   outline-offset: -2px;
 }
+.model-option-text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.model-option-description {
+  color: var(--muted);
+  font-size: 0.75rem;
+  line-height: 1.35;
+}
+.model-menu-separator {
+  height: 1px;
+  margin: var(--space-inline) var(--space-content);
+  border: 0;
+  background: var(--line);
+}
 .model-option[data-highlighted] {
   background: var(--hover);
 }

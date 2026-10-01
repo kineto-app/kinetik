@@ -1,6 +1,6 @@
 [package]
 name = "kinetik"
-version = "0.1.5"
+version = "0.1.6"
 description = "Local-first agent with replaceable tools"
 authors = ["Kinetik contributors"]
 license = "MIT"

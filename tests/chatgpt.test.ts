@@ -422,6 +422,7 @@ test('model picker preserves catalog order and names and excludes hidden models'
   );
   expect(await client.models()).toEqual({
     selected: 'gpt-6.1-sol',
+    reasoning: 'medium',
     models: [
       { slug: 'first', name: 'First model' },
       { slug: 'gpt-6.1-sol', name: 'GPT-6.1 Sol' },
@@ -475,4 +476,69 @@ test('model selection cannot overwrite a session changed while the catalog loads
   });
   await expect(client.chooseModel('another-model')).rejects.toThrow('account changed');
   expect(await store.get('session')).toBeNull();
+});
+
+test('reasoning levels come from the catalog, persist per model, and reach inference', async () => {
+  await begin();
+  await client.callback(callback());
+  const request = fetcher.getMockImplementation()!;
+  let sent: any;
+  fetcher.mockImplementation((input, init) => {
+    if (String(input).endsWith('/models'))
+      return Promise.resolve(
+        Response.json({
+          models: [
+            {
+              slug: 'gpt-6.1-sol',
+              display_name: 'GPT-6.1 Sol',
+              visibility: 'list',
+              default_reasoning_level: 'low',
+              supported_reasoning_levels: [
+                { effort: 'low', description: 'Fast' },
+                { effort: 'xhigh', description: 'Deep' },
+                { effort: 'ultra', description: 'Delegates' },
+                { effort: 'Bad Value' },
+              ],
+            },
+            { slug: 'plain', display_name: 'Plain', visibility: 'list' },
+          ],
+        }),
+      );
+    if (String(input).endsWith('/responses')) {
+      sent = JSON.parse(String(init?.body));
+      return Promise.resolve(new Response('data: test\n\n'));
+    }
+    return request(input, init);
+  });
+  expect(await client.models()).toEqual({
+    selected: 'gpt-6.1-sol',
+    reasoning: 'medium',
+    models: [
+      {
+        slug: 'gpt-6.1-sol',
+        name: 'GPT-6.1 Sol',
+        reasoning: [
+          { effort: 'low', description: 'Fast' },
+          { effort: 'xhigh', description: 'Deep' },
+        ],
+        defaultReasoning: 'low',
+      },
+      { slug: 'plain', name: 'Plain' },
+    ],
+  });
+  await expect(client.chooseReasoning('ultra')).rejects.toThrow('not available');
+  await client.chooseReasoning('xhigh');
+  await store.update<any>('session', (session) => ({ ...session, expires: 1 }));
+  const reopened = new BrowserChatGPT(base + 'connections/chatgpt/keys', store, fetcher);
+  await reopened.responses({ account: 'person', request: {} }, new AbortController().signal);
+  expect(refreshes).toBe(1);
+  expect(sent.reasoning).toEqual({ effort: 'xhigh' });
+  expect((await reopened.models()).reasoning).toBe('xhigh');
+  await reopened.chooseModel('plain');
+  await reopened.responses({ account: 'person', request: {} }, new AbortController().signal);
+  expect(sent.reasoning).toBeUndefined();
+  await expect(reopened.chooseReasoning('low')).rejects.toThrow('not available');
+  await reopened.chooseModel('gpt-6.1-sol');
+  await reopened.responses({ account: 'person', request: {} }, new AbortController().signal);
+  expect(sent.reasoning).toEqual({ effort: 'medium' });
 });

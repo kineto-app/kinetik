@@ -83,20 +83,29 @@ test('photos preview in the composer, the sent message, and a full-screen viewer
 }, info) => {
   await page.goto('/');
   await expect(page.locator('#status')).toHaveText('Ready');
-  for (const [index, hue] of [20, 200, 300].entries())
-    await page.locator('#upload').setInputFiles({
-      name: `photo-${index + 1}.png`,
-      mimeType: 'image/png',
-      buffer: await photo(page, hue),
-    });
-  for (const name of ['brief.pdf', 'remove.txt'])
-    await page.locator('#upload').setInputFiles({
+  // One picker selection with several files keeps their order.
+  await page.locator('#upload').setInputFiles([
+    ...(await Promise.all(
+      [20, 200, 300].map(async (hue, index) => ({
+        name: `photo-${index + 1}.png`,
+        mimeType: 'image/png',
+        buffer: await photo(page, hue),
+      })),
+    )),
+    ...['brief.pdf', 'remove.txt'].map((name) => ({
       name,
       mimeType: 'application/octet-stream',
       buffer: Buffer.from('%PDF-1.4'),
-    });
+    })),
+  ]);
   const tray = page.getByRole('list', { name: 'Attached files' });
   await expect(tray.getByRole('listitem')).toHaveCount(5);
+  expect(
+    await tray
+      .getByRole('listitem')
+      .evaluateAll((items) => items.map((i) => i.getAttribute('title'))),
+  ).toEqual(['photo-1.png', 'photo-2.png', 'photo-3.png', 'brief.pdf', 'remove.txt']);
+  await expect(page.locator('#ui-announcement')).toHaveText('Attached 5 files');
   await expect(tray.getByRole('img', { name: 'photo-3.png' })).toBeVisible();
   await expect(page.locator('#composer')).toHaveClass(/expanded/);
   await page.getByRole('button', { name: 'Remove remove.txt', exact: true }).click();

@@ -6,10 +6,18 @@ const tokenEndpoint = issuer + '/api/accounts/oauth/token';
 const redirectUri = 'http://127.0.0.1:1455/auth/callback';
 const resource = 'https://api.openai.com/v1';
 const defaultModel = 'gpt-6.1-sol';
+export interface ReasoningLevel {
+  effort: string;
+  description: string;
+}
 export interface ChatGPTModel {
   slug: string;
   name: string;
+  reasoning?: ReasoningLevel[];
+  defaultReasoning?: string;
 }
+// `ultra` delegates to Codex sub-agents, which this client does not run.
+const unsupportedEfforts = new Set(['ultra']);
 const encode = (bytes: Uint8Array) =>
   btoa(String.fromCharCode(...bytes))
     .replaceAll('+', '-')
@@ -38,6 +46,8 @@ interface Session {
   expires: number;
   model: string;
   modelSelected?: boolean;
+  /** Chosen effort for `model`; unset means the app default for that model. */
+  reasoning?: string;
   account: string;
 }
 
@@ -226,16 +236,37 @@ export class BrowserChatGPT {
     const models = new Map<string, ChatGPTModel>();
     for (const model of catalog.models) {
       if (model?.visibility !== 'list' || typeof model.slug !== 'string' || !model.slug) continue;
-      if (!models.has(model.slug))
-        models.set(model.slug, {
-          slug: model.slug,
-          name:
-            typeof model.display_name === 'string' && model.display_name
-              ? model.display_name
-              : model.slug,
-        });
+      if (models.has(model.slug)) continue;
+      const reasoning: ReasoningLevel[] = Array.isArray(model.supported_reasoning_levels)
+        ? model.supported_reasoning_levels
+            .filter(
+              (level: any) =>
+                typeof level?.effort === 'string' &&
+                /^[a-z]{1,20}$/.test(level.effort) &&
+                !unsupportedEfforts.has(level.effort),
+            )
+            .map((level: any) => ({
+              effort: level.effort,
+              description: typeof level.description === 'string' ? level.description : '',
+            }))
+        : [];
+      models.set(model.slug, {
+        slug: model.slug,
+        name:
+          typeof model.display_name === 'string' && model.display_name
+            ? model.display_name
+            : model.slug,
+        ...(reasoning.length ? { reasoning } : {}),
+        ...(reasoning.some((level) => level.effort === model.default_reasoning_level)
+          ? { defaultReasoning: model.default_reasoning_level }
+          : {}),
+      });
     }
     return [...models.values()];
+  }
+  /** GPT-6.1 Sol runs at medium unless chosen otherwise; other models use the provider default. */
+  private effort(session: Session) {
+    return session.reasoning ?? (session.model === defaultModel ? 'medium' : undefined);
   }
   private async selectModel(session: Session, signal?: AbortSignal) {
     if (!(await this.catalog(session, signal)).some((model) => model.slug === defaultModel))
@@ -245,7 +276,14 @@ export class BrowserChatGPT {
   async models() {
     const status = await this.status();
     const session = await this.access(status.account, AbortSignal.timeout(30000), false);
-    return { models: await this.catalog(session), selected: session.model };
+    const models = await this.catalog(session);
+    return {
+      models,
+      selected: session.model,
+      reasoning:
+        this.effort(session) ??
+        models.find((model) => model.slug === session.model)?.defaultReasoning,
+    };
   }
   async chooseModel(slug: string) {
     const status = await this.status();
@@ -256,8 +294,27 @@ export class BrowserChatGPT {
       const current = await this.storedSession();
       if (!current || current.account !== session.account)
         throw new Error('ChatGPT account changed. Choose the model again.');
-      await this.store.put('session', { ...current, model: slug, modelSelected: true });
+      await this.store.put('session', {
+        ...current,
+        model: slug,
+        modelSelected: true,
+        reasoning: undefined,
+      });
       return { model: slug };
+    });
+  }
+  async chooseReasoning(effort: string) {
+    const status = await this.status();
+    const session = await this.access(status.account, AbortSignal.timeout(30000), false);
+    const model = (await this.catalog(session)).find((model) => model.slug === session.model);
+    if (!model?.reasoning?.some((level) => level.effort === effort))
+      throw new Error('This reasoning level is not available for the current model.');
+    return navigator.locks.request('kinetik-chatgpt', async () => {
+      const current = await this.storedSession();
+      if (!current || current.account !== session.account || current.model !== session.model)
+        throw new Error('The model changed. Choose the reasoning level again.');
+      await this.store.put('session', { ...current, reasoning: effort });
+      return { reasoning: effort };
     });
   }
   private session(tokens: Record<string, unknown>, account: string, previous?: Session): Session {
@@ -285,6 +342,7 @@ export class BrowserChatGPT {
       account,
       model: previous?.model ?? '',
       modelSelected: previous?.modelSelected,
+      reasoning: previous?.reasoning,
     };
   }
   private async identity(raw: unknown, clientId: string, nonce?: string) {
@@ -381,6 +439,7 @@ export class BrowserChatGPT {
       }
       if (migrateModel && !session.modelSelected && session.model !== defaultModel) {
         session.model = await this.selectModel(session, signal);
+        session.reasoning = undefined;
         await this.store.put('session', session);
       }
       return session;
@@ -400,7 +459,7 @@ export class BrowserChatGPT {
       body: JSON.stringify({
         ...body.request,
         model: session.model,
-        reasoning: session.model === defaultModel ? { effort: 'medium' } : undefined,
+        reasoning: this.effort(session) ? { effort: this.effort(session) } : undefined,
         store: false,
         stream: true,
       }),

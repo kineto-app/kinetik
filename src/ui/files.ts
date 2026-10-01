@@ -18,7 +18,7 @@ const textTypes = new Set(['txt', 'md', 'markdown', 'csv', 'json', 'yaml', 'yml'
 const extension = (file: SharedFile) => file.name.split('.').at(-1)!.toLowerCase();
 const textLimit = 32000;
 export const filesDialog = `
-<input type="file" id="upload" hidden aria-label="Add a file" />
+<input type="file" id="upload" hidden multiple aria-label="Add files" />
 <dialog id="file-dialog" aria-labelledby="file-preview-name"><div id="file-view"></div></dialog>`;
 const byId = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const readFile = (file: SharedFile) =>
@@ -221,12 +221,16 @@ export function setupFiles(attach: (file: { name: string; bytes: Uint8Array }) =
   byId('upload').onchange = () => {
     void (async () => {
       const input = byId<HTMLInputElement>('upload');
-      const file = input.files?.[0];
-      if (!file) return;
+      const files = [...(input.files ?? [])];
       input.value = '';
-      if (file.size > 25 * 1024 * 1024) throw new Error('Choose a file smaller than 25 MB.');
-      await attach({ name: file.name, bytes: new Uint8Array(await file.arrayBuffer()) });
-      byId('ui-announcement').textContent = 'Attached ' + file.name;
+      // One at a time keeps the chosen order and stops at the first file over the limits.
+      for (const file of files) {
+        if (file.size > 25 * 1024 * 1024) throw new Error('Choose a file smaller than 25 MB.');
+        await attach({ name: file.name, bytes: new Uint8Array(await file.arrayBuffer()) });
+      }
+      if (files.length)
+        byId('ui-announcement').textContent =
+          files.length === 1 ? 'Attached ' + files[0].name : `Attached ${files.length} files`;
     })().catch((error) => showFeedback(error, 'error'));
   };
 }

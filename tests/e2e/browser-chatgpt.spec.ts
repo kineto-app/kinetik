@@ -81,7 +81,17 @@ for (const relay of [false, true]) {
           await route.fulfill({
             json: {
               models: [
-                { slug: 'test-model', display_name: 'Test model', visibility: 'list' },
+                {
+                  slug: 'test-model',
+                  display_name: 'Test model',
+                  visibility: 'list',
+                  default_reasoning_level: 'low',
+                  supported_reasoning_levels: [
+                    { effort: 'low', description: 'Fast responses' },
+                    { effort: 'high', description: 'Deeper reasoning' },
+                    { effort: 'ultra', description: 'Automatic task delegation' },
+                  ],
+                },
                 { slug: 'gpt-6.1-sol', display_name: 'GPT-6.1 Sol', visibility: 'list' },
                 { slug: 'hidden-model', display_name: 'Hidden model', visibility: 'hidden' },
               ],
@@ -94,7 +104,7 @@ for (const relay of [false, true]) {
         expect(body.store).toBe(false);
         expect(body.stream).toBe(true);
         expect(body.model).toBe(requests === 1 ? 'gpt-6.1-sol' : 'test-model');
-        expect(body.reasoning).toEqual(requests === 1 ? { effort: 'medium' } : undefined);
+        expect(body.reasoning).toEqual({ effort: requests === 1 ? 'medium' : 'high' });
         await route.fulfill({
           contentType: 'text/event-stream',
           body:
@@ -200,7 +210,19 @@ for (const relay of [false, true]) {
       await expect(otherModel).toBeFocused();
       await page.keyboard.press('Enter');
     }
-    await expect(page.getByRole('button', { name: 'Choose model, Test model' })).toBeVisible();
+    const testModel = page.getByRole('button', { name: 'Choose model, Test model' });
+    await expect(testModel).toBeVisible();
+    await testModel.click();
+    await expect(page.getByRole('menuitemradio', { name: /^Low/ })).toBeChecked();
+    await expect(page.getByRole('menuitemradio', { name: /^Ultra/ })).toHaveCount(0);
+    expect((await new AxeBuilder({ page }).include('.model-menu').analyze()).violations).toEqual(
+      [],
+    );
+    await page.screenshot({ path: test.info().outputPath('reasoning-menu.png') });
+    const high = page.getByRole('menuitemradio', { name: /^High/ });
+    if (test.info().project.use.isMobile) await high.tap();
+    else await high.click();
+    await expect(testModel).toHaveAttribute('title', 'Test model · High reasoning');
     const devtools = await context.newCDPSession(page);
     await devtools.send('ServiceWorker.enable');
     await devtools.send('ServiceWorker.stopAllWorkers');
