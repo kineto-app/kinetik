@@ -159,54 +159,62 @@ export function Shell() {
               </div>
             </div>
             <div id="error" class="feedback" role="alert"></div>
-            <div id="attachments" class="attachment-list" aria-label="Attached files" hidden></div>
             <div id="attachment-status" class="field-hint" role="status"></div>
-            <div id="model-picker"></div>
             <form id="composer" class="composer">
-              <button
-                type="button"
-                id="attach"
-                class="icon-button"
-                aria-label="Add a file"
-                title="Add a file"
-              >
-                <Icon name="plus" />
-              </button>
-              <label class="sr-only" for="prompt">
-                Message
-              </label>
-              <textarea
-                id="prompt"
-                aria-describedby="composer-hint"
-                placeholder="Message Kinetik…"
-                rows="1"
-                maxlength="16384"
-              ></textarea>
-              <div class="composer-actions">
+              <div
+                id="attachments"
+                class="attachment-tray"
+                role="list"
+                aria-label="Attached files"
+                hidden
+              ></div>
+              <div class="composer-row">
                 <button
                   type="button"
-                  id="stop"
-                  class="primary"
-                  hidden
-                  aria-label="Stop"
-                  title="Stop"
+                  id="attach"
+                  class="icon-button"
+                  aria-label="Add a file"
+                  title="Add a file"
                 >
-                  <Icon name="stop" />
+                  <Icon name="plus" />
                 </button>
-                <button
-                  class="primary"
-                  id="send"
-                  type="submit"
-                  disabled
-                  aria-label="Send"
-                  title="Send"
-                >
-                  <Icon name="arrowUp" />
-                </button>
+                <label class="sr-only" for="prompt">
+                  Message
+                </label>
+                <textarea
+                  id="prompt"
+                  aria-describedby="composer-hint"
+                  placeholder="Message Kinetik…"
+                  rows="1"
+                  maxlength="16384"
+                ></textarea>
+                <div id="model-picker"></div>
+                <div class="composer-actions">
+                  <button
+                    type="button"
+                    id="stop"
+                    class="primary"
+                    hidden
+                    aria-label="Stop"
+                    title="Stop"
+                  >
+                    <Icon name="stop" />
+                  </button>
+                  <button
+                    class="primary"
+                    id="send"
+                    type="submit"
+                    disabled
+                    aria-label="Send"
+                    title="Send"
+                  >
+                    <Icon name="arrowUp" />
+                  </button>
+                </div>
+                <span class="sr-only" id="model-label">
+                  Preview
+                </span>
               </div>
-              <span class="sr-only" id="model-label">
-                Preview
-              </span>
             </form>
             <div class="composer-foot sr-only">
               <span id="composer-hint">Enter for a new line. Use Send to send your message.</span>

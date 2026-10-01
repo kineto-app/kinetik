@@ -160,10 +160,17 @@ dialog:not(.connection-setup) {
 }
 .composer {
   display: flex;
+  flex-direction: column;
+  padding: 7px;
+  border-radius: var(--radius-pill);
+}
+.composer.expanded {
+  border-radius: var(--radius-island);
+}
+.composer-row {
+  display: flex;
   align-items: flex-end;
   gap: var(--space-inline);
-  padding: 7px;
-  border-radius: var(--radius-island);
 }
 .composer #prompt {
   flex: 1;

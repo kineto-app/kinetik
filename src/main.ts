@@ -1,4 +1,5 @@
 import { MessageBubble } from './ui/message';
+import { makePreview, trayItem } from './ui/attachments';
 import { ModelPicker } from './ui/model-picker';
 import { setupDataTransfer } from './ui/data-transfer';
 import { createSignal } from 'solid-js';
@@ -273,33 +274,26 @@ function renderAttachments() {
   const container = byId('attachments');
   const files = current()?.attachments ?? [];
   container.hidden = !files.length;
+  container.setAttribute('aria-busy', String(submitting));
+  const conversationId = selected;
   container.replaceChildren(
-    ...files.map((file) => {
-      const chip = document.createElement('div');
-      chip.className = 'attachment-chip';
-      const name = document.createElement('span');
-      name.textContent = file.name;
-      name.title = file.name;
-      const remove = document.createElement('button');
-      remove.type = 'button';
-      remove.className = 'icon-button';
-      remove.innerHTML = icon('close');
-      remove.setAttribute('aria-label', 'Remove ' + file.name);
-      remove.disabled = submitting;
-      const conversationId = selected;
-      remove.onclick = () => {
-        void rpc('attachmentRemove', { id: conversationId, attachmentId: file.id })
-          .then(refresh)
-          .catch(showError);
-      };
-      chip.append(name, remove);
-      return chip;
-    }),
+    ...files.map((file) =>
+      trayItem(
+        file,
+        () => {
+          void rpc('attachmentRemove', { id: conversationId, attachmentId: file.id })
+            .then(refresh)
+            .catch(showError);
+        },
+        submitting,
+      ),
+    ),
   );
 }
 async function stageFile(file: { name: string; bytes: Uint8Array }) {
   if (!current()) selected = (await rpc<Conversation>('create')).id;
-  await rpc('attachmentStage', { id: selected, ...file });
+  const preview = await makePreview(file.name, file.bytes);
+  await rpc('attachmentStage', { id: selected, ...file, ...(preview ? { preview } : {}) });
   byId('error').textContent = '';
   await refresh();
 }
@@ -326,6 +320,8 @@ function updateComposer() {
   uiStorage.setItem(draftKey, input.value);
   input.style.height = 'auto';
   input.style.height = Math.min(input.scrollHeight, 144) + 'px';
+  // A single row is a pill; extra lines or the tray need straight sides.
+  byId('composer').classList.toggle('expanded', hasAttachments || input.scrollHeight > 48);
 }
 byId('prompt').addEventListener('input', updateComposer);
 const narrow = matchMedia('(max-width: 700px)');

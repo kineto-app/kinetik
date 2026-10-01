@@ -35,7 +35,7 @@ function control(name: IconName, label: string, action: () => void) {
   button.onclick = action;
   return button;
 }
-function download(file: SharedFile, bytes: Uint8Array) {
+export function download(file: SharedFile, bytes: Uint8Array) {
   if (isNative) {
     void import('../platform/files')
       .then(({ saveNativeFile }) => saveNativeFile(file.name, bytes))
@@ -51,7 +51,7 @@ function download(file: SharedFile, bytes: Uint8Array) {
   link.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
-function sizeLabel(bytes: number) {
+export function sizeLabel(bytes: number) {
   return bytes < 1024
     ? `${bytes} B`
     : bytes < 1024 * 1024
