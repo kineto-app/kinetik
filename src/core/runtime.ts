@@ -1,14 +1,7 @@
 import Ajv from 'ajv';
 import { toolOutcome } from './tool-outcome';
 import { ContextOverflow, isConnectionError, SignInRequired } from './connection-error';
-import {
-  compactAt,
-  compactPrompt,
-  defaultContextWindow,
-  estimateTokens,
-  splitPoint,
-  summaryPrefix,
-} from './compaction';
+import { Compactor, defaultContextWindow, estimateTokens } from './compaction';
 import { localSkills } from './skills';
 import { Automations } from './automation';
 import { BackgroundProcesses, type BackgroundProcess } from './background';
@@ -78,6 +71,7 @@ export class Runtime {
   private ajv = new Ajv({ strict: false });
   private chats: ConversationStore;
   private attachments: Attachments;
+  private compactor: Compactor;
   private workspace: ReturnType<typeof createFilesystem>;
   constructor(
     readonly store = new Store(),
@@ -89,6 +83,16 @@ export class Runtime {
     this.automations = new Automations(store, this, changed);
     this.workspace = createFilesystem(store);
     this.attachments = new Attachments(store, this.chats, this.plugins, this.workspace);
+    this.compactor = new Compactor({
+      store,
+      chats: this.chats,
+      model,
+      pin: (id) => this.pinFor(id),
+      ask: (id, request, signal) => this.modelNext(id, request, signal),
+      live: this.live,
+      progress: (id, live) => this.progress(id, live),
+      changed: () => this.changed(),
+    });
     this.background = new BackgroundProcesses(store, {
       resolve: async (job) => {
         const snapshot = await this.plugins.snapshot(
@@ -379,7 +383,7 @@ export class Runtime {
               callId: approved.callId,
             };
           else {
-            await this.compactIfNeeded(id, controller.signal);
+            await this.compactor.compactIfNeeded(id, controller.signal);
             const history = (await this.chats.load(id))?.modelInput;
             try {
               output = await this.requestStep(id, controller.signal, () =>
@@ -411,14 +415,14 @@ export class Runtime {
                 !isConnectionError(error) &&
                 !(error instanceof SignInRequired) &&
                 !(error instanceof ContextOverflow) &&
-                (await this.undoServerCompaction(id))
+                (await this.compactor.undoServerCompaction(id))
               ) {
                 step--;
                 continue;
               }
               if (!(error instanceof ContextOverflow)) throw error;
               // One summary and one retry; a second overflow means the current request alone is too large.
-              if (overflowRetried || !(await this.compactInput(id, controller.signal)))
+              if (overflowRetried || !(await this.compactor.compactInput(id, controller.signal)))
                 throw new Error(
                   'This chat no longer fits the model, even after summarising earlier messages. Start a new chat to continue.',
                 );
@@ -812,45 +816,6 @@ export class Runtime {
   private async modelNext(id: string, request: ModelRequest, signal: AbortSignal) {
     return this.model.next({ ...request, pin: await this.pinFor(id) }, signal);
   }
-  /** Provider compaction when available and not known to fail for this model; else undefined. */
-  private async serverCompact(input: Item[], pin: string | undefined, signal: AbortSignal) {
-    if (!this.model.compact || (await this.store.get('no-server-compact:' + (pin ?? 'chatgpt'))))
-      return undefined;
-    try {
-      const output = await abortable(this.model.compact(input, pin, signal), signal);
-      return Array.isArray(output) &&
-        output.length &&
-        output.every((item) => item && typeof item === 'object' && !Array.isArray(item))
-        ? output
-        : undefined;
-    } catch (error) {
-      signal.throwIfAborted();
-      return undefined;
-    }
-  }
-  /**
-   * The first request after a provider compaction was rejected: put the archived input back,
-   * stop using provider compaction for this model, and let the step run again.
-   */
-  private async undoServerCompaction(id: string): Promise<boolean> {
-    const c = await this.chats.load(id);
-    if (!c?.serverCompaction) return false;
-    const { n, head } = c.serverCompaction;
-    const archived = await this.store.get<Item[]>(`model-archive:${id}:${n}`);
-    if (!archived) return false;
-    await this.store.put('no-server-compact:' + (c.turnModel ?? 'chatgpt'), true);
-    await this.chats.update(id, (value) =>
-      value.serverCompaction?.n !== n
-        ? value
-        : {
-            ...value,
-            serverCompaction: undefined,
-            modelInput: [...archived, ...(value.modelInput ?? []).slice(head)],
-            context: undefined,
-          },
-    );
-    return true;
-  }
   /** Runs one model request and records its token usage on the conversation. */
   private async requestStep(
     id: string,
@@ -1071,101 +1036,6 @@ export class Runtime {
     }));
     return text;
   }
-  private async compactIfNeeded(id: string, signal: AbortSignal) {
-    const c = await this.chats.load(id);
-    const window = c?.context?.window ?? defaultContextWindow;
-    const tokens = c?.context?.tokens ?? estimateTokens(c?.modelInput);
-    if (tokens >= window * compactAt) await this.compactInput(id, signal);
-  }
-  /**
-   * Replaces model input before the latest user request with a model-written summary. The older
-   * part is archived first and the swap is one write, so redoing it after a crash is harmless.
-   */
-  private async compactInput(id: string, signal: AbortSignal): Promise<boolean> {
-    const previous = this.live.get(id);
-    this.progress(id, { step: previous?.step ?? 0, activity: 'summarising' });
-    try {
-      return await this.summarise(id, signal);
-    } finally {
-      if (previous) this.progress(id, previous);
-      else {
-        this.live.delete(id);
-        this.changed();
-      }
-    }
-  }
-  private async summarise(id: string, signal: AbortSignal): Promise<boolean> {
-    const c = await this.chats.load(id);
-    const input = c?.modelInput ?? [];
-    if (!c || c.call?.state === 'pending') return false;
-    let cut = splitPoint(input);
-    if (cut < 2) return false;
-    const pin = await this.pinFor(id);
-    let head = await this.serverCompact(input.slice(0, cut), pin, signal);
-    const server = Boolean(head);
-    let summary: string | undefined;
-    // An older part that itself overflows is shortened from the start until it fits.
-    for (let start = 0; !head && summary === undefined && start < cut;) {
-      try {
-        const step = await abortable(
-          this.modelNext(
-            id,
-            {
-              message: compactPrompt,
-              instructions: 'You write compact working notes about a conversation.',
-              tools: [],
-              definitions: {},
-              history: [...input.slice(start, cut), { role: 'user', content: compactPrompt }],
-            },
-            signal,
-          ),
-          signal,
-        );
-        if (step.type !== 'text') throw new Error('The summary request called a tool.');
-        summary = step.text;
-      } catch (error) {
-        if (!(error instanceof ContextOverflow)) throw error;
-        start =
-          splitPoint(input.slice(0, Math.max(start + 2, Math.floor((start + cut) / 2)))) || cut;
-        if (start >= cut) return false;
-      }
-    }
-    head ??= [{ role: 'user', content: summaryPrefix + summary }];
-    const n = (c.compactions ?? 0) + 1;
-    await this.store.put(`model-archive:${id}:${n}`, input.slice(0, cut));
-    const before = c.context?.tokens ?? estimateTokens(input);
-    let applied = false;
-    await this.chats.update(id, (value) => {
-      const current = value.modelInput ?? [];
-      // Only append-only growth is expected; anything else means another writer replaced it.
-      if (current.length < input.length || value.compactions !== c.compactions) return value;
-      applied = true;
-      const next = [...head!, ...current.slice(cut)];
-      return {
-        ...value,
-        modelInput: next,
-        compactions: n,
-        serverCompaction: server ? { n, head: head!.length } : undefined,
-        context: {
-          tokens: estimateTokens(next),
-          window: value.context?.window ?? defaultContextWindow,
-        },
-        messages: [
-          ...value.messages,
-          {
-            ...message(
-              'notice',
-              server
-                ? 'ChatGPT summarised earlier messages to keep this chat fast. Only ChatGPT can read this summary; a custom model will not see the earlier messages.'
-                : 'Summarised earlier messages to keep this chat fast.',
-            ),
-            compaction: { items: cut, tokens: before },
-          },
-        ],
-      };
-    });
-    return applied;
-  }
   /** On-demand compaction, outside a running turn. */
   async compact(id: string): Promise<void> {
     if (this.active.has(id))
@@ -1173,7 +1043,7 @@ export class Runtime {
     const controller = new AbortController();
     this.active.set(id, controller);
     try {
-      if (!(await this.compactInput(id, controller.signal)))
+      if (!(await this.compactor.compactInput(id, controller.signal)))
         await this.chats.update(id, (value) => ({
           ...value,
           messages: [...value.messages, message('notice', 'Nothing to summarise yet.')],
