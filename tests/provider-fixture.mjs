@@ -21,7 +21,7 @@ const sse = (res, events, pause = 0) => {
 function lastUserText(messages, read) {
   for (let i = messages.length - 1; i >= 0; i--) {
     const text = read(messages[i]);
-    if (text !== undefined) return text;
+    if (text !== undefined) return text.split('\n\nAttached files')[0];
   }
   return '';
 }
