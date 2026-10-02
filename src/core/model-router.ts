@@ -1,108 +1,106 @@
 import type { Store } from '../browser/store';
-import {
-  isProvider,
-  providerKey,
-  providerModels,
-  providerNames,
-  type ProviderCredential,
-  type ProviderId,
-} from './pi-model';
+import { customModelKey, type CustomModel } from './compat-model';
 import type { Model, ModelRequest, ModelStep } from './types';
 
-/** Sends a turn to ChatGPT or, when the user chose one, to Claude or Gemini. */
+/** Sends a turn to ChatGPT or, when the user chose it, to the custom OpenAI-compatible model. */
 export class ModelRouter implements Model {
   constructor(
     private store: Store,
     private chatgpt: Model,
-    private other: Model,
+    private custom: Model,
   ) {}
-  /** `provider:model` for a chosen Claude or Gemini model; undefined means ChatGPT. */
+  /** `custom` when the custom model is chosen; undefined means ChatGPT. */
   pin(): Promise<string | undefined> {
     return this.store.get<string>('model-choice');
   }
   async compact(input: Record<string, unknown>[], pin: string | undefined, signal: AbortSignal) {
-    // Compaction items are opaque to every provider but the one that wrote them.
-    if (isProvider(pin?.split(':')[0])) return undefined;
+    // ChatGPT's compaction items are opaque to every other model.
+    if (pin === 'custom') return undefined;
     return this.chatgpt.compact?.(input, pin, signal);
   }
   next(request: ModelRequest, signal: AbortSignal): Promise<ModelStep> {
-    return isProvider(request.pin?.split(':')[0])
-      ? this.other.next(request, signal)
+    return request.pin === 'custom'
+      ? this.custom.next(request, signal)
       : this.chatgpt.next(request, signal);
   }
 }
 
-export type ProvidersState = {
-  providers: {
-    id: ProviderId;
-    name: string;
-    connected: boolean;
-    baseUrl?: string;
-    models: { id: string; name: string }[];
-  }[];
-  choice?: string;
+export type CustomModelState = {
+  configured: boolean;
+  chosen: boolean;
+  baseUrl?: string;
+  model?: string;
+  contextWindow?: number;
+  images?: boolean;
+  hasKey?: boolean;
 };
 
-export async function providersState(store: Store): Promise<ProvidersState> {
-  const providers = await Promise.all(
-    (Object.keys(providerNames) as ProviderId[]).map(async (id) => {
-      const credential = await store.get<ProviderCredential | null>(providerKey(id));
-      return {
-        id,
-        name: providerNames[id],
-        connected: Boolean(credential?.apiKey),
-        baseUrl: credential?.baseUrl,
-        models: providerModels[id],
-      };
-    }),
-  );
-  return { providers, choice: await store.get<string>('model-choice') };
+export async function customModelState(store: Store): Promise<CustomModelState> {
+  const config = await store.get<CustomModel | null>(customModelKey);
+  return {
+    configured: Boolean(config),
+    chosen: (await store.get<string>('model-choice')) === 'custom',
+    ...(config
+      ? {
+          baseUrl: config.baseUrl,
+          model: config.model,
+          contextWindow: config.contextWindow,
+          images: config.images,
+          hasKey: Boolean(config.apiKey),
+        }
+      : {}),
+  };
 }
 
-/** Validates and applies one Settings or model-picker action on provider keys and the model choice. */
-export async function providersAction(store: Store, data: Record<string, unknown>) {
-  const provider = data.provider;
+/** Validates and applies one Settings or model-picker action on the custom model. */
+export async function customModelAction(store: Store, data: Record<string, unknown>) {
   switch (data.action) {
     case 'state':
       break;
     case 'save': {
-      if (!isProvider(provider)) throw new Error('Unknown provider.');
-      const apiKey = typeof data.apiKey === 'string' ? data.apiKey.trim() : '';
-      if (!/^[\x21-\x7e]{8,400}$/.test(apiKey)) throw new Error('Enter a valid API key.');
-      let baseUrl: string | undefined;
-      if (typeof data.baseUrl === 'string' && data.baseUrl.trim()) {
-        const url = new URL(data.baseUrl.trim());
-        const loopback = ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
-        if (url.protocol !== 'https:' && !(url.protocol === 'http:' && loopback))
-          throw new Error('The endpoint must use HTTPS.');
-        if (url.username || url.password || url.search || url.hash)
-          throw new Error('The endpoint must be a plain address.');
-        baseUrl = url.href.replace(/\/$/, '');
-      }
-      await store.put(providerKey(provider), { apiKey, ...(baseUrl ? { baseUrl } : {}) });
+      const url = new URL(String(data.baseUrl ?? '').trim());
+      const loopback = ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
+      if (url.protocol !== 'https:' && !(url.protocol === 'http:' && loopback))
+        throw new Error('The endpoint must use HTTPS, or HTTP on this device.');
+      if (url.username || url.password || url.search || url.hash)
+        throw new Error('The endpoint must be a plain address.');
+      const model = String(data.model ?? '').trim();
+      if (!/^[\w.:/@+-]{1,200}$/.test(model)) throw new Error('Enter the model name.');
+      const typed = typeof data.apiKey === 'string' ? data.apiKey.trim() : '';
+      if (typed && !/^[\x21-\x7e]{1,400}$/.test(typed)) throw new Error('Enter a valid API key.');
+      const window = data.contextWindow ? Number(data.contextWindow) : undefined;
+      if (
+        window !== undefined &&
+        !(Number.isInteger(window) && window >= 1000 && window <= 10_000_000)
+      )
+        throw new Error('The context window is a number of tokens, from 1000.');
+      const previous = await store.get<CustomModel | null>(customModelKey);
+      // A blank key keeps the saved one; servers on this device often need none.
+      const apiKey = typed || (data.clearKey ? undefined : previous?.apiKey);
+      await store.put<CustomModel>(customModelKey, {
+        baseUrl: url.href.replace(/\/$/, ''),
+        model,
+        ...(apiKey ? { apiKey } : {}),
+        ...(window ? { contextWindow: window } : {}),
+        ...(data.images === true ? { images: true } : {}),
+      });
       break;
     }
     case 'remove':
-      if (!isProvider(provider)) throw new Error('Unknown provider.');
       // A null write, not a delete, so device secure storage is cleared too.
-      await store.put(providerKey(provider), null);
-      if ((await store.get<string>('model-choice'))?.startsWith(provider + ':'))
+      await store.put(customModelKey, null);
+      if ((await store.get<string>('model-choice')) === 'custom')
         await store.delete('model-choice');
       break;
     case 'choose':
-      if (provider === 'chatgpt') {
-        await store.delete('model-choice');
-        break;
-      }
-      if (!isProvider(provider)) throw new Error('Unknown provider.');
-      if (!providerModels[provider].some((model) => model.id === data.model))
-        throw new Error('That model is not available.');
-      if (!(await store.get<ProviderCredential | null>(providerKey(provider)))?.apiKey)
-        throw new Error(`Add your ${providerNames[provider]} API key in Settings → Models first.`);
-      await store.put('model-choice', `${provider}:${data.model}`);
+      if (data.use === true) {
+        if (!(await store.get<CustomModel | null>(customModelKey)))
+          throw new Error('Set up the custom model in Settings → ChatGPT → Advanced first.');
+        await store.put('model-choice', 'custom');
+      } else await store.delete('model-choice');
       break;
     default:
-      throw new Error('Unknown models action.');
+      throw new Error('Unknown custom model action.');
   }
-  return providersState(store);
+  return customModelState(store);
 }

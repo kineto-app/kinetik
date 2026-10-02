@@ -276,6 +276,20 @@ label.settings-row {
   line-height: 1.45;
 }
 
-.provider-key-fields {
-  padding: 4px var(--space-content) var(--space-content);
+.custom-model {
+  padding: 0 var(--space-content) var(--space-content);
+}
+label.custom-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0 0;
+  font-weight: inherit;
+}
+label.custom-check input {
+  width: auto;
+  min-height: 0;
+}
+.custom-model .settings-note {
+  padding-inline: 0;
 }

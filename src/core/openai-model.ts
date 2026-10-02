@@ -10,7 +10,7 @@ export async function toolName(name: string): Promise<string> {
   return name.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 30) + '_' + suffix;
 }
 /** OpenAI-compatible streaming response parser. Success requires the terminal event. */
-const overflow = (code: unknown, text: unknown) =>
+export const overflow = (code: unknown, text: unknown) =>
   code === 'context_length_exceeded' ||
   /context (window|length)|maximum context|too many (input )?tokens/i.test(String(text ?? ''));
 export async function readResponse(
@@ -118,18 +118,8 @@ export async function readResponse(
   }
 }
 
-/** Items written by other providers, reduced to what the Responses API accepts. */
-export function forOpenAI(history: Record<string, unknown>[] | undefined) {
-  return history
-    ?.filter((item) => item.type !== 'pi_thinking')
-    .map((item) => {
-      if (item.type !== 'function_call' || !('provider' in item)) return item;
-      const { provider: _provider, thought_signature: _signature, ...call } = item;
-      return call;
-    });
-}
 /** Models without image input get a note in place of each photo instead of a rejected request. */
-function withoutImages(history: Record<string, unknown>[] | undefined) {
+export function withoutImages(history: Record<string, unknown>[] | undefined) {
   return history?.map((item) =>
     Array.isArray(item.content)
       ? {
@@ -201,7 +191,7 @@ export class OpenAIModel implements Model {
   async compact(input: Record<string, unknown>[], _pin: string | undefined, signal: AbortSignal) {
     if (!this.compactor) return undefined;
     const config = await this.configuration();
-    return this.compactor(config.account, forOpenAI(input) ?? [], signal);
+    return this.compactor(config.account, input, signal);
   }
   async next(request: ModelRequest, signal: AbortSignal): Promise<ModelStep> {
     const config = await this.configuration();
@@ -233,10 +223,8 @@ export class OpenAIModel implements Model {
           instructions: request.instructions,
           input:
             config.images === false
-              ? withoutImages(forOpenAI(request.history))
-              : (latestImages(forOpenAI(request.history)) ?? [
-                  { role: 'user', content: request.message },
-                ]),
+              ? withoutImages(request.history)
+              : (latestImages(request.history) ?? [{ role: 'user', content: request.message }]),
           tools: tools.length
             ? [{ type: 'namespace', name: 'kinetik', description: 'Kinetik agent tools', tools }]
             : [],

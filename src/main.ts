@@ -25,7 +25,7 @@ import { setupFiles } from './ui/files';
 import { setupUpdates } from './browser/updates';
 import { connect, rpc } from './browser/client';
 import type { Conversation, InstalledPlugin, RuntimeEvent } from './core/types';
-import type { ProvidersState } from './core/model-router';
+import type { CustomModelState } from './core/model-router';
 import { setupConnections } from './ui/onboarding';
 import {
   setSettingsActions,
@@ -56,34 +56,32 @@ const byId = <T extends HTMLElement>(id: string) => document.getElementById(id) 
 let state: State = { conversations: [], plugins: [], automations: [], background: [] };
 let connectionState: SetupState | undefined;
 const [modelState, setModelState] = createSignal({ chatgpt: false, hostChatgpt: false, model: '' });
-/** Claude or Gemini keys saved in Settings, and the chosen model if it is one of theirs. */
-const [otherModels, setOtherModels] = createSignal<{ connected: boolean; choice?: string }>({
-  connected: false,
+/** The hidden OpenAI-compatible model from Settings → ChatGPT → Advanced. */
+const [customModel, setCustomModel] = createSignal<{ configured: boolean; chosen: boolean }>({
+  configured: false,
+  chosen: false,
 });
-async function refreshOtherModels() {
-  const result = await rpc<ProvidersState>('providers', { action: 'state' });
-  setOtherModels({
-    connected: result.providers.some((provider) => provider.connected),
-    choice: result.choice,
-  });
+async function refreshCustomModel() {
+  const result = await rpc<CustomModelState>('customModel', { action: 'state' });
+  setCustomModel({ configured: result.configured, chosen: result.chosen });
   // The empty chat's ChatGPT hint depends on the choice.
   if (!current()?.messages.length) lastMessages = '';
   render();
 }
-window.addEventListener('kinetik-providers', () => {
-  void refreshOtherModels().catch(showError);
+window.addEventListener('kinetik-custom-model', () => {
+  void refreshCustomModel().catch(showError);
   // A turn waiting for a key continues once one is saved.
   void resumeWork();
 });
-/** The turn runs on Claude or Gemini, which use an API key instead of a sign-in. */
+/** The turn runs on the custom model, which uses an API key instead of a sign-in. */
 function apiKeyTurn(c: Conversation) {
-  return /^(anthropic|google):/.test(c.turnModel ?? '');
+  return c.turnModel === 'custom';
 }
 renderSolid(
   () =>
     ModelPicker({
       get enabled() {
-        return modelState().chatgpt || otherModels().connected;
+        return modelState().chatgpt || customModel().configured;
       },
       get chatgpt() {
         return modelState().chatgpt;
@@ -95,7 +93,7 @@ renderSolid(
         return modelState().model;
       },
       onSelected: async () => {
-        await refreshOtherModels();
+        await refreshCustomModel();
         await connectionSetup.refresh();
       },
     }),
@@ -256,7 +254,7 @@ function render() {
       empty.innerHTML = `<div class="welcome-mark" aria-hidden="true">${icon('spark')}</div><h2>What can we get done today?</h2><div class="starter"><div class="suggestions"></div></div><p class="preview-note">Preview uses sample replies. ChatGPT is not connected.</p>`;
       if (connectionState?.chatgpt.available) {
         empty.querySelector('.preview-note')!.textContent =
-          connectionState.chatgpt.connected || otherModels().choice
+          connectionState.chatgpt.connected || customModel().chosen
             ? ''
             : 'Connect ChatGPT to start a conversation.';
       }
@@ -544,8 +542,8 @@ byId('composer').onsubmit = (event) => {
     renderAttachments();
     updateComposer();
     try {
-      // A chosen Claude or Gemini model needs no ChatGPT sign-in.
-      if (connectionState?.chatgpt.available && !otherModels().choice) {
+      // A chosen custom model needs no ChatGPT sign-in.
+      if (connectionState?.chatgpt.available && !customModel().chosen) {
         await connectionSetup.refresh();
         if (!connectionState.chatgpt.connected) {
           connectionSetup.open();
@@ -740,7 +738,7 @@ async function start() {
     ? setupUpdates(registration)
     : import('./platform/updates').then(({ setupNativeUpdates }) => setupNativeUpdates());
   await refresh();
-  await refreshOtherModels().catch(() => {});
+  await refreshCustomModel().catch(() => {});
   await connectionSetup.initialize();
   await rpc('resume');
   await rpc('tick');
@@ -909,8 +907,8 @@ function resumeWork() {
 byId('resume-work').onclick = () => {
   const c = current();
   if (c?.waitingFor === 'signin' && apiKeyTurn(c)) {
-    // A Claude or Gemini turn waits for its API key, not for ChatGPT.
-    showSettings('models');
+    // A custom-model turn waits for its API key, not for ChatGPT.
+    showSettings('custom');
     void refreshSettingsData().catch(showError);
     openDialog('settings');
   } else if (c?.waitingFor === 'signin') connectionSetup.open();

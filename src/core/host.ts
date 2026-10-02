@@ -2,8 +2,8 @@ import type { RuntimeEvent } from './types';
 import { exportArchive, parseArchive } from './archive';
 import { Runtime } from '../core/runtime';
 import { MockModel } from './mock-model';
-import { ModelRouter, providersAction } from './model-router';
-import { PiModel, providerKey, type ProviderCredential } from './pi-model';
+import { ModelRouter, customModelAction } from './model-router';
+import { CompatModel, customModelKey, type CustomModel } from './compat-model';
 import { errorText } from '../core/types';
 import { Store } from '../browser/store';
 import type { BackgroundProcess } from '../core/background';
@@ -84,9 +84,8 @@ export class RuntimeHost {
       new ModelRouter(
         store,
         chatgptModel ?? new MockModel(),
-        new PiModel(
-          async (provider) =>
-            (await store.get<ProviderCredential | null>(providerKey(provider))) ?? undefined,
+        new CompatModel(
+          async () => (await store.get<CustomModel | null>(customModelKey)) ?? undefined,
         ),
       ),
     );
@@ -285,8 +284,8 @@ export class RuntimeHost {
           if (data.enabled !== undefined) await runtime.store.put('notify', data.enabled === true);
           result = (await runtime.store.get<boolean>('notify')) === true;
           break;
-        case 'providers':
-          result = await providersAction(store, data);
+        case 'customModel':
+          result = await customModelAction(store, data);
           break;
         case 'memory':
           if (data.text !== undefined) {

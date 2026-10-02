@@ -1424,7 +1424,7 @@ export class Runtime {
             ...message(
               'notice',
               server
-                ? 'ChatGPT summarised earlier messages to keep this chat fast. Only ChatGPT can read this summary; Claude and Gemini will not see the earlier messages.'
+                ? 'ChatGPT summarised earlier messages to keep this chat fast. Only ChatGPT can read this summary; a custom model will not see the earlier messages.'
                 : 'Summarised earlier messages to keep this chat fast.',
             ),
             compaction: { items: cut, tokens: before },

@@ -1,6 +1,6 @@
 import { createSignal, Index, Show } from 'solid-js';
 import { rpc } from '../browser/client';
-import type { ProvidersState } from '../core/model-router';
+import type { CustomModelState } from '../core/model-router';
 import type { SetupState } from '../connections/manager';
 import type { InstalledPlugin } from '../core/types';
 import { isNative } from '../platform/environment';
@@ -8,7 +8,7 @@ import { icon, type IconName } from './icons';
 import './settings.css';
 
 type Plugin = Pick<InstalledPlugin, 'manifest' | 'source' | 'enabledAt'>;
-type Page = 'root' | 'connections' | 'service' | 'add' | 'memory' | 'models';
+type Page = 'root' | 'connections' | 'service' | 'add' | 'memory';
 interface Entry {
   page: Page;
   service?: string;
@@ -116,7 +116,6 @@ const titles: Record<Exclude<Page, 'service'>, string> = {
   connections: 'Connections',
   add: 'Add a connection',
   memory: 'Memory',
-  models: 'Models',
 };
 const top = () => stack().at(-1)!;
 const title = (entry: Entry) =>
@@ -146,8 +145,15 @@ function back() {
   else heading?.focus();
 }
 /** Resets the dialog to a page; the caller opens the dialog. */
-export function showSettings(page: 'root' | 'connections' | 'models' = 'root') {
-  setStack(page === 'root' ? [{ page: 'root' }] : [{ page: 'root' }, { page }]);
+export function showSettings(page: 'root' | 'connections' | 'custom' = 'root') {
+  setAdvancedOpen(page === 'custom');
+  setStack(
+    page === 'root'
+      ? [{ page: 'root' }]
+      : page === 'custom'
+        ? [{ page: 'root' }, { page: 'service', service: 'chatgpt' }]
+        : [{ page: 'root' }, { page }],
+  );
   clearFeedback();
 }
 /** Replaces the add page with the page of the plugin that was just added. */
@@ -279,6 +285,16 @@ function ServicePage(props: { service: Service }) {
           and ChatGPT sign-in aren’t connected yet.
         </p>
       </Show>
+      <Show when={s().kind === 'chatgpt'}>
+        <details
+          class="settings-advanced"
+          open={advancedOpen()}
+          onToggle={(event) => setAdvancedOpen(event.currentTarget.open)}
+        >
+          <summary>Advanced</summary>
+          <CustomModelForm />
+        </details>
+      </Show>
       <Show when={s().plugin}>
         {(plugin) => (
           <details class="settings-advanced">
@@ -296,13 +312,14 @@ function ServicePage(props: { service: Service }) {
   );
 }
 
-const [providers, setProviders] = createSignal<ProvidersState>({ providers: [] });
+const [custom, setCustom] = createSignal<CustomModelState>({ configured: false, chosen: false });
+const [advancedOpen, setAdvancedOpen] = createSignal(false);
 const [memory, setMemory] = createSignal('');
 const [memorySaved, setMemorySaved] = createSignal(false);
 const [notifying, setNotifying] = createSignal(false);
 /** Loads the values Settings shows that live in the agent store. */
 export async function refreshSettingsData() {
-  setProviders(await rpc<ProvidersState>('providers', { action: 'state' }));
+  setCustom(await rpc<CustomModelState>('customModel', { action: 'state' }));
   setMemory(await rpc<string>('memory'));
   setNotifying(await rpc<boolean>('notifications'));
 }
@@ -324,69 +341,92 @@ async function toggleNotifications(enabled: boolean) {
   setNotifying(await rpc<boolean>('notifications', { enabled }));
 }
 
-function ProviderKeyForm(props: { provider: ProvidersState['providers'][number] }) {
-  let key!: HTMLInputElement;
+/** An OpenAI-compatible server, kept out of the way under ChatGPT's Advanced section. */
+function CustomModelForm() {
   let endpoint!: HTMLInputElement;
-  const save = (action: 'save' | 'remove') =>
+  let key!: HTMLInputElement;
+  let model!: HTMLInputElement;
+  let window!: HTMLInputElement;
+  let images!: HTMLInputElement;
+  const send = (action: 'save' | 'remove') =>
     void run(async () => {
-      setProviders(
-        await rpc<ProvidersState>('providers', {
+      setCustom(
+        await rpc<CustomModelState>('customModel', {
           action,
-          provider: props.provider.id,
-          apiKey: key.value,
           baseUrl: endpoint.value,
+          apiKey: key.value,
+          model: model.value,
+          contextWindow: window.value,
+          images: images.checked,
         }),
       );
       key.value = '';
-      window.dispatchEvent(new Event('kinetik-providers'));
+      globalThis.dispatchEvent(new Event('kinetik-custom-model'));
     });
   return (
     <form
-      class="settings-group provider-key"
-      aria-label={props.provider.name}
+      class="custom-model"
+      aria-label="Custom model"
       onSubmit={(event) => {
         event.preventDefault();
-        save('save');
+        send('save');
       }}
     >
-      <div class="settings-row">
-        <span class="settings-label">{props.provider.name}</span>
-        <span class="settings-value">{props.provider.connected ? 'Key saved' : 'Not added'}</span>
-      </div>
-      <div class="provider-key-fields">
-        <label for={'key-' + props.provider.id}>{props.provider.name} API key</label>
-        <input
-          id={'key-' + props.provider.id}
-          ref={key}
-          type="password"
-          autocomplete="off"
-          spellcheck={false}
-          required
-          placeholder={props.provider.connected ? 'Replace the saved key' : 'Paste your API key'}
-        />
-        <details class="advanced">
-          <summary>
-            Endpoint <span class="muted">Optional</span>
-          </summary>
-          <label for={'endpoint-' + props.provider.id}>Endpoint</label>
-          <input
-            id={'endpoint-' + props.provider.id}
-            ref={endpoint}
-            type="url"
-            value={props.provider.baseUrl ?? ''}
-            placeholder="https://"
-          />
-        </details>
-        <div class="form-actions">
-          <Show when={props.provider.connected}>
-            <button type="button" class="secondary" onClick={() => save('remove')}>
-              Remove
-            </button>
-          </Show>
-          <button class="primary" type="submit">
-            Save
+      <p class="settings-note">
+        Use another model through an OpenAI-compatible endpoint (Chat Completions), such as
+        OpenRouter, Ollama, LM Studio or vLLM. Choose it in the composer’s model menu. The key stays
+        on this device and is never exported; in a browser, installed connections can read it.
+      </p>
+      <label for="custom-endpoint">Endpoint</label>
+      <input
+        id="custom-endpoint"
+        ref={endpoint}
+        type="url"
+        required
+        value={custom().baseUrl ?? ''}
+        placeholder="https://openrouter.ai/api/v1"
+      />
+      <label for="custom-model-name">Model</label>
+      <input
+        id="custom-model-name"
+        ref={model}
+        required
+        spellcheck={false}
+        value={custom().model ?? ''}
+        placeholder="provider/model-name"
+      />
+      <label for="custom-key">API key</label>
+      <input
+        id="custom-key"
+        ref={key}
+        type="password"
+        autocomplete="off"
+        spellcheck={false}
+        placeholder={
+          custom().hasKey ? 'Saved · type to replace' : 'Optional for servers on this device'
+        }
+      />
+      <label for="custom-window">Context window (tokens)</label>
+      <input
+        id="custom-window"
+        ref={window}
+        inputmode="numeric"
+        value={custom().contextWindow ?? ''}
+        placeholder="128000"
+      />
+      <label class="custom-check">
+        <input ref={images} type="checkbox" checked={custom().images === true} />
+        The model can read photos
+      </label>
+      <div class="form-actions">
+        <Show when={custom().configured}>
+          <button type="button" class="secondary" onClick={() => send('remove')}>
+            Remove
           </button>
-        </div>
+        </Show>
+        <button class="primary" type="submit">
+          Save
+        </button>
       </div>
     </form>
   );
@@ -437,17 +477,6 @@ export function SettingsDialog() {
             <Tile name="brain" color="var(--tile-memory)" />
             <span class="settings-label">Memory</span>
             <span class="settings-value">{memory().trim() ? 'On' : 'Empty'}</span>
-            <Icon name="chevron" />
-          </button>
-          <button class="settings-row" onClick={() => go('models')}>
-            <Tile name="spark" color="var(--tile-models)" />
-            <span class="settings-label">Models</span>
-            <span class="settings-value">
-              {providers()
-                .providers.filter((p) => p.connected)
-                .map((p) => p.name)
-                .join(', ') || 'ChatGPT'}
-            </span>
             <Icon name="chevron" />
           </button>
           <label class="settings-row">
@@ -578,17 +607,6 @@ export function SettingsDialog() {
             Save
           </button>
         </div>
-      </section>
-      <section class="settings-page" hidden={page() !== 'models'}>
-        <p class="settings-note">
-          Use Claude or Gemini with your own API key. The key stays on this device and is never
-          exported; in a browser, installed connections can read it, as they can your chats. Pick
-          the model in the composer; a running task keeps the model it started with. Switching keeps
-          the chat, but one provider's private reasoning is not passed to another.
-        </p>
-        <Index each={providers().providers}>
-          {(provider) => <ProviderKeyForm provider={provider()} />}
-        </Index>
       </section>
       <section class="settings-page" hidden={page() !== 'add'}>
         <p class="settings-note">

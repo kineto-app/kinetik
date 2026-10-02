@@ -2,7 +2,7 @@ import { Popover } from '@kobalte/core/popover';
 import { createEffect, createSignal, For, Index, onCleanup, Show } from 'solid-js';
 import { rpc } from '../browser/client';
 import type { ChatGPTModel, ReasoningLevel } from '../connections/chatgpt';
-import type { ProvidersState } from '../core/model-router';
+import type { CustomModelState } from '../core/model-router';
 import { icon } from './icons';
 import './model-picker.css';
 
@@ -28,7 +28,10 @@ export function ModelPicker(props: {
   phone.addEventListener('change', watchPhone);
   onCleanup(() => phone.removeEventListener('change', watchPhone));
   const [models, setModels] = createSignal<ChatGPTModel[]>([]);
-  const [others, setOthers] = createSignal<ProvidersState>({ providers: [] });
+  const [custom, setCustom] = createSignal<CustomModelState>({
+    configured: false,
+    chosen: false,
+  });
   const [selected, setSelected] = createSignal(props.model);
   const [reasoning, setReasoning] = createSignal<string>();
   const [loading, setLoading] = createSignal(false);
@@ -40,19 +43,19 @@ export function ModelPicker(props: {
     setLoading(true);
     setError('');
     try {
-      const [result, providers] = await Promise.all([
+      const [result, other] = await Promise.all([
         props.chatgpt
           ? rpc<{ models: ChatGPTModel[]; selected: string; reasoning?: string }>('chatgpt', {
               action: 'models',
             })
           : undefined,
-        rpc<ProvidersState>('providers', { action: 'state' }),
+        rpc<CustomModelState>('customModel', { action: 'state' }),
       ]);
       if (current !== generation) return;
       setModels(result?.models ?? []);
       if (result) setSelected(result.selected);
       setReasoning(result?.reasoning);
-      setOthers(providers);
+      setCustom(other);
     } catch (e) {
       if (current === generation) setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -68,14 +71,14 @@ export function ModelPicker(props: {
       generation++;
       setOpen(false);
       setModels([]);
-      setOthers({ providers: [] });
+      setCustom({ configured: false, chosen: false });
     }
   });
   async function choose(model: string) {
     setSaving(true);
     setError('');
     try {
-      await rpc('providers', { action: 'choose', provider: 'chatgpt' });
+      await rpc('customModel', { action: 'choose', use: false });
       if (model !== selected()) await rpc('chatgpt', { action: 'model', model });
       setSelected(model);
       setOpen(false);
@@ -88,11 +91,11 @@ export function ModelPicker(props: {
     // The connection decides the effective level (GPT-6.1 Sol defaults to medium); read it back.
     await load();
   }
-  async function chooseOther(provider: string, model: string) {
+  async function chooseCustom(use: boolean) {
     setSaving(true);
     setError('');
     try {
-      setOthers(await rpc<ProvidersState>('providers', { action: 'choose', provider, model }));
+      setCustom(await rpc<CustomModelState>('customModel', { action: 'choose', use }));
       setOpen(false);
       await props.onSelected();
     } catch (e) {
@@ -101,8 +104,7 @@ export function ModelPicker(props: {
       setSaving(false);
     }
   }
-  const choice = () => others().choice;
-  const connected = () => others().providers.filter((provider) => provider.connected);
+  const choice = () => custom().chosen;
   // Saves run in order, so the last level the user stopped on is the one stored.
   let saves = Promise.resolve();
   function chooseReasoning(effort: string) {
@@ -118,11 +120,7 @@ export function ModelPicker(props: {
   const levels = () =>
     choice() ? [] : (models().find((model) => model.slug === selected())?.reasoning ?? []);
   const name = () =>
-    connected()
-      .flatMap((provider) =>
-        provider.models.map((model) => [provider.id + ':' + model.id, model.name]),
-      )
-      .find(([key]) => key === choice())?.[1] ||
+    (choice() ? custom().model : '') ||
     models().find((model) => model.slug === selected())?.name ||
     (!props.chatgpt && props.hostChatgpt ? 'ChatGPT' : '') ||
     (selected() === 'gpt-6.1-sol' ? 'GPT-6.1 Sol' : selected()) ||
@@ -189,7 +187,7 @@ export function ModelPicker(props: {
                 </button>
               </Show>
               <div class="model-list" role="group" aria-labelledby="model-list-label">
-                <Show when={connected().length && models().length}>
+                <Show when={custom().configured && models().length}>
                   <div class="model-group-label">ChatGPT</div>
                 </Show>
                 {/* Index keeps buttons in place when the list reloads, so focus survives. */}
@@ -211,13 +209,13 @@ export function ModelPicker(props: {
                     </button>
                   )}
                 </Index>
-                <Show when={!props.chatgpt && props.hostChatgpt && connected().length}>
+                <Show when={!props.chatgpt && props.hostChatgpt && custom().configured}>
                   <button
                     type="button"
                     class="model-option"
                     aria-pressed={!choice()}
                     disabled={saving()}
-                    onClick={() => choice() && void chooseOther('chatgpt', '')}
+                    onClick={() => choice() && void chooseCustom(false)}
                   >
                     ChatGPT
                     <Show when={!choice()}>
@@ -225,34 +223,23 @@ export function ModelPicker(props: {
                     </Show>
                   </button>
                 </Show>
-                <For each={connected()}>
-                  {(provider) => (
-                    <>
-                      <div class="model-group-label">{provider.name}</div>
-                      <For each={provider.models}>
-                        {(model) => (
-                          <button
-                            type="button"
-                            class="model-option"
-                            aria-pressed={choice() === provider.id + ':' + model.id}
-                            disabled={saving()}
-                            onClick={() =>
-                              choice() !== provider.id + ':' + model.id &&
-                              void chooseOther(provider.id, model.id)
-                            }
-                          >
-                            {model.name}
-                            <Show when={choice() === provider.id + ':' + model.id}>
-                              <span class="icon-slot" innerHTML={icon('check')} />
-                            </Show>
-                          </button>
-                        )}
-                      </For>
-                    </>
-                  )}
-                </For>
+                <Show when={custom().configured}>
+                  <div class="model-group-label">Custom</div>
+                  <button
+                    type="button"
+                    class="model-option"
+                    aria-pressed={choice()}
+                    disabled={saving()}
+                    onClick={() => !choice() && void chooseCustom(true)}
+                  >
+                    {custom().model}
+                    <Show when={choice()}>
+                      <span class="icon-slot" innerHTML={icon('check')} />
+                    </Show>
+                  </button>
+                </Show>
               </div>
-              <Show when={!loading() && !error() && !models().length && !connected().length}>
+              <Show when={!loading() && !error() && !models().length && !custom().configured}>
                 <p class="model-menu-note">No models available.</p>
               </Show>
               <Show when={saving()}>

@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Use Claude and Gemini with your own API key (Settings → Models), through pi-ai; a chat can move between providers. Run several read-only tools at once, and hand reading tasks to a read-only helper agent (`delegate`). Try ChatGPT's own compaction before the local summary.
+- Add a hidden custom OpenAI-compatible model (Chat Completions) under Settings → ChatGPT → Advanced; a chat can move between it and ChatGPT. Run several read-only tools at once, and hand reading tasks to a read-only helper agent (`delegate`). Try ChatGPT's own compaction before the local summary.
 
 - Show a live reasoning summary while the model thinks and the step number in the activity line. Push streamed text, reasoning and progress to the open window as events instead of reloading all state per word. Store model input in append-only segments so a step saves only what it added.
 

@@ -327,14 +327,12 @@ async function asNewWorker(work: () => Promise<void>) {
 
 test('a turn killed mid-tool finishes on the model it started with, even after a switch', async () => {
   const store = new Store(crypto.randomUUID());
-  await store.put('model-choice', 'anthropic:claude-sonnet-5-5');
+  await store.put('model-choice', 'custom');
   const router = (claude: Model, chatgpt: Model) => {
     const model: Model = {
       pin: () => store.get<string>('model-choice'),
       next: (request, signal) =>
-        request.pin?.startsWith('anthropic:')
-          ? claude.next(request, signal)
-          : chatgpt.next(request, signal),
+        request.pin === 'custom' ? claude.next(request, signal) : chatgpt.next(request, signal),
     };
     return model;
   };
@@ -352,9 +350,9 @@ test('a turn killed mid-tool finishes on the model it started with, even after a
   await first.submit(c.id, 'Look');
   void first.run(c.id);
   await new Promise((resolve) => setTimeout(resolve, 100));
-  // The user switches to ChatGPT while the Claude turn is cut off.
+  // The user switches to ChatGPT while the custom-model turn is cut off.
   await store.delete('model-choice');
-  const claude = scripted([() => say('Claude finished.')]);
+  const claude = scripted([() => say('Custom model finished.')]);
   const chatgpt = scripted([]);
   await asNewWorker(async () => {
     const second = new Runtime(store, undefined, router(claude.model, chatgpt.model));
@@ -363,7 +361,7 @@ test('a turn killed mid-tool finishes on the model it started with, even after a
   });
   expect(claude.seen).toHaveLength(1);
   expect(chatgpt.seen).toHaveLength(0);
-  expect((await read(store, c.id)).messages.at(-1)?.text).toBe('Claude finished.');
+  expect((await read(store, c.id)).messages.at(-1)?.text).toBe('Custom model finished.');
 });
 
 test('a worker killed right after a provider compaction still undoes it when the next request fails', async () => {
