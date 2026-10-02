@@ -57,7 +57,7 @@ For a local installation, pull the new source, run `npm ci && npm run build`, th
 
 ## Appearance
 
-Open **Settings** and choose **Use device setting**, **Light**, or **Dark**. The preference is saved in this browser, shared across app tabs, and applied before the interface loads. On mobile, open the chat menu to find Settings. The drawer supports Escape and keyboard focus stays inside it while open.
+Open **Settings** and switch **Appearance** between **Light**, **Dark**, and **Auto**, which follows the device. The preference is saved in this browser, shared across app tabs, and applied before the interface loads. On mobile, open the chat menu to find Settings. The drawer supports Escape and keyboard focus stays inside it while open.
 
 The interface uses the Charms renderer’s tinted panels, compact action rows, upload controls, and icon strokes. Small button text uses a slightly deeper purple for readable contrast. All theme values live in [the design tokens](src/ui/tokens.css). Frosted header, sidebar, composer, and dialogs derive their colors from those tokens. Shared buttons use rounded controls. New messages and dialogs use brief transitions; the device’s reduced-motion preference disables them. The composer starts at one line and grows with the message. Its main button shows Stop during work and switches to Send when you type steering; Stop remains available in the work options. Foreground tool calls share an expandable activity row, while files and embedded apps remain visible. Widgets rendered after a background job completes also appear in chat; their raw tool output stays hidden. The layout follows the visual viewport so the keyboard leaves the header and composer reachable.
 
@@ -69,7 +69,7 @@ Choose **Create a note** or **Make a packing list**, then send the suggested mes
 
 Messages show their local send time. A live elapsed timer stays above the composer, and completed replies retain a “Worked for” duration. Turn timers survive steering and recovery; elapsed time includes connection waits. Background jobs have separate timers. Older replies without stored durations do not invent them.
 
-Foreground tools appear in a collapsed activity card between narration messages. Repeated actions share a row, with individual calls available on expansion. Each call has a short explanation and optional technical details. A successful retry of the same action and arguments resolves its earlier failure inside that group; unrelated and uncertain outcomes stay visible. Widget refresh calls stay out of the agent activity timeline; interactive MCP cards remain visible. **Settings → Manage connections** holds service configuration, with custom plugin links and JSON options under advanced setup. The preview limitation stays visible beside the message box and in Settings.
+Foreground tools appear in a collapsed activity card between narration messages. Repeated actions share a row, with individual calls available on expansion. Each call has a short explanation and optional technical details. A successful retry of the same action and arguments resolves its earlier failure inside that group; unrelated and uncertain outcomes stay visible. Widget refresh calls stay out of the agent activity timeline; interactive MCP cards remain visible. **Settings → Connections** lists ChatGPT, Charms, and installed plugins. Each has its own page with status, version, Update, Turn on or Turn off, and Disconnect (Sign out for ChatGPT); **Add a connection** takes a custom plugin link with optional JSON options. The sidebar **Connections** button runs the guided setup while a connection is missing and otherwise opens this page. The preview limitation stays visible beside the message box and in the Settings account row.
 
 For developers, the test model also understands explicit commands so runtime behavior is reproducible:
 
@@ -92,7 +92,7 @@ The shell exposes a selected set of file/text commands, pipes, and shell syntax.
 
 ## Plugins and skills
 
-Open **Settings → Manage connections → Add a custom connection**, select **Use demo connection**, add it, then enable it. Its `exec` replacement echoes what it received instead of running a shell. Disable it to restore local execution. Its skill appears in `/skills` and loads through `read_skill` independently of workspace replacements.
+Open **Settings → Connections → Add a connection**, select **Use demo connection**, add it, then choose **Turn on**. Its `exec` replacement echoes what it received instead of running a shell. Choose **Turn off** to restore local execution. Its skill appears in `/skills` and loads through `read_skill` independently of workspace replacements.
 
 Plugins are trusted JavaScript. They can access the app's origin storage and network. Installation downloads code; enabling permits execution. Updates are explicit, and active turns retain their code/tool bindings. Skill sources are checked for every message and cached on failure. The last explicitly enabled plugin wins a replacement; updating code does not change priority.
 

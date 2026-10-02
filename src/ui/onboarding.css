@@ -356,26 +356,6 @@
   height: 16px;
   width: 16px;
 }
-.managed-connections {
-  display: grid;
-  gap: 12px;
-}
-.managed-connections > div {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 12px;
-}
-.managed-connections .grow {
-  flex: 1;
-}
-.managed-connections strong,
-.managed-connections small {
-  display: block;
-}
-.managed-connections small {
-  margin-top: 4px;
-}
 @media (max-width: 780px) {
   .setup-nav {
     padding: 20px 22px;

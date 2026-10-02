@@ -1,0 +1,231 @@
+.settings-head {
+  margin-bottom: var(--space-section);
+}
+.settings-head h2 {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.settings-head h2:focus {
+  outline: none;
+}
+/* Subpages put the back link and close on one row and the title on its own line. */
+.settings-head:has(.settings-back) {
+  flex-wrap: wrap;
+  row-gap: 4px;
+}
+.settings-head:has(.settings-back) h2 {
+  order: 1;
+  flex-basis: 100%;
+  font-size: 20px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.settings-back {
+  flex: 0 1 auto;
+  min-width: 0;
+  margin-right: auto;
+  margin-left: -4px;
+  gap: 2px;
+  padding-inline: 4px 10px;
+  color: var(--accent-ink);
+  font-size: 14px;
+}
+.settings-back span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.settings-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-section);
+}
+.settings-group {
+  background: var(--group);
+  border-radius: var(--radius-inner);
+  overflow: hidden;
+}
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: var(--space-content);
+  width: 100%;
+  min-height: 52px;
+  padding: 8px var(--space-content);
+  border-radius: 0;
+  text-align: left;
+  font-size: 14px;
+}
+.settings-row + .settings-row {
+  border-top: 1px solid var(--line);
+}
+.settings-row > .icon-slot > .icon {
+  width: 15px;
+  height: 15px;
+  color: var(--muted);
+}
+.settings-wrap {
+  flex-wrap: wrap;
+}
+.settings-tile,
+.settings-avatar {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  color: var(--on-tile);
+}
+.settings-tile .icon {
+  width: 17px;
+  height: 17px;
+}
+.settings-account {
+  min-height: 72px;
+}
+.settings-avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--accent-fill);
+  color: var(--on-accent);
+}
+.settings-text {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+.settings-title {
+  font-weight: 500;
+}
+.settings-account .settings-title {
+  font-size: 16px;
+  font-weight: 600;
+}
+.settings-sub {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--muted);
+}
+.settings-label {
+  flex: 1;
+  min-width: max-content;
+}
+.settings-value {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-inline);
+  min-width: 0;
+  color: var(--muted);
+}
+.settings-row .status-dot {
+  width: 8px;
+  height: 8px;
+}
+.status-dot.off {
+  background: var(--status-off);
+}
+.settings-action {
+  color: var(--accent-ink);
+  font-weight: 500;
+}
+.settings-danger {
+  color: var(--bad);
+  font-weight: 500;
+}
+.settings-stacked {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+}
+.settings-code {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.settings-note {
+  margin: calc(var(--space-content) * -0.5) var(--space-content) 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+.settings-page > .settings-note:first-child {
+  margin: 0;
+  font-size: 13px;
+}
+.settings-page > #archive-status:empty {
+  display: none;
+}
+.settings-page > #archive-status {
+  margin: 0 var(--space-content);
+}
+.settings-advanced summary {
+  padding-inline: var(--space-content);
+  color: var(--muted);
+}
+.settings-buttons {
+  display: flex;
+  gap: var(--space-inline);
+  margin-left: auto;
+}
+.settings-buttons button {
+  min-width: 84px;
+  font-size: 13px;
+}
+.segmented {
+  display: flex;
+  margin-left: auto;
+  border-radius: var(--radius-pill);
+  background: var(--hover);
+}
+.segmented label {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 58px;
+  min-height: var(--target);
+  margin: 0;
+  padding: 0 12px;
+  border-radius: var(--radius-pill);
+  font-size: 13px;
+  color: var(--muted);
+  cursor: pointer;
+}
+.segmented input {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.segmented label:has(:checked) {
+  background: var(--accent-fill);
+  color: var(--on-accent);
+  font-weight: 600;
+}
+.segmented label:has(:focus-visible) {
+  outline: 2px solid var(--accent-ink);
+  outline-offset: 2px;
+}
+#plugin-form .form-actions {
+  flex-wrap: wrap;
+}
+/* Narrow phones: the in-row controls take a full-width line under their label. */
+@media (max-width: 400px) {
+  .settings-wrap > .segmented,
+  .settings-wrap > .settings-buttons {
+    flex-basis: 100%;
+    margin-left: 0;
+  }
+  .segmented label,
+  .settings-buttons button {
+    flex: 1;
+  }
+}
