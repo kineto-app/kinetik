@@ -120,15 +120,57 @@ test('installed launch resumes setup and completes a shared-storage Charms redir
   await expect(page.locator('#connections-summary')).toHaveText('ChatGPT · Charms');
   await page.screenshot({ path: test.info().outputPath('connections-sidebar.png') });
   await page.locator('#connections-open').click();
-  await expect(page.locator('#connection-setup')).toBeVisible();
+  await expect(page.getByRole('dialog', { name: 'Connections', exact: true })).toBeVisible();
+  await expect(page.locator('#connection-setup')).toBeHidden();
+  await expect(page.getByRole('heading', { name: /You.re ready/ })).toBeHidden();
+  await expect(page.getByRole('button', { name: 'Start chatting' })).toBeHidden();
   await expect(page.locator('#drawer-scrim')).toBeHidden();
-  await page.getByRole('button', { name: 'Start chatting' }).click();
+  await page.mouse.move(0, 0);
+  await page.screenshot({ path: test.info().outputPath('sidebar-connections.png') });
+  const settings = page.locator('#settings-dialog');
+  await expect(settings.getByRole('button', { name: /^ChatGPT\b/ })).toContainText('Connected');
+  await settings.getByRole('button', { name: /^Charms\b/ }).click();
+  await expect(page.getByRole('dialog', { name: 'Charms', exact: true })).toBeVisible();
+  await expect(
+    settings.locator('.settings-page:not([hidden])').getByText('Connected', { exact: true }),
+  ).toBeVisible();
+  await expect(settings.getByRole('button', { name: 'Update', exact: true })).toBeVisible();
+  await expect(settings.getByRole('button', { name: 'Turn off', exact: true })).toBeVisible();
+  await expect(settings.getByRole('button', { name: 'Disconnect', exact: true })).toBeVisible();
+  await page.mouse.move(0, 0);
+  await page.screenshot({ path: test.info().outputPath('connection-charms.png') });
+  await page.getByRole('button', { name: 'Close settings' }).click();
   await request.post(base + 'connections/chatgpt/logout');
   await focusApp(page);
+  await expect(page.locator('#connection-status')).toBeVisible();
+  if (await page.locator('#menu').isVisible()) await page.locator('#menu').click();
+  await page.locator('#connections-open').click();
+  await expect(page.getByRole('heading', { name: 'Connect ChatGPT' })).toBeVisible();
+  await page.getByRole('button', { name: 'Set up later' }).click();
   await expect(page.locator('#connection-status')).toBeVisible();
   await expect(page.locator('#connection-status')).toHaveAttribute('title', 'Connect ChatGPT');
   await page.locator('#connection-status').click();
   await expect(page.getByRole('heading', { name: 'Connect ChatGPT' })).toBeVisible();
+  await page.getByRole('button', { name: 'Set up later' }).click();
+  const shown = settings.locator('.settings-page:not([hidden])');
+  const openService = async (name: string) => {
+    if (await page.locator('#menu').isVisible()) await page.locator('#menu').click();
+    await page.locator('#settings-open').click();
+    await settings.getByRole('button', { name: /^Connections/ }).click();
+    await settings.getByRole('button', { name: new RegExp('^' + name) }).click();
+    await expect(page.getByRole('dialog', { name, exact: true })).toBeVisible();
+  };
+  await openService('ChatGPT');
+  await expect(shown.getByText('Not connected', { exact: true })).toBeVisible();
+  await settings.getByRole('button', { name: 'Connect ChatGPT', exact: true }).click();
+  await expect(settings).toBeHidden();
+  await expect(page.getByRole('heading', { name: 'Connect ChatGPT' })).toBeVisible();
+  await page.getByRole('button', { name: 'Set up later' }).click();
+  await openService('Charms');
+  await settings.getByRole('button', { name: 'Disconnect', exact: true }).click();
+  await expect(shown.getByText('Not connected', { exact: true })).toBeVisible();
+  await expect(settings.getByRole('button', { name: 'Connect Charms', exact: true })).toBeVisible();
+  await expect(settings.getByRole('button', { name: 'Disconnect', exact: true })).toBeHidden();
 });
 
 test('repository-run configuration also keeps installation optional', async ({ page, request }) => {

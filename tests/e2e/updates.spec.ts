@@ -233,7 +233,7 @@ test('updates stay reachable inside setup, dialogs and the mobile chat drawer', 
     document.querySelector<HTMLDialogElement>('#connection-setup')!.close(),
   );
 
-  for (const id of ['settings-dialog', 'file-dialog', 'plugins-dialog', 'automations-dialog']) {
+  for (const id of ['settings-dialog', 'file-dialog', 'automations-dialog']) {
     await page.evaluate(
       (id) => document.querySelector<HTMLDialogElement>('#' + id)!.showModal(),
       id,
