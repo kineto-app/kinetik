@@ -13,6 +13,7 @@ import { localSkills } from './skills';
 import { Automations } from './automation';
 import { BackgroundProcesses, type BackgroundProcess } from './background';
 import { Store } from '../browser/store';
+import { ConversationStore, conversationKey as key } from './conversation-store';
 import { createFilesystem } from '../browser/filesystem';
 import { Plugins, digest } from '../plugins/loader';
 import { MockModel } from '../models/mock';
@@ -24,7 +25,6 @@ import {
   type Attachment,
   type StagedAttachment,
   type Conversation,
-  type InputSegments,
   type LiveProgress,
   type RuntimeEvent,
   type Model,
@@ -53,12 +53,6 @@ function abortable<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
 }
 type Item = Record<string, unknown>;
 type ReadOnlyResult = { text: string; response?: unknown; failed?: boolean };
-const staleInput = new Error('Model input changed during the update.');
-const segmentKey = (id: string, s: InputSegments, i: number) =>
-  `model-input:${id}:${s.generation}:${i}`;
-const sameSegments = (a?: InputSegments, b?: InputSegments) =>
-  a?.generation === b?.generation && a?.segments === b?.segments;
-const key = (id: string) => `conversation:${id}`;
 const attachmentLock = <T>(id: string, work: () => Promise<T>) =>
   globalThis.navigator?.locks ? navigator.locks.request('kinetik-attachments:' + id, work) : work();
 const printable = (value: unknown) =>
@@ -105,16 +99,16 @@ export class Runtime {
     async () => {};
   private drafts = new Map<string, string>();
   private live = new Map<string, LiveProgress>();
-  /** Model input already read, valid while the stored segment count and generation match. */
-  private inputs = new Map<string, { segments: InputSegments; items: Item[] }>();
   private active = new Map<string, AbortController>();
   private ajv = new Ajv({ strict: false });
+  private chats: ConversationStore;
   private workspace: ReturnType<typeof createFilesystem>;
   constructor(
     readonly store = new Store(),
     private changed: (event?: RuntimeEvent) => void = () => {},
     private model: Model = new MockModel(),
   ) {
+    this.chats = new ConversationStore(store, () => this.changed());
     this.plugins = new Plugins(store, (name, text, id) => this.automations.emit(name, text, id));
     this.automations = new Automations(store, this, changed);
     this.workspace = createFilesystem(store);
@@ -166,81 +160,6 @@ export class Runtime {
   private progress(id: string, live: LiveProgress) {
     this.live.set(id, live);
     this.changed({ type: 'progress', conversationId: id, ...live });
-  }
-  /** The conversation with its model input joined in. */
-  private async load(id: string): Promise<Conversation | undefined> {
-    for (;;) {
-      const c = await this.store.get<Conversation>(key(id));
-      if (!c?.input) return c;
-      const cached = this.inputs.get(id);
-      if (cached && sameSegments(cached.segments, c.input))
-        return { ...c, modelInput: cached.items };
-      const segments = c.input;
-      const parts = await this.store.getMany<Item[]>(
-        Array.from({ length: segments.segments }, (_, i) => segmentKey(id, segments, i)),
-      );
-      // A missing segment means the input was replaced meanwhile; read again.
-      if (parts.some((part) => !part)) continue;
-      const items = (parts as Item[][]).flat();
-      this.inputs.set(id, { segments, items });
-      return { ...c, modelInput: items };
-    }
-  }
-  /**
-   * Updates a conversation and its model input in one transaction. Growth of the input is
-   * written as one new segment holding only the added items; any other change starts a new
-   * generation. Updaters see and return the joined `modelInput`.
-   */
-  private async update(
-    id: string,
-    update: (c: Conversation) => Conversation,
-  ): Promise<Conversation> {
-    for (;;) {
-      const view = await this.load(id);
-      if (!view) throw new Error('Conversation not found.');
-      let result!: Conversation;
-      let items: Item[] | undefined;
-      try {
-        await this.store.updateMany([key(id)], ([stored]) => {
-          const c = stored as Conversation | undefined;
-          if (!c) throw new Error('Conversation not found.');
-          if (!sameSegments(c.input, view.input)) throw staleInput;
-          // Older builds kept the input inline; the first write moves it into segments.
-          const base = c.input ? view.modelInput : c.modelInput;
-          const { modelInput: next, ...rest } = update({ ...c, modelInput: base });
-          const writes: [string, unknown][] = [];
-          let segments = c.input;
-          const appended =
-            c.input &&
-            base &&
-            next &&
-            next.length >= base.length &&
-            base.every((item, i) => next[i] === item);
-          if (appended) {
-            if (next.length > base.length) {
-              writes.push([segmentKey(id, segments!, segments!.segments), next.slice(base.length)]);
-              segments = { ...segments!, segments: segments!.segments + 1 };
-            }
-          } else if (next !== base || (!c.input && next)) {
-            for (let i = 0; i < (c.input?.segments ?? 0); i++)
-              writes.push([segmentKey(id, c.input!, i), undefined]);
-            segments = next ? { generation: crypto.randomUUID(), segments: 1 } : undefined;
-            if (next) writes.push([segmentKey(id, segments!, 0), next]);
-          }
-          result = { ...rest, input: segments };
-          items = segments ? (appended ? next : (next ?? base)) : undefined;
-          writes.push([key(id), result]);
-          return writes;
-        });
-      } catch (error) {
-        if (error === staleInput) continue;
-        throw error;
-      }
-      if (result.input && items) this.inputs.set(id, { segments: result.input, items });
-      else this.inputs.delete(id);
-      this.changed();
-      return { ...result, modelInput: items };
-    }
   }
   async submit(
     id: string,
@@ -302,7 +221,7 @@ export class Runtime {
     // Previews outlive sending: remote providers keep no local copy to show.
     if (preview) await this.store.put('attachment-preview:' + file.id, preview);
     try {
-      await this.update(id, (c) => {
+      await this.chats.update(id, (c) => {
         const files = c.attachments ?? [];
         if (
           files.length >= 10 ||
@@ -324,7 +243,7 @@ export class Runtime {
   async removeAttachment(id: string, attachmentId: string): Promise<void> {
     await attachmentLock(id, async () => {
       let removed = false;
-      await this.update(id, (c) => {
+      await this.chats.update(id, (c) => {
         removed = Boolean(c.attachments?.some((f) => f.id === attachmentId));
         return { ...c, attachments: c.attachments?.filter((f) => f.id !== attachmentId) };
       });
@@ -384,7 +303,7 @@ export class Runtime {
           throw new Error('The connection returned an invalid attachment path.');
       }
       const uploaded = { id: file.id, name: file.name, size: file.size, path, provider };
-      await this.update(id, (value) => ({
+      await this.chats.update(id, (value) => ({
         ...value,
         attachments: value.attachments?.map((f) =>
           f.id === file.id ? { ...f, uploaded, uploadRevision } : f,
@@ -400,7 +319,7 @@ export class Runtime {
     wake = true,
     plugins?: InstalledPlugin[],
   ): Promise<void> {
-    await this.update(id, (c) => {
+    await this.chats.update(id, (c) => {
       if (c.messages.some((m) => m.id === entry.id)) return c;
       if (entry.role === 'user' && c.messages.length > 1000)
         throw new Error('Start a new conversation; this one reached its prototype limit.');
@@ -457,7 +376,7 @@ export class Runtime {
       if (!c || c.status === 'needs_review' || c.status === 'stopped') return;
       const pinned = c.plugins ?? (await this.plugins.list());
       const choice = await this.model.pin?.();
-      await this.update(id, (value) => ({
+      await this.chats.update(id, (value) => ({
         ...value,
         plugins: pinned,
         status: value.status === 'stopped' ? value.status : 'running',
@@ -489,7 +408,7 @@ export class Runtime {
         if (!c || c.status === 'needs_review') break;
         if (!c.activeMessage || c.pending.length) {
           if (!c.pending.length) {
-            await this.update(id, (value) => ({
+            await this.chats.update(id, (value) => ({
               ...value,
               status: 'idle',
               plugins: undefined,
@@ -498,7 +417,7 @@ export class Runtime {
             break;
           }
           const images = await this.pendingImages(c);
-          c = await this.update(id, (value) => {
+          c = await this.chats.update(id, (value) => {
             // Steering joins now; a queued follow-up waits until no steering is left, one at a time.
             const steer = steering(value);
             const taken = steer.length ? steer : value.pending.slice(0, 1);
@@ -561,7 +480,7 @@ export class Runtime {
           ...sync.skills,
         ];
         if (sync.warnings.length)
-          await this.update(id, (value) => ({
+          await this.chats.update(id, (value) => ({
             ...value,
             messages: [...value.messages, message('notice', sync.warnings.join('\n'))],
           }));
@@ -600,7 +519,7 @@ export class Runtime {
             };
           else {
             await this.compactIfNeeded(id, controller.signal);
-            const history = (await this.load(id))?.modelInput;
+            const history = (await this.chats.load(id))?.modelInput;
             try {
               output = await this.requestStep(id, controller.signal, () =>
                 this.modelNext(
@@ -664,7 +583,7 @@ export class Runtime {
             // Steering received during inference takes precedence over an unexecuted tool
             // or stale answer. The old request remains in model history.
             if (steering(await this.store.get<Conversation>(key(id))).length) {
-              await this.update(id, (value) => ({
+              await this.chats.update(id, (value) => ({
                 ...value,
                 activeMessage: undefined,
                 call: undefined,
@@ -673,7 +592,7 @@ export class Runtime {
             }
           }
           if (output.type === 'text') {
-            await this.update(id, (value) => ({
+            await this.chats.update(id, (value) => ({
               ...value,
               messages: [
                 ...value.messages,
@@ -746,7 +665,7 @@ export class Runtime {
             continue;
           }
           if (!approved)
-            await this.update(id, (value) => ({
+            await this.chats.update(id, (value) => ({
               ...value,
               modelInput: [...(value.modelInput ?? []), ...(output.items ?? [])],
               messages: output.narration
@@ -772,7 +691,7 @@ export class Runtime {
           const ask = approved ? undefined : this.askFor(output.name, output.input, binding);
           if (ask) {
             // The turn pauses here; answer() resumes it. Nothing has run, so a restart is safe.
-            await this.update(id, (value) => ({
+            await this.chats.update(id, (value) => ({
               ...value,
               status: 'asking',
               call: { ...value.call!, state: 'awaiting', ask },
@@ -782,7 +701,7 @@ export class Runtime {
           }
           // From here the call may have effects, so a restart must review it, not rerun it.
           if (approved)
-            await this.update(id, (value) => ({
+            await this.chats.update(id, (value) => ({
               ...value,
               call: { ...value.call!, approved: undefined },
             }));
@@ -802,7 +721,7 @@ export class Runtime {
               binding.tool.execute(output.input, {
                 signal,
                 checkpoint: async (operationId) => {
-                  await this.update(id, (value) => ({
+                  await this.chats.update(id, (value) => ({
                     ...value,
                     call: value.call ? { ...value.call, operationId } : value.call,
                   }));
@@ -824,7 +743,7 @@ export class Runtime {
                 });
                 app = { ...resource, id: appId, input: output.input, result: response };
               } catch (error) {
-                await this.update(id, (value) => ({
+                await this.chats.update(id, (value) => ({
                   ...value,
                   messages: [
                     ...value.messages,
@@ -833,7 +752,7 @@ export class Runtime {
                 }));
               }
             }
-            await this.update(id, (value) => ({
+            await this.chats.update(id, (value) => ({
               ...value,
               call: { ...value.call!, state: 'completed', result },
               modelInput: output.callId
@@ -891,7 +810,7 @@ export class Runtime {
               await this.waitForConnection(id, error);
               return;
             }
-            await this.update(id, (value) => ({
+            await this.chats.update(id, (value) => ({
               ...value,
               status: 'needs_review',
               call: { ...value.call!, state: 'unknown', result: errorText(error) },
@@ -909,7 +828,7 @@ export class Runtime {
           // Steering joins at a tool boundary, before any further model/tool calls.
           const latest = await this.store.get<Conversation>(key(id));
           if (steering(latest).length) {
-            await this.update(id, (value) => ({
+            await this.chats.update(id, (value) => ({
               ...value,
               activeMessage: undefined,
               call: undefined,
@@ -945,7 +864,7 @@ export class Runtime {
         await this.waitForConnection(id, error);
         return;
       }
-      await this.update(id, (c) => ({
+      await this.chats.update(id, (c) => ({
         ...c,
         status: 'stopped',
         workStartedAt: undefined,
@@ -1008,7 +927,7 @@ export class Runtime {
     const ask = c?.call?.state === 'awaiting' ? c.call.ask : undefined;
     if (!c || c.status !== 'asking' || !ask) throw new Error('There is no question to answer.');
     if (ask.kind === 'approval' && value === 'approve') {
-      await this.update(id, (current) => ({
+      await this.chats.update(id, (current) => ({
         ...current,
         status: 'queued',
         call: { ...current.call!, state: 'pending', approved: true, ask: undefined },
@@ -1022,7 +941,7 @@ export class Runtime {
         result =
           value === 'save' ? 'The user saved the memory.' : 'The user kept the memory as it was.';
       }
-      await this.update(id, (current) => ({
+      await this.chats.update(id, (current) => ({
         ...current,
         status: 'queued',
         call: { ...current.call!, state: 'completed', result, ask: undefined },
@@ -1089,13 +1008,13 @@ export class Runtime {
    * stop using provider compaction for this model, and let the step run again.
    */
   private async undoServerCompaction(id: string): Promise<boolean> {
-    const c = await this.load(id);
+    const c = await this.chats.load(id);
     if (!c?.serverCompaction) return false;
     const { n, head } = c.serverCompaction;
     const archived = await this.store.get<Item[]>(`model-archive:${id}:${n}`);
     if (!archived) return false;
     await this.store.put('no-server-compact:' + (c.turnModel ?? 'chatgpt'), true);
-    await this.update(id, (value) =>
+    await this.chats.update(id, (value) =>
       value.serverCompaction?.n !== n
         ? value
         : {
@@ -1114,12 +1033,12 @@ export class Runtime {
     request: () => Promise<ModelStep>,
   ): Promise<ModelStep> {
     const output = await abortable(request(), signal);
-    const c = await this.load(id);
+    const c = await this.chats.load(id);
     const window = output.contextWindow ?? c?.context?.window ?? defaultContextWindow;
     const tokens = output.usage
       ? output.usage.input + output.usage.output
       : estimateTokens(c?.modelInput) + estimateTokens(output.items);
-    await this.update(id, (value) => ({
+    await this.chats.update(id, (value) => ({
       ...value,
       context: { tokens, window },
       turnUsage: addUsage(value.turnUsage, output.usage),
@@ -1150,7 +1069,7 @@ export class Runtime {
           text: `Error: Only read-only tools (${[...parallelSafe].join(', ')}) may run in parallel. Nothing ran; call these one at a time.`,
           failed: true,
         }));
-    await this.update(id, (value) => ({
+    await this.chats.update(id, (value) => ({
       ...value,
       retryAt: undefined,
       retryAttempts: undefined,
@@ -1264,7 +1183,7 @@ export class Runtime {
         signal,
       );
       if (output.usage)
-        await this.update(id, (value) => ({
+        await this.chats.update(id, (value) => ({
           ...value,
           turnUsage: addUsage(value.turnUsage, output.usage),
         }));
@@ -1309,7 +1228,7 @@ export class Runtime {
     ran = false,
   ): Promise<string> {
     const text = 'Error: ' + error;
-    await this.update(id, (value) => ({
+    await this.chats.update(id, (value) => ({
       ...value,
       modelInput: [
         ...(value.modelInput ?? []),
@@ -1340,7 +1259,7 @@ export class Runtime {
     return text;
   }
   private async compactIfNeeded(id: string, signal: AbortSignal) {
-    const c = await this.load(id);
+    const c = await this.chats.load(id);
     const window = c?.context?.window ?? defaultContextWindow;
     const tokens = c?.context?.tokens ?? estimateTokens(c?.modelInput);
     if (tokens >= window * compactAt) await this.compactInput(id, signal);
@@ -1363,7 +1282,7 @@ export class Runtime {
     }
   }
   private async summarise(id: string, signal: AbortSignal): Promise<boolean> {
-    const c = await this.load(id);
+    const c = await this.chats.load(id);
     const input = c?.modelInput ?? [];
     if (!c || c.call?.state === 'pending') return false;
     let cut = splitPoint(input);
@@ -1403,7 +1322,7 @@ export class Runtime {
     await this.store.put(`model-archive:${id}:${n}`, input.slice(0, cut));
     const before = c.context?.tokens ?? estimateTokens(input);
     let applied = false;
-    await this.update(id, (value) => {
+    await this.chats.update(id, (value) => {
       const current = value.modelInput ?? [];
       // Only append-only growth is expected; anything else means another writer replaced it.
       if (current.length < input.length || value.compactions !== c.compactions) return value;
@@ -1442,7 +1361,7 @@ export class Runtime {
     this.active.set(id, controller);
     try {
       if (!(await this.compactInput(id, controller.signal)))
-        await this.update(id, (value) => ({
+        await this.chats.update(id, (value) => ({
           ...value,
           messages: [...value.messages, message('notice', 'Nothing to summarise yet.')],
         }));
@@ -1451,7 +1370,7 @@ export class Runtime {
     }
   }
   private waitForConnection(id: string, error?: unknown) {
-    return this.update(id, (c) =>
+    return this.chats.update(id, (c) =>
       c.status === 'stopped' || c.status === 'needs_review'
         ? c
         : {
@@ -1472,7 +1391,7 @@ export class Runtime {
       try {
         await binding.tool.cancel(c.call.operationId);
       } catch {
-        await this.update(id, (value) => ({
+        await this.chats.update(id, (value) => ({
           ...value,
           messages: [
             ...value.messages,
@@ -1484,7 +1403,7 @@ export class Runtime {
   }
   async stop(id: string): Promise<void> {
     this.active.get(id)?.abort(new Error('Stopped by user'));
-    await this.update(id, (c) => ({
+    await this.chats.update(id, (c) => ({
       ...c,
       status: c.status === 'needs_review' ? c.status : 'stopped',
       pending: [],
@@ -1506,7 +1425,7 @@ export class Runtime {
       name: string;
     }>('app-call:')) {
       if (call.state !== 'pending' || this.activeAppCalls.has(key)) continue;
-      await this.update(call.conversationId, (value) => ({
+      await this.chats.update(call.conversationId, (value) => ({
         ...value,
         messages: [
           ...value.messages,
@@ -1537,7 +1456,7 @@ export class Runtime {
           started: false,
           error: 'The background tool was rejected before execution. Choose an available tool.',
         });
-        await this.update(c.id, (value) =>
+        await this.chats.update(c.id, (value) =>
           value.status !== 'needs_review' || value.call?.id !== c.call!.id
             ? value
             : {
@@ -1571,7 +1490,7 @@ export class Runtime {
           !c.call.approved
         ) {
           // It changed nothing, so running it again is safe; the approved path runs it as proposed.
-          await this.update(c.id, (value) => ({
+          await this.chats.update(c.id, (value) => ({
             ...value,
             status: value.status === 'stopped' ? 'stopped' : 'queued',
             call: { ...value.call!, approved: true },
@@ -1581,7 +1500,7 @@ export class Runtime {
         if (c.call?.state === 'pending' && c.call.approved) {
           // Approved but never started: running it now is its first and only run.
           if (c.status !== 'stopped')
-            await this.update(c.id, (value) => ({ ...value, status: 'queued' }));
+            await this.chats.update(c.id, (value) => ({ ...value, status: 'queued' }));
           return;
         }
         if (c.call?.state === 'pending') {
@@ -1592,7 +1511,7 @@ export class Runtime {
               : undefined;
           if (job) {
             const result = JSON.stringify({ id: job.id, state: job.state });
-            await this.update(c.id, (value) => ({
+            await this.chats.update(c.id, (value) => ({
               ...value,
               status: c.status === 'stopped' ? 'stopped' : 'queued',
               call: { ...value.call!, state: 'completed', result },
@@ -1624,7 +1543,7 @@ export class Runtime {
                 throw error;
               }
               if (status.done) {
-                await this.update(c.id, (value) => ({
+                await this.chats.update(c.id, (value) => ({
                   ...value,
                   status: value.status === 'stopped' ? 'stopped' : 'queued',
                   retryAt: undefined,
@@ -1670,7 +1589,7 @@ export class Runtime {
           } catch {
             /* Unavailable plugins or reconciliation failures leave an explicit unknown outcome. */
           }
-          await this.update(c.id, (value) => ({
+          await this.chats.update(c.id, (value) => ({
             ...value,
             status: 'needs_review',
             call: { ...value.call!, state: 'unknown' },
@@ -1682,7 +1601,7 @@ export class Runtime {
               ),
             ],
           }));
-        } else await this.update(c.id, (value) => ({ ...value, status: 'queued' }));
+        } else await this.chats.update(c.id, (value) => ({ ...value, status: 'queued' }));
       };
       if (globalThis.navigator?.locks)
         await navigator.locks.request(
@@ -1695,7 +1614,7 @@ export class Runtime {
     await this.background.recover();
   }
   async resolve(id: string, retry: boolean): Promise<void> {
-    await this.update(id, (c) => {
+    await this.chats.update(id, (c) => {
       if (c.status !== 'needs_review' || !c.call)
         throw new Error('No uncertain tool call to resolve.');
       return {
@@ -1793,7 +1712,7 @@ export class Runtime {
         state: 'completed',
         result,
       });
-      await this.update(record.conversationId, (value) => ({
+      await this.chats.update(record.conversationId, (value) => ({
         ...value,
         messages: [
           ...value.messages,
@@ -1806,7 +1725,7 @@ export class Runtime {
       return result;
     } catch (error) {
       await this.store.put('app-call:' + callId, { appId: id, name, input, state: 'unknown' });
-      await this.update(record.conversationId, (value) => ({
+      await this.chats.update(record.conversationId, (value) => ({
         ...value,
         messages: [
           ...value.messages,
