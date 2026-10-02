@@ -93,7 +93,7 @@ test('mobile drawer traps focus and narrow or landscape layouts keep controls re
   await drawer(page);
   await expect(page.locator('#menu-close')).toBeFocused();
   await page.keyboard.press('Shift+Tab');
-  await expect(page.locator('#settings-open')).toBeFocused();
+  await expect(page.locator('#new-chat')).toBeFocused();
   await page.keyboard.press('Tab');
   await expect(page.locator('#menu-close')).toBeFocused();
   await accessible(page);
