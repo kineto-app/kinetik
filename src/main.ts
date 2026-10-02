@@ -181,7 +181,11 @@ function render() {
       ? latestThought(c.live.reasoning)
       : undefined;
   byId('activity-label').textContent =
-    (c?.call?.state === 'pending' ? taskLabel(c.call.name) : (thought?.heading ?? 'Working')) +
+    (c?.call?.state === 'pending'
+      ? taskLabel(c.call.name)
+      : c?.live?.activity === 'summarising'
+        ? 'Summarising earlier messages…'
+        : (thought?.heading ?? 'Working')) +
     (c?.live && c.live.step > 1 ? ` · step ${c.live.step}` : '');
   renderThought(thought);
   updateElapsed();
@@ -674,7 +678,7 @@ function changed(event: RuntimeEvent | undefined) {
     return;
   }
   if (c && event?.type === 'progress' && c.status === 'running') {
-    c.live = { step: event.step, tool: event.tool };
+    c.live = { step: event.step, tool: event.tool, activity: event.activity };
     render();
     return;
   }

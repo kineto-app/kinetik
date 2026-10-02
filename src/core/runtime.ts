@@ -1076,6 +1076,19 @@ export class Runtime {
    * part is archived first and the swap is one write, so redoing it after a crash is harmless.
    */
   private async compactInput(id: string, signal: AbortSignal): Promise<boolean> {
+    const previous = this.live.get(id);
+    this.progress(id, { step: previous?.step ?? 0, activity: 'summarising' });
+    try {
+      return await this.summarise(id, signal);
+    } finally {
+      if (previous) this.progress(id, previous);
+      else {
+        this.live.delete(id);
+        this.changed();
+      }
+    }
+  }
+  private async summarise(id: string, signal: AbortSignal): Promise<boolean> {
     const c = await this.load(id);
     const input = c?.modelInput ?? [];
     if (!c || c.call?.state === 'pending') return false;

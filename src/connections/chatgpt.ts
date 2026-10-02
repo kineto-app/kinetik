@@ -510,11 +510,12 @@ export class BrowserChatGPT {
     const summary = Boolean(effort) && !(await this.store.get<boolean>(summaryOff));
     const response = await send(summary);
     if (response.status !== 400 || !summary) return response;
-    // The relay hides upstream error text, so any 400 counts: retry once without summaries and
-    // stop asking this model for them.
+    // The relay hides upstream error text, so retry once without summaries and stop asking this
+    // model only if that succeeds; otherwise the 400 had another cause.
     await response.body?.cancel();
-    await this.store.put(summaryOff, true);
-    return send(false);
+    const retried = await send(false);
+    if (retried.ok) await this.store.put(summaryOff, true);
+    return retried;
   }
   async logout() {
     return navigator.locks.request('kinetik-chatgpt', async () => {

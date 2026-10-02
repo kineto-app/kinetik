@@ -572,3 +572,34 @@ test('a model that rejects reasoning summaries is asked once more without them, 
     { effort: 'medium' },
   ]);
 });
+
+test('a 400 that also fails without summaries leaves summaries on', async () => {
+  const request = fetcher.getMockImplementation()!;
+  const sent: { reasoning?: unknown }[] = [];
+  let fail = true;
+  fetcher.mockImplementation((input, init) => {
+    if (String(input).endsWith('/responses')) {
+      sent.push(JSON.parse(String(init?.body)));
+      return Promise.resolve(
+        fail
+          ? Response.json({ error: { message: 'ChatGPT returned HTTP 400.' } }, { status: 400 })
+          : new Response('data: test\n\n'),
+      );
+    }
+    return request(input, init);
+  });
+  await begin();
+  await client.callback(callback());
+  const failed = await client.responses(
+    { account: 'person', request: {} },
+    new AbortController().signal,
+  );
+  expect(failed.status).toBe(400);
+  fail = false;
+  await client.responses({ account: 'person', request: {} }, new AbortController().signal);
+  expect(sent.map((body) => body.reasoning)).toEqual([
+    { effort: 'medium', summary: 'auto' },
+    { effort: 'medium' },
+    { effort: 'medium', summary: 'auto' },
+  ]);
+});

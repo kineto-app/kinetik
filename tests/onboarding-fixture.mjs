@@ -489,7 +489,7 @@ function agentReply(res, request) {
     );
   }
   if (last.startsWith('Summarise the conversation so far'))
-    return say(
+    return streamSay(
       'The user is planning a Lisbon trip, prefers short answers, and saved notes in /workspace/trip.md.',
     );
   if (last === 'Fill the context')

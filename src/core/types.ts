@@ -55,7 +55,12 @@ export type Ask =
   | { kind: 'approval'; question: string }
   | { kind: 'choice'; question: string; options: string[] }
   | { kind: 'memory'; question: string; text: string };
-export type LiveProgress = { step: number; tool?: string; reasoning?: string };
+export type LiveProgress = {
+  step: number;
+  tool?: string;
+  reasoning?: string;
+  activity?: 'summarising';
+};
 /**
  * Pushed to open windows as hints. A window applies text and progress itself and reloads
  * state for anything else; persisted changes always arrive as a plain change.

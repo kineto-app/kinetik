@@ -137,6 +137,41 @@ function withoutImages(history: Record<string, unknown>[] | undefined) {
   );
 }
 
+/**
+ * Every request resends the whole history, and the relay caps a body at 8 MB. Only the newest
+ * photos within this budget go as images; older ones become a note, and the model keeps their paths.
+ */
+const imageBudget = { count: 8, bytes: 4 * 1024 * 1024 };
+export function latestImages(history: Record<string, unknown>[] | undefined) {
+  let count = 0;
+  let bytes = 0;
+  const keep = new Set<unknown>();
+  for (const item of [...(history ?? [])].reverse())
+    for (const part of [...(Array.isArray(item.content) ? item.content : [])].reverse()) {
+      if (part?.type !== 'input_image') continue;
+      const size = String(part.image_url ?? '').length;
+      if (count < imageBudget.count && bytes + size <= imageBudget.bytes) keep.add(part);
+      count++;
+      bytes += size;
+    }
+  if (keep.size === count) return history;
+  return history?.map((item) =>
+    Array.isArray(item.content)
+      ? {
+          ...item,
+          content: item.content.map((part: { type?: string }) =>
+            part.type === 'input_image' && !keep.has(part)
+              ? {
+                  type: 'input_text',
+                  text: '[An earlier photo is no longer shown to keep the request small. Its file path is listed in this message.]',
+                }
+              : part,
+          ),
+        }
+      : item,
+  );
+}
+
 export class OpenAIModel implements Model {
   constructor(
     private endpoint: string,
@@ -179,7 +214,7 @@ export class OpenAIModel implements Model {
           input:
             config.images === false
               ? withoutImages(request.history)
-              : (request.history ?? [{ role: 'user', content: request.message }]),
+              : (latestImages(request.history) ?? [{ role: 'user', content: request.message }]),
           tools: tools.length
             ? [{ type: 'namespace', name: 'kinetik', description: 'Kinetik agent tools', tools }]
             : [],

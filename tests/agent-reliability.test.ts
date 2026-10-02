@@ -4,7 +4,7 @@ import { Store } from '../src/browser/store';
 import { modelInput } from './model-input';
 import { ContextOverflow } from '../src/core/connection-error';
 import { compactPrompt, summaryPrefix } from '../src/core/compaction';
-import { readResponse } from '../src/core/openai-model';
+import { latestImages, readResponse } from '../src/core/openai-model';
 import type { Conversation, Model, ModelRequest, ModelStep } from '../src/core/types';
 
 const read = async (store: Store, id: string) =>
@@ -268,4 +268,54 @@ test('reasoning summary deltas are streamed as one growing text, parts separated
     (text) => seen.push(text),
   );
   expect(seen.at(-1)).toBe('**Planning**\n\nPick a palette.\n\n**Writing**');
+});
+
+test('only the newest photos within the budget are sent as images', () => {
+  const photo = (n: number, size = 300_000) => ({
+    type: 'input_image',
+    image_url: 'data:image/jpeg;base64,' + String(n).repeat(size),
+  });
+  const message = (...photos: unknown[]) => ({
+    role: 'user',
+    content: [{ type: 'input_text', text: 'Use these' }, ...photos],
+  });
+  // Two sets of eight photos: only the latest eight fit.
+  const history = [
+    message(...[1, 2, 3, 4, 5, 6, 7, 8].map((n) => photo(n))),
+    message(...[1, 2, 3, 4, 5, 6, 7, 8].map((n) => photo(n + 1))),
+  ];
+  const sent = latestImages(history)!;
+  const kinds = (i: number) => (sent[i].content as { type: string }[]).map((part) => part.type);
+  expect(kinds(0).filter((t) => t === 'input_image')).toHaveLength(0);
+  expect(kinds(1).filter((t) => t === 'input_image')).toHaveLength(8);
+  expect(JSON.stringify(sent).length).toBeLessThan(5 * 1024 * 1024);
+  // Large photos are limited by size before count.
+  const big = latestImages([message(...[1, 2, 3, 4].map((n) => photo(n, 1_500_000)))])!;
+  expect(
+    (big[0].content as { type: string }[]).filter((p) => p.type === 'input_image'),
+  ).toHaveLength(2);
+  // A history within the budget is sent untouched.
+  const small = [message(photo(1, 10))];
+  expect(latestImages(small)).toBe(small);
+});
+
+test('a summary is announced as live progress and the step progress returns after it', async () => {
+  const store = new Store(crypto.randomUUID());
+  const events: unknown[] = [];
+  const { model } = scripted([
+    () => reply('First answer', 8000),
+    () => reply('Second answer', 900),
+  ]);
+  const runtime = new Runtime(store, (event) => event && events.push(event), model);
+  const c = await runtime.create();
+  await runtime.submit(c.id, 'First question');
+  await runtime.run(c.id);
+  events.length = 0;
+  await runtime.submit(c.id, 'Second question');
+  await runtime.run(c.id);
+  expect(events.filter((e) => (e as { type: string }).type === 'progress')).toEqual([
+    { type: 'progress', conversationId: c.id, step: 1 },
+    { type: 'progress', conversationId: c.id, step: 1, activity: 'summarising' },
+    { type: 'progress', conversationId: c.id, step: 1 },
+  ]);
 });
