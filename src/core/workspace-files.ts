@@ -3,7 +3,6 @@ import type { createFilesystem } from '../browser/filesystem';
 import type { Plugins } from '../plugins/loader';
 import { localTools } from './tools';
 
-/** The files browser, import and export over the local workspace. */
 export class WorkspaceFiles {
   constructor(
     private store: Store,

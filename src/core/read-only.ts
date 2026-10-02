@@ -32,7 +32,6 @@ type ReadOnlyDeps = {
   progress: (id: string, live: LiveProgress) => void;
 };
 
-/** Tools that change nothing: parallel batches and the helper sub-agent. */
 export class ReadOnlyTools {
   private ajv = new Ajv({ strict: false });
   constructor(private deps: ReadOnlyDeps) {}
