@@ -11,6 +11,8 @@ import { Attachments, attachmentLock } from './attachments';
 import { abortable } from './abortable';
 import { functionOutput, printable, withOutput } from './model-input';
 import { readOnlyLocal, ReadOnlyTools, rerunnable } from './read-only';
+import { AppCalls } from './apps';
+import { WorkspaceFiles } from './workspace-files';
 import { buildInstructions, builtinSkill, modelVisible, toolDefinitions } from './prompt';
 import { createFilesystem } from '../browser/filesystem';
 import { Plugins } from '../plugins/loader';
@@ -55,6 +57,8 @@ export class Runtime {
   private attachments: Attachments;
   private compactor: Compactor;
   private readOnly: ReadOnlyTools;
+  private apps: AppCalls;
+  private workspaceFiles: WorkspaceFiles;
   private workspace: ReturnType<typeof createFilesystem>;
   constructor(
     readonly store = new Store(),
@@ -66,6 +70,10 @@ export class Runtime {
     this.automations = new Automations(store, this, changed);
     this.workspace = createFilesystem(store);
     this.attachments = new Attachments(store, this.chats, this.plugins, this.workspace);
+    this.apps = new AppCalls(store, this.chats, this.plugins);
+    this.workspaceFiles = new WorkspaceFiles(store, this.plugins, this.workspace, () =>
+      this.changed(),
+    );
     this.readOnly = new ReadOnlyTools({
       chats: this.chats,
       ask: (id, request, signal) => this.modelNext(id, request, signal),
@@ -922,7 +930,6 @@ export class Runtime {
     }));
     await this.background.cancelConversation(id);
   }
-  private activeAppCalls = new Set<string>();
   private recovery?: Promise<void>;
   recover(): Promise<void> {
     return (this.recovery ??= this.recoverWork().finally(() => {
@@ -935,7 +942,7 @@ export class Runtime {
       conversationId: string;
       name: string;
     }>('app-call:')) {
-      if (call.state !== 'pending' || this.activeAppCalls.has(key)) continue;
+      if (call.state !== 'pending' || this.apps.running(key)) continue;
       await this.chats.update(call.conversationId, (value) => ({
         ...value,
         messages: [
@@ -1133,123 +1140,22 @@ export class Runtime {
       };
     });
   }
-  async files() {
-    const { fs } = await this.workspace;
-    const files: { path: string; name: string; size: number }[] = [];
-    const visit = async (directory: string) => {
-      for (const name of await fs.readdir(directory)) {
-        const path = directory + '/' + name;
-        try {
-          const stat = await fs.lstat(path);
-          if (stat.isDirectory) await visit(path);
-          else if (stat.isFile) files.push({ path, name, size: stat.size });
-        } catch {
-          /* A concurrent task may have moved or deleted the file. */
-        }
-      }
-    };
-    await visit('/workspace');
-    return files.sort((a, b) => a.path.localeCompare(b.path));
+  files() {
+    return this.workspaceFiles.list();
   }
-  async readMonitor(path: string): Promise<string> {
-    const snapshot = await this.plugins.snapshot(
-      localTools(await this.workspace, () => [], this.store),
-    );
-    const result = await snapshot.bindings.read.tool.execute(
-      { path },
-      { signal: AbortSignal.timeout(10000), checkpoint: async () => {} },
-    );
-    return typeof result === 'string' ? result : JSON.stringify(result);
+  readMonitor(path: string) {
+    return this.workspaceFiles.readMonitor(path);
   }
-  async appCall(id: string, name: string, input: Record<string, unknown>): Promise<unknown> {
-    const record = await this.store.get<{
-      plugins: InstalledPlugin[];
-      tool: string;
-      conversationId: string;
-      provider: string;
-    }>('app:' + id);
-    if (!record) throw new Error('App not found.');
-    if (name.length > 128 || JSON.stringify(input).length > 1024 * 1024)
-      throw new Error('App request is too large.');
-    const installed = (await this.plugins.list()).find(
-      (plugin) => plugin.manifest.id === record.provider,
-    );
-    if (!installed || installed.enabledAt === null)
-      throw new Error('This app’s plugin was disabled. Enable it and run its tool again.');
-    // Saved widgets outlive plugin updates; their calls go through the version installed now.
-    const snapshot = await this.plugins.snapshot(
-      {},
-      record.plugins.map((plugin) =>
-        plugin.manifest.id === installed.manifest.id ? installed : plugin,
-      ),
-    );
-    const tool = snapshot.bindings[record.tool]?.tool;
-    if (!tool?.app) throw new Error('App tool unavailable.');
-    const callId = crypto.randomUUID();
-    this.activeAppCalls.add('app-call:' + callId);
-    try {
-      await this.store.put('app-call:' + callId, {
-        appId: id,
-        conversationId: record.conversationId,
-        name,
-        input,
-        state: 'pending',
-      });
-      const result = await tool.app.call(name, input, AbortSignal.timeout(30000));
-      await this.store.put('app-call:' + callId, {
-        appId: id,
-        name,
-        input,
-        state: 'completed',
-        result,
-      });
-      await this.chats.update(record.conversationId, (value) => ({
-        ...value,
-        messages: [
-          ...value.messages,
-          {
-            ...message('tool', printable(result), 'App · ' + name),
-            activity: { scope: 'app:' + id, input, outcome: toolOutcome(result) },
-          },
-        ],
-      }));
-      return result;
-    } catch (error) {
-      await this.store.put('app-call:' + callId, { appId: id, name, input, state: 'unknown' });
-      await this.chats.update(record.conversationId, (value) => ({
-        ...value,
-        messages: [
-          ...value.messages,
-          message(
-            'notice',
-            'App tool outcome unknown: ' + name + '. Check its effects before trying again.',
-          ),
-        ],
-      }));
-      throw error;
-    } finally {
-      this.activeAppCalls.delete('app-call:' + callId);
-    }
+  appCall(id: string, name: string, input: Record<string, unknown>) {
+    return this.apps.call(id, name, input);
   }
-  async importFile(name: string, bytes: Uint8Array): Promise<void> {
-    if (
-      !name ||
-      name.includes('/') ||
-      name.includes('\\') ||
-      name === '.' ||
-      name === '..' ||
-      bytes.byteLength > 4 * 1024 * 1024
-    )
-      throw new Error('Import a file up to 4 MiB with a plain filename.');
-    await (await this.workspace).fs.writeFile('/workspace/' + name, bytes);
-    this.changed();
+  importFile(name: string, bytes: Uint8Array) {
+    return this.workspaceFiles.importFile(name, bytes);
   }
-  async exportSharedFile(id: string): Promise<Uint8Array> {
-    const bytes = await this.store.get<Uint8Array>('shared-file:' + id);
-    if (!bytes) throw new Error('Shared file not found.');
-    return bytes;
+  exportSharedFile(id: string) {
+    return this.workspaceFiles.exportSharedFile(id);
   }
-  async exportFile(path: string): Promise<Uint8Array> {
-    return (await this.workspace).fs.readFileBuffer(path);
+  exportFile(path: string) {
+    return this.workspaceFiles.exportFile(path);
   }
 }
