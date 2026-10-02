@@ -308,20 +308,16 @@ dialog:not(.connection-setup) {
 #resume-work {
   font-size: 12px;
 }
-/* One quiet card per narration segment. */
+/* Activity between narration: one quiet line that opens into a compact list of steps. */
 .tool-group {
   margin: 0 0 var(--space-section);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--glass-panel);
-  color: var(--ink);
+  color: var(--muted);
   font-size: 13px;
-  overflow: hidden;
 }
 .tool-group summary {
   cursor: pointer;
-  min-height: var(--target);
   list-style: none;
+  border-radius: var(--radius-control);
   transition: background var(--duration) var(--ease-out);
 }
 .tool-group summary::-webkit-details-marker {
@@ -330,22 +326,37 @@ dialog:not(.connection-setup) {
 .tool-group summary:hover {
   background: var(--hover);
 }
-.tool-group summary:active {
-  background: var(--panel);
-}
 .tool-group summary:focus-visible {
-  outline-offset: -3px;
+  outline-offset: -2px;
 }
 .activity-summary {
   display: flex;
   align-items: center;
   gap: var(--space-inline);
-  padding: var(--space-content);
+  min-height: 32px;
+  padding: 0 6px;
+}
+.tool-group > .activity-summary {
+  width: fit-content;
+  max-width: 100%;
+}
+.tool-group[open] > .activity-summary {
+  color: var(--ink);
 }
 .activity-label {
-  flex: 1;
   min-width: 0;
-  overflow-wrap: anywhere;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tool-details .activity-label {
+  flex: 1;
+  color: var(--ink);
+}
+.activity-note {
+  flex: none;
+  color: var(--muted);
+  font-size: 12px;
 }
 .activity-mark,
 .activity-chevron {
@@ -355,15 +366,19 @@ dialog:not(.connection-setup) {
 }
 .activity-mark .icon,
 .activity-chevron .icon {
-  width: 16px;
-  height: 16px;
+  width: 15px;
+  height: 15px;
 }
-[data-outcome='completed'] > summary .activity-mark {
-  color: var(--accent-ink);
+.tool-group[data-outcome='completed'] > summary .activity-mark {
+  color: var(--ok);
 }
-[data-outcome='failed'] > summary .activity-mark,
-[data-outcome='unknown'] > summary .activity-mark {
+.tool-group[data-outcome='failed'] > summary .activity-mark,
+.tool-details:is([data-outcome='failed'], [data-outcome='unknown']) .activity-mark,
+.tool-details:is([data-outcome='failed'], [data-outcome='unknown']) .activity-note {
   color: var(--bad);
+}
+.tool-details[data-outcome='recovered'] .activity-note {
+  color: var(--ok);
 }
 [data-outcome='running'] > summary .activity-mark {
   animation: thinking 1.2s ease-in-out infinite;
@@ -374,38 +389,27 @@ dialog:not(.connection-setup) {
 details[open] > summary > .activity-chevron {
   transform: rotate(90deg);
 }
-.activity-count {
-  padding: 0 var(--space-inline);
-  background: var(--hover);
-  border-radius: var(--radius-pill);
-  color: var(--muted);
-  font-size: 12px;
-}
+/* Steps hang off a thin rail, one compact row each. */
 .tool-group-steps {
-  margin: 0 var(--space-content);
-  border-top: 1px solid var(--line);
+  margin: 2px 0 0 13px;
+  padding-left: var(--space-inline);
+  border-left: 2px solid var(--line);
 }
 .tool-group .tool-details {
   border: 0;
   padding: 0;
   margin: 0;
+  color: inherit;
 }
 .tool-group .tool-details > summary {
+  min-height: 30px;
+  padding: 0 6px;
+  font-size: 12.5px;
   color: var(--ink);
-  padding: var(--space-content) 0;
-}
-.tool-group-steps > .activity-batch > summary {
-  padding-inline: 0;
-}
-.tool-group-steps > * + * {
-  border-top: 1px solid var(--line);
-}
-.activity-calls {
-  padding-left: var(--space-content);
 }
 .activity-body {
   /* An opened step is an inset submenu: narrower than its row, same row rhythm. */
-  margin: 0 0 var(--space-content) var(--space-section);
+  margin: 0 0 var(--space-inline) 29px;
   padding: var(--space-inline) var(--space-content);
   border: 1px solid var(--line);
   border-radius: var(--radius-inner);
@@ -413,7 +417,7 @@ details[open] > summary > .activity-chevron {
   color: var(--muted);
 }
 .tool-group-steps > .activity-body {
-  margin-top: var(--space-inline);
+  margin: 4px 0 var(--space-inline);
 }
 .activity-explanation {
   margin: 0 0 var(--space-inline);
@@ -428,7 +432,7 @@ details[open] > summary > .activity-chevron {
 .activity-facts dt,
 .activity-facts dd {
   margin: 0;
-  padding: 6px 0;
+  padding: 4px 0;
   border-top: 1px solid var(--line);
 }
 .activity-facts dd {
@@ -443,7 +447,7 @@ details[open] > summary > .activity-chevron {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  min-height: 36px;
+  min-height: 30px;
   color: var(--ink);
   font-size: 12px;
 }

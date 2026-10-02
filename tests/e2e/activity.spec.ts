@@ -79,14 +79,19 @@ test('activity combines repeats, explains retries, and keeps technical output op
   await expect(cards).toHaveCount(2);
   const first = cards.first();
   await expect(first).not.toHaveAttribute('open');
-  await expect(first.locator(':scope > summary')).toHaveText('Actions completed2');
+  // Collapsed: plain words for what happened, and a retried failure counts as fixed.
+  await expect(first.locator(':scope > summary')).toHaveText('Read 2 files, ran a command1 fixed');
   await expect(page.locator('.file-card')).toBeVisible();
   await expect(page.locator('.activity-json pre')).toHaveCount(0);
   await first.locator(':scope > summary').click();
-  const rows = first.locator('.tool-group-steps > details');
-  await expect(rows).toHaveCount(2);
-  await expect(rows.nth(0).locator(':scope > summary')).toHaveText('Read 2 files');
-  await expect(rows.nth(1).locator(':scope > summary')).toHaveText('Ran a command');
+  // Open: one flat list in order, no middle grouping level.
+  const rows = first.locator('.tool-group-steps > .tool-details');
+  await expect(rows).toHaveCount(5);
+  await expect(first.locator('.activity-batch')).toHaveCount(0);
+  await expect(rows.nth(0).locator(':scope > summary')).toHaveText('Read trip.md');
+  await expect(rows.nth(2).locator(':scope > summary')).toHaveText('Run python3Fixed');
+  await expect(rows.nth(3).locator(':scope > summary')).toHaveText('Ran python3');
+  expect((await rows.nth(0).locator(':scope > summary').boundingBox())!.height).toBeLessThan(34);
   await expect(first).toHaveAttribute('data-outcome', 'completed');
   for (const theme of ['dark', 'light']) {
     await page.evaluate((theme) => {
@@ -96,18 +101,12 @@ test('activity combines repeats, explains retries, and keeps technical output op
     expect(axe.violations).toEqual([]);
     await page.screenshot({ path: info.outputPath(`activity-${theme}.png`) });
   }
-  await rows.nth(0).locator(':scope > summary').click();
-  await expect(rows.nth(0).locator('.tool-details > summary').first()).toContainText(
-    'Read trip.md',
-  );
-  await rows.nth(1).locator(':scope > summary').click();
-  const failedAttempt = rows.nth(1).locator('.tool-details').first();
+  const failedAttempt = rows.nth(2);
   await failedAttempt.locator(':scope > summary').click();
   await expect(failedAttempt.locator('.activity-explanation')).toContainText('later retry');
   await expect(failedAttempt.locator('pre')).toHaveCount(0);
-  // Details open in place as a submenu: facts first, then Input and Result on demand.
-  await expect(failedAttempt.locator('.activity-facts')).toContainText('Toolexec');
-  await expect(failedAttempt.locator('.activity-facts')).toContainText('Ran onCharms');
+  // Details open in place as a submenu: tool and place first, then Input and Result on demand.
+  await expect(failedAttempt.locator('.activity-facts')).toHaveText('Toolexec · Charms');
   await failedAttempt.getByText('Input', { exact: true }).click();
   const input = failedAttempt.locator('.activity-json').first().locator('pre');
   await expect(input).toContainText('python3 packing.py');
@@ -137,9 +136,8 @@ test('unrelated successes cannot hide errors and long untrusted data stays inert
     },
   ]);
   const card = page.locator('.tool-group');
-  await expect(card.locator(':scope > summary')).toContainText('Needs attention');
+  await expect(card.locator(':scope > summary')).toContainText('1 failed');
   await card.locator(':scope > summary').click();
-  await card.locator('.activity-batch > summary').click();
   await expect(card.locator('.tool-details').first().locator(':scope > summary')).toContainText(
     'Failed',
   );

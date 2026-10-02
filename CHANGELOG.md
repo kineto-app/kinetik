@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Show activity between narration as one quiet line in plain words ("Read 2 files, ran a command · 1 fixed") that opens into a flat, compact list of steps with kind icons and a status word only when it matters.
+
 - Open activity steps as an inset submenu with tool, where it ran, and Input / Result as highlighted JSON with Copy, instead of a separate technical-details link. A group with a single step opens straight into its details.
 
 - Format replies while they stream, with no jump when the final reply lands. Make the latest-message control a round arrow button. Show recent chats with a colour dot and age, and move New chat with its icon to the bottom of the sidebar.
