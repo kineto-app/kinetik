@@ -61,7 +61,7 @@ Open **Settings** and choose **Use device setting**, **Light**, or **Dark**. The
 
 The interface uses the Charms renderer’s tinted panels, compact action rows, upload controls, and icon strokes. Small button text uses a slightly deeper purple for readable contrast. All theme values live in [the design tokens](src/ui/tokens.css). Frosted header, sidebar, composer, and dialogs derive their colors from those tokens. Shared buttons use rounded controls. New messages and dialogs use brief transitions; the device’s reduced-motion preference disables them. The composer starts at one line and grows with the message. Its main button shows Stop during work and switches to Send when you type steering; Stop remains available in the work options. Foreground tool calls share an expandable activity row, while files and embedded apps remain visible. Widgets rendered after a background job completes also appear in chat; their raw tool output stays hidden. The layout follows the visual viewport so the keyboard leaves the header and composer reachable.
 
-Replies format headings, lists, tables, links, and code. Copy a complete reply or an individual code block. Raw HTML and remote images remain inactive. When you scroll up, new content leaves your reading position in place; **Latest message** returns you to the end. You can send another message while Kinetik works to steer the current turn.
+Replies format headings, lists, tables, links, and code. Copy a complete reply or an individual code block. Raw HTML and remote images remain inactive. When you scroll up, new content leaves your reading position in place; the down-arrow **Latest message** button returns you to the end. You can send another message while Kinetik works to steer the current turn.
 
 ## Try it
 

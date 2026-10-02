@@ -248,7 +248,7 @@ test('updates stay reachable inside setup, dialogs and the mobile chat drawer', 
     await update.click({ trial: true });
     await update.focus();
     await page.keyboard.press('Shift+Tab');
-    await expect(page.locator('#settings-open')).toBeFocused();
+    await expect(page.locator('#new-chat')).toBeFocused();
     await page.keyboard.press('Tab');
     await expect(update).toBeFocused();
     await page.getByRole('button', { name: 'Close chats', exact: true }).first().click();

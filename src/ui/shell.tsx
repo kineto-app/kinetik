@@ -25,13 +25,8 @@ export function Shell() {
               <Icon name="close" />
             </button>
           </div>
-          <button class="new-chat" id="new-chat">
-            <Icon name="compose" />
-            <span>New chat</span>
-          </button>
           <div class="history">
-            <h2 class="eyebrow">Recent chats</h2>
-            <nav id="conversations" aria-label="Chat list"></nav>
+            <nav id="conversations" aria-label="Recent chats"></nav>
           </div>
           <div class="sidebar-footer">
             <button id="install-open" class="secondary" hidden>
@@ -60,6 +55,10 @@ export function Shell() {
               <span class="status-dot"></span>
               <span>Saved on this device</span>
             </div>
+            <button class="new-chat" id="new-chat">
+              <Icon name="compose" />
+              <span>New chat</span>
+            </button>
           </div>
         </aside>
         <button
@@ -108,8 +107,15 @@ export function Shell() {
               aria-live="polite"
               aria-relevant="additions text"
             ></section>
-            <button id="jump-latest" class="jump-latest" type="button" hidden>
-              Latest message <Icon name="download" />
+            <button
+              id="jump-latest"
+              class="jump-latest"
+              type="button"
+              aria-label="Latest message"
+              title="Latest message"
+              hidden
+            >
+              <Icon name="arrowDown" />
             </button>
           </div>
           <section class="composer-area">

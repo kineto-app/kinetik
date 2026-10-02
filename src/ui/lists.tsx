@@ -1,6 +1,10 @@
 import { For, Show } from 'solid-js';
 import type { Conversation, InstalledPlugin } from '../core/types';
 import { icon } from './icons';
+import { shortAge } from './time';
+
+/** A stable colour per chat, so a conversation is recognisable at a glance. */
+const hue = (id: string) => [...id].reduce((sum, char) => (sum * 31 + char.charCodeAt(0)) % 360, 7);
 
 export function ConversationList(props: {
   conversations: Conversation[];
@@ -16,8 +20,22 @@ export function ConversationList(props: {
           aria-current={conversation.id === props.selected ? 'true' : 'false'}
           onClick={() => props.choose(conversation.id)}
         >
-          {conversation.status === 'running' && !props.background(conversation) ? '• ' : ''}
-          {conversation.title}
+          <span
+            class="conversation-dot"
+            classList={{
+              working: conversation.status === 'running' && !props.background(conversation),
+            }}
+            style={{ '--hue': hue(conversation.id) }}
+            aria-hidden="true"
+          />
+          <span class="conversation-title">{conversation.title}</span>
+          <time
+            class="conversation-time"
+            dateTime={new Date(conversation.updatedAt).toISOString()}
+            title={new Date(conversation.updatedAt).toLocaleString()}
+          >
+            {shortAge(conversation.updatedAt)}
+          </time>
         </button>
       )}
     </For>
