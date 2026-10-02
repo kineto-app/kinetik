@@ -1,4 +1,5 @@
-dialog.mcp-app-panel {
+/* `html` outranks the glass `dialog:not(...)` rule, which loads later. */
+html dialog.mcp-app-panel {
   position: static;
   display: block;
   width: 100%;

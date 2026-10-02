@@ -135,6 +135,9 @@ export class RuntimeHost {
             case 'model':
               result = await chatgpt.chooseModel(string(data.model));
               break;
+            case 'reasoning':
+              result = await chatgpt.chooseReasoning(string(data.effort));
+              break;
             case 'login':
               result = await chatgpt.login(
                 this.configuration?.native && data.redirectUri

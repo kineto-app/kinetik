@@ -951,12 +951,15 @@ export class Runtime {
     const installed = (await this.plugins.list()).find(
       (plugin) => plugin.manifest.id === record.provider,
     );
-    const pinned = record.plugins.find((plugin) => plugin.manifest.id === record.provider);
-    if (!installed || installed.enabledAt === null || installed.digest !== pinned?.digest)
-      throw new Error(
-        'This app’s plugin was disabled or updated. Run its tool again to reload the app.',
-      );
-    const snapshot = await this.plugins.snapshot({}, record.plugins);
+    if (!installed || installed.enabledAt === null)
+      throw new Error('This app’s plugin was disabled. Enable it and run its tool again.');
+    // Saved widgets outlive plugin updates; their calls go through the version installed now.
+    const snapshot = await this.plugins.snapshot(
+      {},
+      record.plugins.map((plugin) =>
+        plugin.manifest.id === installed.manifest.id ? installed : plugin,
+      ),
+    );
     const tool = snapshot.bindings[record.tool]?.tool;
     if (!tool?.app) throw new Error('App tool unavailable.');
     const callId = crypto.randomUUID();

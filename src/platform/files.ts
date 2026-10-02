@@ -2,9 +2,15 @@ import { invoke } from '@tauri-apps/api/core';
 import { open, save } from '@tauri-apps/plugin-dialog';
 import { open as openFile, writeFile } from '@tauri-apps/plugin-fs';
 
+export async function pickNativeFiles(): Promise<string[]> {
+  const paths = await open({ multiple: true, directory: false, title: 'Add files' });
+  return paths ?? [];
+}
 export async function importNativeFile(): Promise<{ name: string; bytes: Uint8Array } | undefined> {
   const path = await open({ multiple: false, directory: false, title: 'Add a file' });
-  if (!path) return;
+  return path ? readNativeFile(path) : undefined;
+}
+export async function readNativeFile(path: string): Promise<{ name: string; bytes: Uint8Array }> {
   let name = path.split(/[\\/]/).at(-1) || 'file';
   if (path.startsWith('content:')) {
     const result = await invoke<{ value: string }>('plugin:native|file_info', {
