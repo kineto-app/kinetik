@@ -12,3 +12,10 @@ export const withOutput = (
   callId: string | undefined,
   output: string,
 ) => (callId ? [...(input ?? []), functionOutput(callId, output)] : input);
+
+/** A tool result as model-visible text, capped at 64 KB. */
+export const printable = (value: unknown) =>
+  (typeof value === 'string'
+    ? value
+    : (JSON.stringify(value, (key, value) => (key === '_meta' ? undefined : value), 2) ?? 'Done.')
+  ).slice(0, 65536);

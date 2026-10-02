@@ -265,3 +265,6 @@ export const message = (role: Message['role'], text: string, tool?: string): Mes
   tool,
   createdAt: Date.now(),
 });
+
+export const addUsage = (a: Usage | undefined, b: Usage | undefined): Usage | undefined =>
+  !a ? b : !b ? a : { input: a.input + b.input, output: a.output + b.output };
