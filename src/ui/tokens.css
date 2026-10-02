@@ -17,6 +17,10 @@
   /* Reasoning slider: cool (faster) to warm (smarter). Light cool keeps white labels at 4.5:1. */
   --reasoning-cool: light-dark(rgb(40, 110, 190), rgb(120, 190, 240));
   --reasoning-warm: light-dark(rgb(214, 86, 170), rgb(236, 120, 196));
+  /* JSON in step details; each keeps 4.5:1 on --ground. */
+  --syntax-key: light-dark(rgb(98, 76, 196), rgb(178, 165, 250));
+  --syntax-string: light-dark(rgb(30, 112, 70), rgb(130, 210, 170));
+  --syntax-number: light-dark(rgb(160, 80, 10), rgb(240, 180, 120));
   --accent-ink: light-dark(color-mix(in srgb, var(--accent) 80%, var(--ink)), var(--accent));
   /* Slightly deeper fill keeps small button labels above 4.5:1 in light mode. */
   --accent-fill: light-dark(color-mix(in srgb, var(--accent) 94%, var(--ink)), var(--accent));

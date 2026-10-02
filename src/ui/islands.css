@@ -404,28 +404,89 @@ details[open] > summary > .activity-chevron {
   padding-left: var(--space-content);
 }
 .activity-body {
-  padding: 0 0 var(--space-content);
+  /* An opened step is an inset submenu: narrower than its row, same row rhythm. */
+  margin: 0 0 var(--space-content) var(--space-section);
+  padding: var(--space-inline) var(--space-content);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-inner);
+  background: var(--hover);
   color: var(--muted);
 }
+.tool-group-steps > .activity-body {
+  margin-top: var(--space-inline);
+}
 .activity-explanation {
-  margin: 0;
+  margin: 0 0 var(--space-inline);
   overflow-wrap: anywhere;
 }
-.activity-technical > summary {
+.activity-facts {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  margin: 0;
+  font-size: 12px;
+}
+.activity-facts dt,
+.activity-facts dd {
+  margin: 0;
+  padding: 6px 0;
+  border-top: 1px solid var(--line);
+}
+.activity-facts dd {
+  color: var(--ink);
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+.activity-json {
+  border-top: 1px solid var(--line);
+}
+.activity-json > summary {
   display: flex;
   align-items: center;
-  text-decoration: underline;
-  text-underline-offset: 3px;
+  justify-content: space-between;
+  min-height: 36px;
+  color: var(--ink);
+  font-size: 12px;
 }
-.activity-technical pre {
-  max-height: 240px;
+.activity-json-view {
+  position: relative;
+  margin-bottom: var(--space-inline);
+}
+.activity-json-view .copy-action {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  min-height: 0;
+  width: 32px;
+  height: 32px;
+  background: var(--glass);
+}
+.json-view {
+  max-height: 280px;
+  margin: 0;
+  padding: var(--space-content);
+  padding-right: 44px;
   overflow: auto;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+  font:
+    11.5px/1.55 ui-monospace,
+    'SF Mono',
+    Menlo,
+    Consolas,
+    monospace;
+  color: var(--ink);
   background: var(--ground);
-  border-radius: var(--radius-inner);
-  padding: var(--space-content);
-  margin: 0;
+  border-radius: var(--radius-control);
+}
+.json-key {
+  color: var(--syntax-key);
+}
+.json-string {
+  color: var(--syntax-string);
+}
+.json-number,
+.json-literal {
+  color: var(--syntax-number);
 }
 @media (prefers-reduced-motion: reduce) {
   .tool-group *,

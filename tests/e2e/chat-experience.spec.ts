@@ -141,12 +141,10 @@ test('tool activity is collapsed while result files remain visible', async ({ pa
   await expect(group).not.toHaveAttribute('open');
   await expect(group.locator('.tool-group-label')).toContainText('Saved a file');
   await group.locator(':scope > summary').click();
-  await expect(group.locator('.tool-details')).toBeVisible();
-  await group.locator('.tool-details > summary').click();
   await expect(group.locator('.activity-explanation')).toHaveText('Saved “note.txt”.');
-  await expect(group.locator('.tool-details pre')).toHaveCount(0);
-  await group.getByText('Technical details', { exact: true }).click();
-  await expect(group.locator('.tool-details pre')).toBeVisible();
+  await expect(group.locator('pre')).toHaveCount(0);
+  await group.getByText('Input', { exact: true }).click();
+  await expect(group.locator('.activity-json pre')).toContainText('note.txt');
   await send(page, '/show_file /workspace/note.txt');
   await expect(page.locator('.file-card')).toBeVisible();
   await send(page, '/write /workspace/note.txt\nNew working version');
@@ -244,7 +242,11 @@ test('narration persists and separates consecutive tools into distinct activity 
   await expect(page.locator('[data-role=assistant]')).toHaveCount(3);
   await expect(page.locator('.tool-group')).toHaveCount(2);
   await expect(page.locator('.tool-group').nth(0).locator('.tool-details')).toHaveCount(2);
-  await expect(page.locator('.tool-group').nth(1).locator('.tool-details')).toHaveCount(1);
+  // A single-step group shows that step's details directly, without a nested row.
+  await expect(page.locator('.tool-group').nth(1).locator('.tool-details')).toHaveCount(0);
+  await expect(
+    page.locator('.tool-group').nth(1).locator('.tool-group-steps > .activity-body'),
+  ).toHaveCount(1);
   expect(
     await page
       .locator('#timeline > .tool-group, #timeline > [data-role=assistant]')

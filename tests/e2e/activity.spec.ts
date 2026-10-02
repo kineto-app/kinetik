@@ -81,7 +81,7 @@ test('activity combines repeats, explains retries, and keeps technical output op
   await expect(first).not.toHaveAttribute('open');
   await expect(first.locator(':scope > summary')).toHaveText('Actions completed2');
   await expect(page.locator('.file-card')).toBeVisible();
-  await expect(page.locator('.activity-technical pre')).toHaveCount(0);
+  await expect(page.locator('.activity-json pre')).toHaveCount(0);
   await first.locator(':scope > summary').click();
   const rows = first.locator('.tool-group-steps > details');
   await expect(rows).toHaveCount(2);
@@ -105,10 +105,20 @@ test('activity combines repeats, explains retries, and keeps technical output op
   await failedAttempt.locator(':scope > summary').click();
   await expect(failedAttempt.locator('.activity-explanation')).toContainText('later retry');
   await expect(failedAttempt.locator('pre')).toHaveCount(0);
-  await failedAttempt.getByText('Technical details', { exact: true }).click();
-  await expect(failedAttempt.locator('pre')).toContainText('python3 packing.py');
-  await expect(failedAttempt.locator('pre')).not.toContainText('do-not-display');
-  await expect(failedAttempt.locator('pre')).toContainText('[redacted]');
+  // Details open in place as a submenu: facts first, then Input and Result on demand.
+  await expect(failedAttempt.locator('.activity-facts')).toContainText('Toolexec');
+  await expect(failedAttempt.locator('.activity-facts')).toContainText('Ran onCharms');
+  await failedAttempt.getByText('Input', { exact: true }).click();
+  const input = failedAttempt.locator('.activity-json').first().locator('pre');
+  await expect(input).toContainText('python3 packing.py');
+  await expect(input.locator('.json-key')).toHaveText('"command"');
+  await expect(input.locator('.json-string')).toHaveText('"python3 packing.py"');
+  await failedAttempt.getByText('Result', { exact: true }).click();
+  const result = failedAttempt.locator('.activity-json').last().locator('pre');
+  await expect(result).not.toContainText('do-not-display');
+  await expect(result).toContainText('[redacted]');
+  await expect(failedAttempt.getByRole('button', { name: 'Copy result' })).toBeVisible();
+  await page.screenshot({ path: info.outputPath('step-details.png') });
   await page.reload();
   await expect(cards).toHaveCount(2);
   await expect(first).toHaveAttribute('data-outcome', 'completed');
@@ -135,8 +145,9 @@ test('unrelated successes cannot hide errors and long untrusted data stays inert
   );
   const unsafe = card.locator('.tool-details').last();
   await unsafe.locator(':scope > summary').click();
-  await unsafe.getByText('Technical details', { exact: true }).click();
+  await unsafe.getByText('Result', { exact: true }).click();
   await expect(unsafe.locator('pre')).toContainText('<img');
+  await expect(unsafe.locator('pre img')).toHaveCount(0);
   expect(await page.evaluate(() => 'escaped' in window)).toBe(false);
   await page.setViewportSize({ width: 320, height: 740 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -152,12 +163,14 @@ test('a live command keeps the activity card open when its result arrives', asyn
   const card = page.locator('.tool-group');
   await expect(card).toHaveAttribute('data-outcome', 'running');
   await card.locator(':scope > summary').click();
-  const action = card.locator('.tool-details');
-  await action.locator(':scope > summary').click();
+  // A single step opens straight into its details instead of repeating the card title.
+  await expect(card.locator('.tool-details')).toHaveCount(0);
+  const input = card.locator('.activity-json').first();
+  await input.locator(':scope > summary').click();
   await expect(card).toHaveAttribute('data-outcome', 'completed');
   await expect(card).toHaveAttribute('open');
-  await expect(action).toHaveAttribute('open');
-  await expect(action.locator(':scope > summary')).toBeFocused();
+  await expect(input).toHaveAttribute('open');
+  await expect(input.locator(':scope > summary')).toBeFocused();
   await expect(page.locator('[data-role=assistant]')).toContainText('finished');
 });
 

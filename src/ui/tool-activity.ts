@@ -4,10 +4,12 @@ import {
   activityExplanation,
   activityTitle,
   isInternalActivity,
-  technicalDetails,
+  technicalParts,
   type Activity,
 } from './activity-data';
 import { icon } from './icons';
+import { jsonText, jsonView } from './json-view';
+import { copyButton } from './message-content';
 import { taskLabel } from './task-labels';
 
 const signatures = new WeakMap<HTMLElement, string>();
@@ -45,20 +47,55 @@ function receipt(item: Activity) {
       : outcome === 'unknown'
         ? ' · Needs review'
         : '';
-  row.append(summary(activityTitle(item) + suffix, recovered ? 'completed' : outcome));
+  row.append(
+    summary(activityTitle(item) + suffix, recovered ? 'completed' : outcome),
+    stepBody(item),
+  );
+  return row;
+}
+const placeNames: Record<string, string> = { local: 'This device' };
+/** A step opens as an inset submenu: what happened, where, and its input and result. */
+function stepBody(item: Activity) {
+  const { message } = item;
   const body = element('div', 'activity-body');
   body.append(element('p', 'activity-explanation', activityExplanation(item)));
-  const technical = element('details', 'activity-technical');
-  technical.dataset.activityKey = message.id + ':technical';
-  technical.append(element('summary', '', 'Technical details'));
-  // Format large output only if the user asks to inspect it.
-  technical.addEventListener('toggle', () => {
-    if (technical.open && !technical.querySelector('pre'))
-      technical.append(element('pre', '', technicalDetails(message)));
-  });
-  body.append(technical);
-  row.append(body);
-  return row;
+  const parts = technicalParts(message);
+  const facts = element('dl', 'activity-facts');
+  const place =
+    parts.provider &&
+    (placeNames[parts.provider] ??
+      parts.provider.charAt(0).toUpperCase() + parts.provider.slice(1));
+  for (const [term, value] of [
+    ['Tool', parts.tool],
+    ['Ran on', place],
+  ])
+    if (value) facts.append(element('dt', '', term), element('dd', '', value));
+  body.append(facts);
+  for (const [label, value] of [
+    ['Input', parts.input],
+    ['Result', parts.result],
+  ] as const) {
+    if (value === undefined || value === '') continue;
+    const block = element('details', 'activity-json');
+    block.dataset.activityKey = message.id + ':' + label.toLowerCase();
+    const head = element('summary', '');
+    const arrow = element('span', 'activity-chevron');
+    arrow.innerHTML = icon('chevron');
+    head.append(element('span', 'activity-label', label), arrow);
+    block.append(head);
+    // Format large output only if the user asks to inspect it.
+    block.addEventListener('toggle', () => {
+      if (!block.open || block.querySelector('pre')) return;
+      const view = element('div', 'activity-json-view');
+      view.append(
+        jsonView(value),
+        copyButton(jsonText(value), 'Copy ' + label.toLowerCase(), true),
+      );
+      block.append(view);
+    });
+    body.append(block);
+  }
+  return body;
 }
 
 /** Keep narration and widgets in place; only receipts belong inside activity cards. */
@@ -150,21 +187,25 @@ export function renderToolActivity(timeline: HTMLElement, conversation?: Convers
     const heading = summary(label, state, batches.length);
     heading.querySelector('.activity-label')!.classList.add('tool-group-label');
     const body = element('div', 'tool-group-steps');
-    for (const batch of batches) {
-      if (batch.items.length === 1) body.append(receipt(batch.items[0]));
-      else {
-        const row = element('details', 'activity-batch');
-        row.dataset.activityKey = 'batch:' + batch.key;
-        row.dataset.outcome = batch.failed ? 'failed' : batch.running ? 'running' : 'completed';
-        row.append(
-          summary(batch.label + (batch.failed ? ' · Needs attention' : ''), row.dataset.outcome),
-        );
-        const calls = element('div', 'activity-calls');
-        calls.append(...batch.items.map(receipt));
-        row.append(calls);
-        body.append(row);
+    const only = batches.length === 1 && batches[0].items.length === 1 ? batches[0].items[0] : null;
+    // A single step would repeat the card's own title; its details open directly instead.
+    if (only) body.append(stepBody(only));
+    else
+      for (const batch of batches) {
+        if (batch.items.length === 1) body.append(receipt(batch.items[0]));
+        else {
+          const row = element('details', 'activity-batch');
+          row.dataset.activityKey = 'batch:' + batch.key;
+          row.dataset.outcome = batch.failed ? 'failed' : batch.running ? 'running' : 'completed';
+          row.append(
+            summary(batch.label + (batch.failed ? ' · Needs attention' : ''), row.dataset.outcome),
+          );
+          const calls = element('div', 'activity-calls');
+          calls.append(...batch.items.map(receipt));
+          row.append(calls);
+          body.append(row);
+        }
       }
-    }
     card.replaceChildren(heading, body);
     if (headingFocused) heading.focus({ preventScroll: true });
     for (const node of card.querySelectorAll<HTMLDetailsElement>('details')) {
