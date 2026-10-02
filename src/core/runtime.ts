@@ -639,6 +639,12 @@ export class Runtime {
             await this.alert(id, ask.question);
             return;
           }
+          // From here the call may have effects, so a restart must review it, not rerun it.
+          if (approved)
+            await this.update(id, (value) => ({
+              ...value,
+              call: { ...value.call!, approved: undefined },
+            }));
           const requestedTimeout = binding.tool.timeoutMs ?? 30000;
           const timeout = Number.isFinite(requestedTimeout)
             ? Math.min(60000, Math.max(1000, Math.trunc(requestedTimeout)))
@@ -1167,6 +1173,12 @@ export class Runtime {
       )
         continue;
       const recover = async () => {
+        if (c.call?.state === 'pending' && c.call.approved) {
+          // Approved but never started: running it now is its first and only run.
+          if (c.status !== 'stopped')
+            await this.update(c.id, (value) => ({ ...value, status: 'queued' }));
+          return;
+        }
         if (c.call?.state === 'pending') {
           // A crash between starting a job and saving its receipt must not start it twice.
           const job =

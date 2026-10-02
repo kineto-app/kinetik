@@ -247,3 +247,27 @@ test('a finished reply is announced through the notifier', async () => {
     { conversationId: c.id, title: 'Build it', body: 'Your carousel is ready.' },
   ]);
 });
+
+test('an approved action interrupted by a restart runs exactly once', async () => {
+  const store = new Store(crypto.randomUUID());
+  const ran: unknown[] = [];
+  const steps = () =>
+    scripted([
+      () => ({ type: 'tool', name: 'publish', input: { title: 'Launch' }, callId: 'p1' }),
+      (request) => say('Result: ' + request.result),
+    ]).model;
+  const first = new Runtime(store, undefined, steps());
+  withPublish(first, ran);
+  const c = await first.create();
+  await first.submit(c.id, 'Publish it');
+  await first.run(c.id);
+  await first.answer(c.id, 'approve');
+  // The worker dies before the follow-up run starts.
+  const model = scripted([(request) => say('Result: ' + request.result)]).model;
+  const second = new Runtime(store, undefined, model);
+  withPublish(second, ran);
+  await second.recover();
+  await second.run(c.id);
+  expect(ran).toEqual([{ title: 'Launch' }]);
+  expect((await read(store, c.id)).messages.at(-1)?.text).toBe('Result: Published');
+});
