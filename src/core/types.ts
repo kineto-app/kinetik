@@ -55,6 +55,8 @@ export type Ask =
   | { kind: 'approval'; question: string }
   | { kind: 'choice'; question: string; options: string[] }
   | { kind: 'memory'; question: string; text: string };
+/** Segment `i` of generation `g` lives at `model-input:<conversation>:<g>:<i>`. */
+export type InputSegments = { generation: string; segments: number };
 export type RunStatus =
   | 'idle'
   | 'running'
@@ -95,7 +97,12 @@ export interface Conversation {
   updatedAt: number;
   /** Persisted across steering and recovery; cleared when this turn ends. */
   workStartedAt?: number;
+  /**
+   * Model input as Runtime.update sees it. It is stored in append-only segments under
+   * `input`, so a step writes only its new items; older builds stored it inline here.
+   */
   modelInput?: Record<string, unknown>[];
+  input?: InputSegments;
   /** Input tokens of the latest model request and the model's usable context. */
   context?: { tokens: number; window: number };
   /** Number of earlier model-input segments archived by compaction. */

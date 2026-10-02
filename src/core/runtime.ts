@@ -24,6 +24,7 @@ import {
   type Attachment,
   type StagedAttachment,
   type Conversation,
+  type InputSegments,
   type Model,
   type Skill,
   type Binding,
@@ -47,6 +48,12 @@ function abortable<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
     promise.then(resolve, reject).finally(() => signal.removeEventListener('abort', abort));
   });
 }
+type Item = Record<string, unknown>;
+const staleInput = new Error('Model input changed during the update.');
+const segmentKey = (id: string, s: InputSegments, i: number) =>
+  `model-input:${id}:${s.generation}:${i}`;
+const sameSegments = (a?: InputSegments, b?: InputSegments) =>
+  a?.generation === b?.generation && a?.segments === b?.segments;
 const key = (id: string) => `conversation:${id}`;
 const attachmentLock = <T>(id: string, work: () => Promise<T>) =>
   globalThis.navigator?.locks ? navigator.locks.request('kinetik-attachments:' + id, work) : work();
@@ -86,6 +93,8 @@ export class Runtime {
   notify: (alert: { conversationId: string; title: string; body: string }) => Promise<void> =
     async () => {};
   private drafts = new Map<string, string>();
+  /** Model input already read, valid while the stored segment count and generation match. */
+  private inputs = new Map<string, { segments: InputSegments; items: Item[] }>();
   private active = new Map<string, AbortController>();
   private ajv = new Ajv({ strict: false });
   private workspace: ReturnType<typeof createFilesystem>;
@@ -112,9 +121,10 @@ export class Runtime {
       changed,
     });
   }
+  /** Conversations without their model input, which only the runtime reads. */
   async conversations(): Promise<Conversation[]> {
     return (await this.store.entries<Conversation>('conversation:'))
-      .map(([, c]) => ({ ...c, draft: this.drafts.get(c.id) }))
+      .map(([, c]) => ({ ...c, modelInput: undefined, draft: this.drafts.get(c.id) }))
       .sort((a, b) => b.updatedAt - a.updatedAt);
   }
   async create(): Promise<Conversation> {
@@ -136,16 +146,80 @@ export class Runtime {
     this.changed();
     return stored;
   }
+  /** The conversation with its model input joined in. */
+  private async load(id: string): Promise<Conversation | undefined> {
+    for (;;) {
+      const c = await this.store.get<Conversation>(key(id));
+      if (!c?.input) return c;
+      const cached = this.inputs.get(id);
+      if (cached && sameSegments(cached.segments, c.input))
+        return { ...c, modelInput: cached.items };
+      const segments = c.input;
+      const parts = await this.store.getMany<Item[]>(
+        Array.from({ length: segments.segments }, (_, i) => segmentKey(id, segments, i)),
+      );
+      // A missing segment means the input was replaced meanwhile; read again.
+      if (parts.some((part) => !part)) continue;
+      const items = (parts as Item[][]).flat();
+      this.inputs.set(id, { segments, items });
+      return { ...c, modelInput: items };
+    }
+  }
+  /**
+   * Updates a conversation and its model input in one transaction. Growth of the input is
+   * written as one new segment holding only the added items; any other change starts a new
+   * generation. Updaters see and return the joined `modelInput`.
+   */
   private async update(
     id: string,
     update: (c: Conversation) => Conversation,
   ): Promise<Conversation> {
-    const result = await this.store.update<Conversation>(key(id), (c) => {
-      if (!c) throw new Error('Conversation not found.');
-      return update(c);
-    });
-    this.changed();
-    return result;
+    for (;;) {
+      const view = await this.load(id);
+      if (!view) throw new Error('Conversation not found.');
+      let result!: Conversation;
+      let items: Item[] | undefined;
+      try {
+        await this.store.updateMany([key(id)], ([stored]) => {
+          const c = stored as Conversation | undefined;
+          if (!c) throw new Error('Conversation not found.');
+          if (!sameSegments(c.input, view.input)) throw staleInput;
+          // Older builds kept the input inline; the first write moves it into segments.
+          const base = c.input ? view.modelInput : c.modelInput;
+          const { modelInput: next, ...rest } = update({ ...c, modelInput: base });
+          const writes: [string, unknown][] = [];
+          let segments = c.input;
+          const appended =
+            c.input &&
+            base &&
+            next &&
+            next.length >= base.length &&
+            base.every((item, i) => next[i] === item);
+          if (appended) {
+            if (next.length > base.length) {
+              writes.push([segmentKey(id, segments!, segments!.segments), next.slice(base.length)]);
+              segments = { ...segments!, segments: segments!.segments + 1 };
+            }
+          } else if (next !== base || (!c.input && next)) {
+            for (let i = 0; i < (c.input?.segments ?? 0); i++)
+              writes.push([segmentKey(id, c.input!, i), undefined]);
+            segments = next ? { generation: crypto.randomUUID(), segments: 1 } : undefined;
+            if (next) writes.push([segmentKey(id, segments!, 0), next]);
+          }
+          result = { ...rest, input: segments };
+          items = segments ? (appended ? next : (next ?? base)) : undefined;
+          writes.push([key(id), result]);
+          return writes;
+        });
+      } catch (error) {
+        if (error === staleInput) continue;
+        throw error;
+      }
+      if (result.input && items) this.inputs.set(id, { segments: result.input, items });
+      else this.inputs.delete(id);
+      this.changed();
+      return { ...result, modelInput: items };
+    }
   }
   async submit(
     id: string,
@@ -492,7 +566,7 @@ export class Runtime {
             };
           else {
             await this.compactIfNeeded(id, controller.signal);
-            const history = (await this.store.get<Conversation>(key(id)))?.modelInput;
+            const history = (await this.load(id))?.modelInput;
             try {
               output = await this.requestStep(id, controller.signal, () =>
                 this.model.next(
@@ -920,7 +994,7 @@ export class Runtime {
     request: () => Promise<ModelStep>,
   ): Promise<ModelStep> {
     const output = await abortable(request(), signal);
-    const c = await this.store.get<Conversation>(key(id));
+    const c = await this.load(id);
     const window = output.contextWindow ?? c?.context?.window ?? defaultContextWindow;
     const tokens = output.usage
       ? output.usage.input + output.usage.output
@@ -973,7 +1047,7 @@ export class Runtime {
     return text;
   }
   private async compactIfNeeded(id: string, signal: AbortSignal) {
-    const c = await this.store.get<Conversation>(key(id));
+    const c = await this.load(id);
     const window = c?.context?.window ?? defaultContextWindow;
     const tokens = c?.context?.tokens ?? estimateTokens(c?.modelInput);
     if (tokens >= window * compactAt) await this.compactInput(id, signal);
@@ -983,7 +1057,7 @@ export class Runtime {
    * part is archived first and the swap is one write, so redoing it after a crash is harmless.
    */
   private async compactInput(id: string, signal: AbortSignal): Promise<boolean> {
-    const c = await this.store.get<Conversation>(key(id));
+    const c = await this.load(id);
     const input = c?.modelInput ?? [];
     if (!c || c.call?.state === 'pending') return false;
     let cut = splitPoint(input);

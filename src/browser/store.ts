@@ -43,6 +43,61 @@ export class Store {
         reject(failure ?? tx.error ?? new Error('Storage transaction aborted'));
     });
   }
+  async getMany<T>(keys: string[]): Promise<(T | undefined)[]> {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const records = db.transaction('records').objectStore('records');
+      const values: (T | undefined)[] = [];
+      let left = keys.length;
+      if (!left) resolve(values);
+      keys.forEach((key, index) => {
+        const request = records.get(key);
+        request.onsuccess = () => {
+          values[index] = request.result as T | undefined;
+          if (--left === 0) resolve(values);
+        };
+        request.onerror = () => reject(request.error);
+      });
+    });
+  }
+  /**
+   * Reads `keys` and applies the writes the updater returns in one transaction.
+   * A write of `undefined` deletes the key.
+   */
+  async updateMany(
+    keys: string[],
+    update: (values: unknown[]) => [string, unknown][],
+  ): Promise<void> {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('records', 'readwrite');
+      const records = tx.objectStore('records');
+      const values: unknown[] = [];
+      let left = keys.length;
+      let failure: unknown;
+      const apply = () => {
+        try {
+          for (const [key, value] of update(values))
+            if (value === undefined) records.delete(key);
+            else records.put(value, key);
+        } catch (error) {
+          failure = error;
+          tx.abort();
+        }
+      };
+      keys.forEach((key, index) => {
+        const request = records.get(key);
+        request.onsuccess = () => {
+          values[index] = request.result;
+          if (--left === 0) apply();
+        };
+      });
+      if (!left) apply();
+      tx.oncomplete = () => resolve();
+      tx.onabort = tx.onerror = () =>
+        reject(failure ?? tx.error ?? new Error('Storage transaction aborted'));
+    });
+  }
   async put<T>(key: string, value: T): Promise<void> {
     await this.update(key, () => value);
   }

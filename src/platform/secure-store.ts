@@ -19,6 +19,21 @@ export class NativeStore extends Store {
     });
     return result.value ? JSON.parse(result.value) : undefined;
   }
+  override async getMany<T>(keys: string[]): Promise<(T | undefined)[]> {
+    if (keys.some((key) => this.protected(key)))
+      throw new Error('Credentials are read one at a time.');
+    return super.getMany(keys);
+  }
+  override async updateMany(keys: string[], update: (values: unknown[]) => [string, unknown][]) {
+    if (keys.some((key) => this.protected(key)))
+      throw new Error('Credentials are written one at a time.');
+    return super.updateMany(keys, (values) => {
+      const writes = update(values);
+      if (writes.some(([key]) => this.protected(key)))
+        throw new Error('Credentials are written one at a time.');
+      return writes;
+    });
+  }
   override async update<T>(key: string, update: (previous: T | undefined) => T): Promise<T> {
     if (!this.protected(key)) return super.update(key, update);
     return navigator.locks.request('credential:' + this.namespace + ':' + key, async () => {

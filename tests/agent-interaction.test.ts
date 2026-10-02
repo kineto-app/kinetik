@@ -1,6 +1,7 @@
 import { expect, test } from 'vitest';
 import { Runtime } from '../src/core/runtime';
 import { Store } from '../src/browser/store';
+import { modelInput } from './model-input';
 import type {
   Conversation,
   Model,
@@ -111,7 +112,7 @@ test('the ask tool pauses for a choice and the answer resumes the turn', async (
   await reopened.run(c.id);
   saved = await read(store, c.id);
   expect(seen[1].result).toBe('The user chose: Calm');
-  expect(saved.modelInput).toContainEqual({
+  expect(await modelInput(store, c.id)).toContainEqual({
     type: 'function_call_output',
     call_id: 'c1',
     output: 'The user chose: Calm',

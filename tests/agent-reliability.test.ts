@@ -1,6 +1,7 @@
 import { expect, test } from 'vitest';
 import { Runtime } from '../src/core/runtime';
 import { Store } from '../src/browser/store';
+import { modelInput } from './model-input';
 import { ContextOverflow } from '../src/core/connection-error';
 import { compactPrompt, summaryPrefix } from '../src/core/compaction';
 import { readResponse } from '../src/core/openai-model';
@@ -127,7 +128,7 @@ test('a failed summary leaves the conversation intact and the next run still wor
   await runtime.run(c.id);
   const failed = await read(store, c.id);
   expect(failed.compactions).toBeUndefined();
-  expect(failed.modelInput?.[0]).toMatchObject({ role: 'user', content: 'One' });
+  expect((await modelInput(store, c.id))?.[0]).toMatchObject({ role: 'user', content: 'One' });
   failSummary = false;
   await runtime.submit(c.id, 'Three');
   await runtime.run(c.id);
