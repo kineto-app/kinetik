@@ -54,11 +54,11 @@ interface Session {
   account: string;
 }
 
-/** Browser credentials are kept separately from workspace files and conversation history. */
 /** A turn pins its model when it starts; later requests send it back. */
 const pinnedModel = (pin: { model?: unknown } | undefined, fallback: string) =>
   typeof pin?.model === 'string' && /^[\w.:-]{1,100}$/.test(pin.model) ? pin.model : fallback;
 
+/** Browser credentials are kept separately from workspace files and conversation history. */
 export class BrowserChatGPT {
   private async storedSession(): Promise<Session | undefined> {
     const session = await this.store.get<Session | null>('session');

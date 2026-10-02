@@ -253,24 +253,20 @@ export class BackgroundProcesses {
   }
 
   private async finish(job: BackgroundProcess, state: BackgroundProcess['state'], result: string) {
-    const saved = await this.store.update<BackgroundProcess>(key(job.id), (previous) =>
-      !['running', 'waiting'].includes(previous!.state)
-        ? previous!
-        : {
-            ...previous!,
-            state: previous!.cancelRequested ? 'cancelled' : state,
-            result,
-          },
+    const saved = await this.store.update<BackgroundProcess | undefined>(key(job.id), (previous) =>
+      !previous || !['running', 'waiting'].includes(previous.state)
+        ? previous
+        : { ...previous, state: previous.cancelRequested ? 'cancelled' : state, result },
     );
-    await this.deliver(saved);
+    if (saved) await this.deliver(saved);
   }
   private async deliver(job: BackgroundProcess) {
     if (job.delivered) return;
     await this.host.wake(job);
-    await this.store.update<BackgroundProcess>(key(job.id), (previous) => ({
-      ...previous!,
-      delivered: true,
-    }));
+    await this.store.update<BackgroundProcess | undefined>(
+      key(job.id),
+      (previous) => previous && { ...previous, delivered: true },
+    );
   }
   async cancel(job: BackgroundProcess) {
     if (!['running', 'waiting'].includes(job.state)) return;

@@ -73,8 +73,8 @@ window.addEventListener('kinetik-compose', (event) => {
     .detail;
   if (conversationId !== selected) return;
   const prompt = byId<HTMLTextAreaElement>('prompt');
-  const suggestion = text.slice(0, 4000);
-  prompt.value = prompt.value.trim() ? prompt.value + '\n' + suggestion : suggestion;
+  const draft = prompt.value.trim() ? prompt.value + '\n' + text : text;
+  prompt.value = draft.slice(0, 4000);
   prompt.dispatchEvent(new Event('input', { bubbles: true }));
   prompt.focus();
 });

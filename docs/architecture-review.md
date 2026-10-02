@@ -175,7 +175,8 @@ Each step is small enough for one PR. The order puts risk first.
     - Stop clears queue flags;
     - prefix reads use key ranges;
     - a schema version with migrations;
-    - a startup sweep, chat deletion, and plugin code stored once by digest.
+    - a startup sweep at most once a day, chat deletion, and plugin code stored once by digest;
+    - a finished background job whose chat is gone is marked delivered instead of blocking startup.
   - Left on purpose by step 1:
     - `app:` records stay while their chat exists, because a widget re-renders from them; deleting the chat removes them.
     - `ConversationStore.update` still reads inline `modelInput`, because migration 1 moves old chats through it instead of copying that logic.

@@ -320,7 +320,13 @@ test('bug 6: startup removes records nothing refers to any more', async () => {
     state: 'completed',
     delivered: true,
     startedAt: Date.now(),
+    plugins: [plugin('', 'job-code')],
   });
+  await store.put('app:live', { conversationId: c.id, plugins: [plugin('', 'app-code')] });
+  await store.put('app:gone', { conversationId: 'deleted', plugins: [plugin('', 'gone-code')] });
+  await store.put('plugin-code:job-code', 'code');
+  await store.put('plugin-code:app-code', 'code');
+  await store.put('plugin-code:gone-code', 'code');
   await store.put('plugin-code:orphan', 'code');
   await store.put('plugins', [plugin('code', 'current')]);
   await store.put('skills:demo:current:s', { revision: '1', skills: [] });
@@ -333,7 +339,12 @@ test('bug 6: startup removes records nothing refers to any more', async () => {
   expect(keys).toContain('app-call:open');
   expect(keys).toContain('background:new');
   expect(keys).toContain('skills:demo:current:s');
+  expect(keys).toContain('app:live');
+  expect(keys).toContain('plugin-code:job-code');
+  expect(keys).toContain('plugin-code:app-code');
   for (const gone of [
+    'app:gone',
+    'plugin-code:gone-code',
     'shared-file:orphan',
     'attachment-preview:orphan',
     'app-call:done',
@@ -383,13 +394,91 @@ test('bug 6: deleting one chat never touches files another chat still uses', asy
   expect(keys).toContain('attachment-preview:' + staged.id);
 });
 
-test('bug 7: a failing migration or sweep never stops the app from starting', async () => {
+test('bug 7: a failing sweep never stops the app from starting', async () => {
   const store = new Store(crypto.randomUUID());
   const runtime = new Runtime(store);
   await store.put('app-call:orphan', { state: 'pending', conversationId: 'gone', name: 'x' });
   vi.spyOn(store, 'keys').mockRejectedValueOnce(new Error('disk error'));
   await runtime.recover();
   expect((await store.get<{ state: string }>('app-call:orphan'))?.state).toBe('unknown');
+});
+
+test('bug 7: a failing migration lets the app start and runs again on the next start', async () => {
+  const store = new Store(crypto.randomUUID());
+  const runtime = new Runtime(store);
+  const c = await runtime.create();
+  await store.update<Conversation>('conversation:' + c.id, (value) => ({
+    ...value!,
+    modelInput: [{ role: 'user', content: 'Earlier' }],
+  }));
+  await store.put('app-call:orphan', { state: 'pending', conversationId: 'gone', name: 'x' });
+  const write = vi.spyOn(store, 'updateMany').mockRejectedValueOnce(new Error('disk error'));
+  await runtime.recover();
+  write.mockRestore();
+  expect(await store.get('meta:schema')).toBeUndefined();
+  expect((await store.get<{ state: string }>('app-call:orphan'))?.state).toBe('unknown');
+  await new Runtime(store).recover();
+  expect(await store.get('meta:schema')).toBe(4);
+  expect((await read(store, c.id)).input?.segments).toBe(1);
+});
+
+test('bug 7: a migration stopped halfway finishes the records it had not reached', async () => {
+  const store = new Store(crypto.randomUUID());
+  const runtime = new Runtime(store);
+  const done = await runtime.create();
+  const left = await runtime.create();
+  await store.put('plugin-code:digest-1', 'code');
+  await store.update<Conversation>('conversation:' + done.id, (value) => ({
+    ...value!,
+    plugins: [plugin('', 'digest-1')],
+  }));
+  await store.update<Conversation>('conversation:' + left.id, (value) => ({
+    ...value!,
+    plugins: [plugin('code', 'digest-1')],
+  }));
+  await store.put('meta:schema', 2);
+  await runtime.recover();
+  expect((await read(store, done.id)).plugins?.[0].code).toBe('');
+  expect((await read(store, left.id)).plugins?.[0].code).toBe('');
+  expect(await store.get('plugin-code:digest-1')).toBe('code');
+  expect(await store.get('meta:schema')).toBe(4);
+});
+
+test('bug 6: startup sweeps at most once a day', async () => {
+  const store = new Store(crypto.randomUUID());
+  await store.put('shared-file:orphan', new Uint8Array([1]));
+  await new Runtime(store).recover();
+  await store.put('shared-file:later', new Uint8Array([1]));
+  await new Runtime(store).recover();
+  expect(await store.keys('shared-file:')).toEqual(['shared-file:later']);
+});
+
+test('bug 6: a background job that ends after its chat was deleted leaves nothing behind', async () => {
+  const store = new Store(crypto.randomUUID());
+  const runtime = new Runtime(store);
+  await store.put('background:j', {
+    id: 'j',
+    conversationId: 'deleted',
+    tool: 'exec',
+    provider: 'local',
+    input: {},
+    state: 'completed',
+    result: 'done',
+    startedAt: Date.now(),
+  });
+  await expect(runtime.recover()).resolves.toBeUndefined();
+  expect(await store.get<{ delivered?: boolean }>('background:j')).toMatchObject({
+    delivered: true,
+  });
+});
+
+test('bug 6: an update that finds the record gone does not write it back', async () => {
+  const store = new Store(crypto.randomUUID());
+  await store.update<{ delivered?: boolean } | undefined>(
+    'background:gone',
+    (previous) => previous && { ...previous, delivered: true },
+  );
+  expect(await store.keys('background:')).toEqual([]);
 });
 
 test('bug 3: ChatGPT compaction uses the model the turn pinned', async () => {

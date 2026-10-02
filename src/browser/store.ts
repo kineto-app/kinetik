@@ -32,7 +32,8 @@ export class Store {
       request.onsuccess = () => {
         try {
           value = update(request.result as T | undefined);
-          records.put(value, key);
+          if (value === undefined) records.delete(key);
+          else records.put(value, key);
         } catch (error) {
           failure = error;
           tx.abort();
@@ -139,8 +140,7 @@ export class Store {
       request.onsuccess = () => {
         const cursor = request.result;
         if (!cursor) return resolve(result);
-        if (String(cursor.key).startsWith(prefix))
-          result.push([String(cursor.key), cursor.value as T]);
+        result.push([String(cursor.key), cursor.value as T]);
         cursor.continue();
       };
       request.onerror = () => reject(request.error);

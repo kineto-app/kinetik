@@ -14,7 +14,7 @@ import { readOnlyLocal, ReadOnlyTools, rerunnable } from './read-only';
 import { AppCalls } from './apps';
 import { WorkspaceFiles } from './workspace-files';
 import { migrate } from './migrations';
-import { conversationKeys, sweep } from './cleanup';
+import { conversationKeys, sweepDaily } from './cleanup';
 import { buildInstructions, builtinSkill, modelVisible, toolDefinitions } from './prompt';
 import { createFilesystem } from '../browser/filesystem';
 import { Plugins } from '../plugins/loader';
@@ -229,6 +229,7 @@ export class Runtime {
     });
   }
   private async backgroundCompleted(job: BackgroundProcess): Promise<void> {
+    if (!(await this.store.get(key(job.conversationId)))) return;
     await this.steer(
       job.conversationId,
       {
@@ -945,7 +946,7 @@ export class Runtime {
       chats: this.chats,
       plugins: this.plugins,
     })
-      .then(() => sweep(this.store))
+      .then(() => sweepDaily(this.store))
       .catch(() => {}));
   }
   recover(): Promise<void> {
