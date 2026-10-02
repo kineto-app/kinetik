@@ -438,9 +438,8 @@ byId('attach').onclick = () => {
   pickingFile = true;
   updateComposer();
   void import('./platform/files')
-    .then(async ({ importNativeFile }) => {
-      const file = await importNativeFile();
-      if (file) await stageFile(file);
+    .then(async ({ pickNativeFiles, readNativeFile }) => {
+      for (const path of await pickNativeFiles()) await stageFile(await readNativeFile(path));
     })
     .catch(showError)
     .finally(() => {

@@ -39,6 +39,11 @@ const paths = {
   settings: ['M4 7h16', 'M4 17h16', 'M8 4v6', 'M16 14v6'],
   clock: ['M12 8v4l3 2', 'M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0'],
   monitor: ['M3 4h18v13H3z', 'M8 21h8', 'M12 17v4'],
+  bolt: ['M13 2 4 14h7l-1 8 9-12h-7z'],
+  brain: [
+    'M9 4a3 3 0 0 0-3 3 3 3 0 0 0-2 5 3 3 0 0 0 2 5 3 3 0 0 0 6 0V7a3 3 0 0 0-3-3z',
+    'M15 4a3 3 0 0 1 3 3 3 3 0 0 1 2 5 3 3 0 0 1-2 5 3 3 0 0 1-6 0',
+  ],
 } as const;
 export type IconName = keyof typeof paths;
 export function icon(name: IconName): string {

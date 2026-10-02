@@ -577,3 +577,40 @@ test('plugins cannot disable native read_skill or point replacements at missing 
     ).rejects.toThrow('Invalid replacement');
   }
 });
+
+test('embedded apps keep working after their plugin updates, but not after it is disabled', async () => {
+  const store = new Store(crypto.randomUUID());
+  const runtime = new Runtime(store);
+  const c = await runtime.create();
+  const original = plugin('widget', 1, 'return {}');
+  const updated = {
+    ...original,
+    digest: 'widget-v2',
+    manifest: { ...original.manifest, version: '2' },
+  };
+  await store.put('plugins', [updated]);
+  await store.put('app:widget', {
+    plugins: [original],
+    tool: 'widget',
+    conversationId: c.id,
+    provider: 'widget',
+  });
+  const snapshot = vi.spyOn(runtime.plugins, 'snapshot').mockResolvedValue({
+    bindings: {
+      widget: {
+        provider: 'widget',
+        tool: {
+          description: 'Widget',
+          inputSchema: {},
+          execute: async () => ({}),
+          app: { resource: async () => ({ html: '' }), call: async () => 'Media ready' },
+        },
+      },
+    },
+    sources: [],
+  });
+  expect(await runtime.appCall('widget', 'charms_widget_session', {})).toBe('Media ready');
+  expect(snapshot.mock.calls[0][1]).toEqual([updated]);
+  await store.put('plugins', [{ ...updated, enabledAt: null }]);
+  await expect(runtime.appCall('widget', 'charms_widget_session', {})).rejects.toThrow('disabled');
+});

@@ -173,8 +173,8 @@ export function Shell() {
                   type="button"
                   id="attach"
                   class="icon-button"
-                  aria-label="Add a file"
-                  title="Add a file"
+                  aria-label="Add files"
+                  title="Add files"
                 >
                   <Icon name="plus" />
                 </button>

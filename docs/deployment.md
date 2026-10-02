@@ -60,7 +60,7 @@ are saved in a dedicated browser-local IndexedDB database, separately from works
 origin privileges. This mode deliberately departs from OpenAI's documented token-storage
 guidance and has no claim of official browser support. Use it only on a trusted personal device.
 
-The built-in browser ChatGPT connection uses `gpt-6.1-sol` with `reasoning.effort: "medium"`. It checks account access through the model catalog at sign-in and when migrating a saved selection. The optional external credential helper continues to own its model selection.
+The built-in browser ChatGPT connection defaults to `gpt-6.1-sol` with `reasoning.effort: "medium"`. Users can choose another listed model and any reasoning level its catalog entry supports, except `ultra`, which needs Codex task delegation. It checks account access through the model catalog at sign-in and when migrating a saved selection. The optional external credential helper continues to own its model selection.
 
 For an experimental stateless model relay, extend the browser configuration:
 
