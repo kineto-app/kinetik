@@ -146,4 +146,15 @@ export class Store {
       request.onerror = () => reject(request.error);
     });
   }
+  async keys(prefix: string): Promise<string[]> {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const request = db
+        .transaction('records')
+        .objectStore('records')
+        .getAllKeys(IDBKeyRange.bound(prefix, prefix + '\uffff'));
+      request.onsuccess = () => resolve(request.result.map(String));
+      request.onerror = () => reject(request.error);
+    });
+  }
 }

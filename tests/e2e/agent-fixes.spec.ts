@@ -65,3 +65,19 @@ test('bug 2: a widget message goes into the composer instead of being sent', asy
   await expect(page.locator('[data-role=user]')).toHaveCount(sent);
   await page.screenshot({ path: info.outputPath('2-widget-message.png') });
 });
+
+test('bug 6: a chat can be deleted with everything stored for it', async ({ page }, info) => {
+  await send(page, '/exec printf "hi" > note.txt');
+  await settled(page);
+  const before = await rpc<{ conversations: Conversation[] }>(page, 'state');
+  const id = before.conversations[0].id;
+  await page.getByRole('button', { name: 'Delete chat' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Delete this chat?' });
+  await expect(dialog).toBeVisible();
+  await page.screenshot({ path: info.outputPath('3-delete-confirm.png') });
+  await dialog.getByRole('button', { name: 'Delete' }).click();
+  await expect(page.locator('#title')).toHaveText('New chat');
+  const after = await rpc<{ conversations: Conversation[] }>(page, 'state');
+  expect(after.conversations.some((c) => c.id === id)).toBe(false);
+  await page.screenshot({ path: info.outputPath('4-deleted.png') });
+});

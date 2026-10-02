@@ -88,6 +88,15 @@ export function Shell() {
             <span class="status sr-only" id="status" role="status">
               Getting ready
             </span>
+            <button
+              id="delete-chat"
+              class="icon-button"
+              aria-label="Delete chat"
+              title="Delete chat"
+              hidden
+            >
+              <Icon name="trash" />
+            </button>
             <button id="top-new-chat" class="icon-button" aria-label="New chat" title="New chat">
               <Icon name="compose" />
             </button>
@@ -243,6 +252,21 @@ export function Shell() {
       </div>
       <StaticMarkup html={filesDialog} />
       <SettingsDialog />
+      <dialog id="delete-dialog" class="confirm-dialog" aria-labelledby="delete-heading">
+        <h2 id="delete-heading">Delete this chat?</h2>
+        <p class="muted">
+          Its messages, attachments and saved model history are removed from this device. This
+          cannot be undone.
+        </p>
+        <div class="form-actions">
+          <button type="button" class="secondary" data-close="delete-dialog">
+            Cancel
+          </button>
+          <button type="button" class="danger" id="delete-confirm">
+            Delete
+          </button>
+        </div>
+      </dialog>
       <StaticMarkup html={automationDialog} />
     </>
   );

@@ -82,7 +82,7 @@ export class Attachments {
     const c = await this.store.get<Conversation>(conversationKey(id));
     if (!c || ids.some((id) => !c.attachments?.some((f) => f.id === id)))
       throw new Error('Attachment is no longer available. Add it again.');
-    const records = c.plugins ?? (await this.plugins.list());
+    const records = c.plugins ?? (await this.plugins.pin(await this.plugins.list()));
     const { bindings, sources } = await this.plugins.snapshot(
       localTools(await this.workspace, () => [], this.store),
       records,

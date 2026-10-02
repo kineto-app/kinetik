@@ -178,8 +178,18 @@ export class Plugins {
       return previous.map((p) => (p.manifest.id === id ? { ...p, settings } : p));
     });
   }
+  /** Records that pin plugins keep each plugin's code once, under its digest. */
+  async pin(records: InstalledPlugin[]): Promise<InstalledPlugin[]> {
+    for (const { code, digest } of records)
+      if (code)
+        await this.store.update<string>('plugin-code:' + digest, (stored) => stored ?? code);
+    return records.map((record) => ({ ...record, code: '' }));
+  }
   async instantiate(installed: InstalledPlugin, validatingConnection = false): Promise<Plugin> {
-    const plugin: Plugin = await new Function('host', '"use strict";\n' + installed.code)({
+    const code =
+      installed.code || (await this.store.get<string>('plugin-code:' + installed.digest));
+    if (!code) throw new Error(`${installed.manifest.name} needs to be updated.`);
+    const plugin: Plugin = await new Function('host', '"use strict";\n' + code)({
       emit: this.emit,
       settings: Object.freeze({ ...installed.settings }),
       baseURL: new URL('.', installed.resolvedSource).href,

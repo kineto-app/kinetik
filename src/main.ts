@@ -194,6 +194,7 @@ function render() {
     ? `${jobs.length} background ${jobs.length === 1 ? 'task' : 'tasks'} running`
     : 'Processing background result';
   byId('title').textContent = c?.title ?? 'New chat';
+  byId('delete-chat').hidden = !c?.messages.length || foreground;
   byId('status').textContent = foreground
     ? 'Working…'
     : c?.status === 'needs_review'
@@ -585,6 +586,17 @@ for (const [id, retry] of [
   byId(id).onclick = () => {
     void rpc('resolve', { id: selected, retry }).then(refresh).catch(showError);
   };
+byId('delete-chat').onclick = () => openDialog('delete');
+byId('delete-confirm').onclick = () => {
+  const id = selected;
+  byId<HTMLDialogElement>('delete-dialog').close();
+  void rpc('delete', { id })
+    .then(() => {
+      selected = state.conversations.find((c) => c.id !== id)?.id ?? '';
+      return refresh();
+    })
+    .catch(showError);
+};
 function openDialog(name: string) {
   closeDrawer();
   for (const dialog of document.querySelectorAll<HTMLDialogElement>('dialog:modal')) dialog.close();

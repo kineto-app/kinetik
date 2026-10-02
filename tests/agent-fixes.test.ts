@@ -206,3 +206,151 @@ test('bug 5: reading records by prefix only visits keys with that prefix', async
   expect(open.mock.calls[0][0]).toBeInstanceOf(IDBKeyRange);
   open.mockRestore();
 });
+
+const plugin = (code: string, digest = 'digest-1') => ({
+  manifest: { id: 'demo', name: 'Demo', version: '1', apiVersion: 1 as const, entry: 'plugin.js' },
+  source: 'https://example.com/demo/plugin.json',
+  resolvedSource: 'https://example.com/demo/plugin.json',
+  code,
+  digest,
+  settings: {},
+  enabledAt: 1,
+});
+
+test('bug 7: stored data is migrated once and versioned', async () => {
+  const store = new Store(crypto.randomUUID());
+  const runtime = new Runtime(store);
+  const c = await runtime.create();
+  await store.update<Conversation>('conversation:' + c.id, (value) => ({
+    ...value!,
+    modelInput: [{ role: 'user', content: 'Earlier' }],
+    turnModel: 'custom' as never,
+    plugins: [plugin('return { tools: {} };')],
+  }));
+  await runtime.recover();
+  const migrated = await read(store, c.id);
+  expect(await store.get('meta:schema')).toBeGreaterThan(0);
+  expect(migrated.modelInput).toBeUndefined();
+  expect(migrated.input?.segments).toBe(1);
+  expect(migrated.turnModel).toEqual({ provider: 'custom' });
+  expect(migrated.plugins?.[0].code).toBe('');
+  expect(await store.get('plugin-code:digest-1')).toBe('return { tools: {} };');
+});
+
+test('bug 6: a turn and its background jobs keep plugin code once, not in every record', async () => {
+  const store = new Store(crypto.randomUUID());
+  const code = 'return { tools: {} };';
+  await store.put('plugins', [plugin(code, 'digest-2')]);
+  const { model } = scripted([() => say('Hi')]);
+  const runtime = new Runtime(store, undefined, model);
+  const c = await runtime.create();
+  let pinnedCode: string | undefined;
+  const snapshot = runtime.plugins.snapshot.bind(runtime.plugins);
+  runtime.plugins.snapshot = async (builtins, records) => {
+    pinnedCode = (await read(store, c.id)).plugins?.[0]?.code;
+    return snapshot(builtins, records);
+  };
+  await runtime.submit(c.id, 'Hello');
+  await runtime.run(c.id);
+  expect(pinnedCode).toBe('');
+  expect(await store.get('plugin-code:digest-2')).toBe(code);
+});
+
+test('bug 6: deleting a chat removes everything stored for it', async () => {
+  const store = new Store(crypto.randomUUID());
+  const { model } = scripted([() => say('Hi')]);
+  const runtime = new Runtime(store, undefined, model);
+  const c = await runtime.create();
+  const other = await runtime.create();
+  const photo = await runtime.stageAttachment(
+    c.id,
+    'a.jpg',
+    new Uint8Array([1]),
+    new Uint8Array([2]),
+  );
+  await runtime.submit(c.id, 'Hello', undefined, [photo.id]);
+  await runtime.run(c.id);
+  await store.put(`model-archive:${c.id}:1`, []);
+  await store.put('app:w1', { conversationId: c.id, plugins: [], tool: 't', provider: 'p' });
+  await store.put('app-call:x1', { appId: 'w1', conversationId: c.id, state: 'completed' });
+  await store.put('background:j1', { id: 'j1', conversationId: c.id, state: 'completed' });
+  await runtime.deleteConversation(c.id);
+  const keys = (await store.entries('')).map(([key]) => key);
+  expect(keys.filter((key) => key.includes(c.id) || /w1|x1|j1|attachment/.test(key))).toEqual([]);
+  expect(keys).toContain('conversation:' + other.id);
+});
+
+test('bug 6: startup removes records nothing refers to any more', async () => {
+  const store = new Store(crypto.randomUUID());
+  const runtime = new Runtime(store);
+  const c = await runtime.create();
+  const old = Date.now() - 8 * 24 * 3600 * 1000;
+  await store.update<Conversation>('conversation:' + c.id, (value) => ({
+    ...value!,
+    compactions: 2,
+    messages: [
+      {
+        id: 'm',
+        role: 'tool',
+        text: '',
+        createdAt: 0,
+        file: { path: '/a', name: 'a', snapshotId: 'kept' },
+      },
+    ],
+  }));
+  await store.put(`model-archive:${c.id}:1`, []);
+  await store.put(`model-archive:${c.id}:2`, []);
+  await store.put('shared-file:kept', new Uint8Array([1]));
+  await store.put('shared-file:orphan', new Uint8Array([1]));
+  await store.put('attachment-preview:orphan', new Uint8Array([1]));
+  await store.put('app-call:done', { state: 'completed' });
+  await store.put('app-call:open', { state: 'pending', conversationId: c.id, name: 'save' });
+  await store.put('background:old', {
+    id: 'old',
+    state: 'completed',
+    delivered: true,
+    startedAt: old,
+  });
+  await store.put('background:new', {
+    id: 'new',
+    state: 'completed',
+    delivered: true,
+    startedAt: Date.now(),
+  });
+  await store.put('plugin-code:orphan', 'code');
+  await runtime.recover();
+  const keys = (await store.entries('')).map(([key]) => key);
+  expect(keys).toContain(`model-archive:${c.id}:2`);
+  expect(keys).not.toContain(`model-archive:${c.id}:1`);
+  expect(keys).toContain('shared-file:kept');
+  expect(keys).toContain('app-call:open');
+  expect(keys).toContain('background:new');
+  for (const gone of [
+    'shared-file:orphan',
+    'attachment-preview:orphan',
+    'app-call:done',
+    'background:old',
+    'plugin-code:orphan',
+  ])
+    expect(keys).not.toContain(gone);
+});
+
+test('bug 7: migrations interrupted by a restart run again without changing the result', async () => {
+  const store = new Store(crypto.randomUUID());
+  const runtime = new Runtime(store);
+  const c = await runtime.create();
+  await store.update<Conversation>('conversation:' + c.id, (value) => ({
+    ...value!,
+    modelInput: [{ role: 'user', content: 'Earlier' }],
+    plugins: [plugin('code')],
+  }));
+  await runtime.recover();
+  const once = await read(store, c.id);
+  // A worker killed before saving the version runs every migration again.
+  await store.put('meta:schema', 0);
+  await new Runtime(store).recover();
+  const twice = await read(store, c.id);
+  expect(twice.input?.segments).toBe(once.input?.segments);
+  expect(twice.plugins).toEqual(once.plugins);
+  expect(await store.get('meta:schema')).toBe(4);
+});

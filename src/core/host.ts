@@ -256,6 +256,9 @@ export class RuntimeHost {
             data.id as string | undefined,
           );
           break;
+        case 'delete':
+          await runtime.deleteConversation(string(data.id));
+          break;
         case 'appCall':
           if (!data.input || typeof data.input !== 'object' || Array.isArray(data.input))
             throw new Error('Invalid tool input.');

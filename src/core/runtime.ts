@@ -13,6 +13,8 @@ import { functionOutput, printable, withOutput } from './model-input';
 import { readOnlyLocal, ReadOnlyTools, rerunnable } from './read-only';
 import { AppCalls } from './apps';
 import { WorkspaceFiles } from './workspace-files';
+import { migrate } from './migrations';
+import { conversationKeys, sweep } from './cleanup';
 import { buildInstructions, builtinSkill, modelVisible, toolDefinitions } from './prompt';
 import { createFilesystem } from '../browser/filesystem';
 import { Plugins } from '../plugins/loader';
@@ -250,7 +252,7 @@ export class Runtime {
     const work = async () => {
       let c = await this.store.get<Conversation>(key(id));
       if (!c || c.status === 'needs_review' || c.status === 'stopped') return;
-      const pinned = c.plugins ?? (await this.plugins.list());
+      const pinned = c.plugins ?? (await this.plugins.pin(await this.plugins.list()));
       const choice = await this.model.pin?.();
       await this.chats.update(id, (value) => ({
         ...value,
@@ -932,10 +934,29 @@ export class Runtime {
     await this.background.cancelConversation(id);
   }
   private recovery?: Promise<void>;
+  private prepared?: Promise<void>;
+  /** Migrates and cleans storage once per worker, before any recovery. */
+  private prepare() {
+    return (this.prepared ??= migrate({
+      store: this.store,
+      chats: this.chats,
+      plugins: this.plugins,
+    }).then(() => sweep(this.store)));
+  }
   recover(): Promise<void> {
-    return (this.recovery ??= this.recoverWork().finally(() => {
-      this.recovery = undefined;
-    }));
+    return (this.recovery ??= this.prepare()
+      .then(() => this.recoverWork())
+      .finally(() => {
+        this.recovery = undefined;
+      }));
+  }
+  async deleteConversation(id: string): Promise<void> {
+    this.active.get(id)?.abort(new Error('Chat deleted'));
+    await this.background.cancelConversation(id);
+    const keys = await conversationKeys(this.store, id);
+    await this.store.updateMany([], () => keys.map((key) => [key, undefined]));
+    await sweep(this.store);
+    this.changed();
   }
   private async recoverWork(): Promise<void> {
     for (const [key, call] of await this.store.entries<{
@@ -958,39 +979,6 @@ export class Runtime {
     }
     for (const c of await this.conversations()) {
       if (this.active.has(c.id)) continue;
-      // Older builds treated this pre-dispatch rejection as an uncertain side effect.
-      const last = c.messages.at(-1);
-      if (
-        c.status === 'needs_review' &&
-        c.call?.state === 'unknown' &&
-        c.call.name === 'background' &&
-        c.call.provider === 'local' &&
-        last?.role === 'notice' &&
-        last.text.startsWith(
-          'Tool outcome needs review: Tool is unavailable for background execution.',
-        ) &&
-        !(await this.store.get('background:' + c.call.id))
-      ) {
-        const result = JSON.stringify({
-          started: false,
-          error: 'The background tool was rejected before execution. Choose an available tool.',
-        });
-        await this.chats.update(c.id, (value) =>
-          value.status !== 'needs_review' || value.call?.id !== c.call!.id
-            ? value
-            : {
-                ...value,
-                status: 'queued',
-                call: { ...value.call!, state: 'completed', result },
-                messages: value.messages.map((item) =>
-                  item.id === last.id ? { ...item, visibility: 'internal' } : item,
-                ),
-                modelInput: withOutput(value.modelInput, value.call?.callId, result),
-              },
-        );
-        continue;
-      }
-
       if (
         !['running', 'queued', 'waiting'].includes(c.status) &&
         !(c.status === 'stopped' && c.call?.state === 'pending')
