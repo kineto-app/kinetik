@@ -176,9 +176,14 @@ function render() {
   updateComposer();
   byId('status').dataset.state = c?.status ?? 'idle';
   byId('activity').hidden = !foreground;
+  const thought =
+    foreground && c?.live?.reasoning && !c.draft && c.call?.state !== 'pending'
+      ? latestThought(c.live.reasoning)
+      : undefined;
   byId('activity-label').textContent =
-    (c?.call?.state === 'pending' ? taskLabel(c.call.name) : 'Working') +
+    (c?.call?.state === 'pending' ? taskLabel(c.call.name) : (thought?.heading ?? 'Working')) +
     (c?.live && c.live.step > 1 ? ` · step ${c.live.step}` : '');
+  renderThought(thought);
   updateElapsed();
   byId('recovery').hidden = c?.status !== 'needs_review';
   renderAsk(c);
@@ -289,6 +294,32 @@ async function refresh() {
   if (!current() && state.conversations.length) selected = state.conversations[0].id;
   uiStorage.setItem('kinetik-conversation', selected);
   render();
+}
+/** The newest part of a reasoning summary: its bold heading and the text after it. */
+function latestThought(text: string) {
+  const headings = [...text.matchAll(/\*\*(.+?)\*\*/g)];
+  const last = headings.at(-1);
+  const body = (last ? text.slice(last.index! + last[0].length) : text).trim();
+  return {
+    heading: last?.[1].trim() || 'Thinking',
+    body: body.length > 280 ? '…' + body.slice(-280).replace(/^\S*\s/, '') : body,
+  };
+}
+function renderThought(thought: { heading: string; body: string } | undefined) {
+  const timeline = byId('timeline');
+  let note = timeline.querySelector<HTMLElement>('[data-thinking]');
+  if (!thought) return note?.remove();
+  if (!note) {
+    note = document.createElement('div');
+    note.className = 'thinking-note';
+    note.dataset.thinking = 'true';
+    note.innerHTML = `<div class="thinking-heading">${icon('spark')}<span></span></div><p></p>`;
+    timeline.insertBefore(note, timeline.querySelector('[data-draft]'));
+    if (timeline.scrollHeight - timeline.scrollTop - timeline.clientHeight < 160)
+      timeline.scrollTop = timeline.scrollHeight;
+  }
+  note.querySelector('span')!.textContent = thought.heading;
+  note.querySelector('p')!.textContent = thought.body;
 }
 let askShown = '';
 /** The question a paused call is waiting on, answered with buttons. */
@@ -634,7 +665,7 @@ navigator.serviceWorker?.addEventListener('message', (event) => {
 /** Streamed text and step progress patch the open state; anything else reloads it. */
 function changed(event: RuntimeEvent | undefined) {
   const c =
-    event && (event.type === 'text' || event.type === 'progress')
+    event && ['text', 'progress', 'reasoning'].includes(event.type)
       ? state.conversations.find((item) => item.id === event.conversationId)
       : undefined;
   if (c && event?.type === 'text' && c.status === 'running') {
@@ -644,6 +675,11 @@ function changed(event: RuntimeEvent | undefined) {
   }
   if (c && event?.type === 'progress' && c.status === 'running') {
     c.live = { step: event.step, tool: event.tool };
+    render();
+    return;
+  }
+  if (c && event?.type === 'reasoning' && c.status === 'running') {
+    c.live = { step: c.live?.step ?? 1, reasoning: event.text };
     render();
     return;
   }

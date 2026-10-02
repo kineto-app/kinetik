@@ -310,3 +310,28 @@ test('a turn reports step progress and streamed text as events', async () => {
   expect(during?.live).toEqual({ step: 3 });
   expect((await runtime.conversations())[0].live).toBeUndefined();
 });
+
+test('the reasoning summary is served as live progress and pushed as an event', async () => {
+  const store = new Store(crypto.randomUUID());
+  const events: RuntimeEvent[] = [];
+  let during: Conversation | undefined;
+  let runtime!: Runtime;
+  const { model } = scripted([
+    (request) => {
+      request.onReasoning?.('**Planning**');
+      return say('Done');
+    },
+  ]);
+  const original = model.next.bind(model);
+  model.next = async (request, signal) => {
+    const step = await original(request, signal);
+    during = (await runtime.conversations())[0];
+    return step;
+  };
+  runtime = new Runtime(store, (event) => event && events.push(event), model);
+  const c = await runtime.create();
+  await runtime.submit(c.id, 'Plan');
+  await runtime.run(c.id);
+  expect(events).toContainEqual({ type: 'reasoning', conversationId: c.id, text: '**Planning**' });
+  expect(during?.live).toEqual({ step: 1, reasoning: '**Planning**' });
+});

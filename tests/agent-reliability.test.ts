@@ -248,3 +248,24 @@ test('/compact summarises on demand and says when there is nothing to summarise'
     'Two',
   ]);
 });
+
+test('reasoning summary deltas are streamed as one growing text, parts separated', async () => {
+  const seen: string[] = [];
+  await readResponse(
+    sse(
+      { type: 'response.reasoning_summary_part.added' },
+      { type: 'response.reasoning_summary_text.delta', delta: '**Planning**' },
+      { type: 'response.reasoning_summary_text.delta', delta: '\n\nPick a palette.' },
+      { type: 'response.reasoning_summary_part.added' },
+      { type: 'response.reasoning_summary_text.delta', delta: '**Writing**' },
+      {
+        type: 'response.completed',
+        response: { output: [{ type: 'message', content: [{ type: 'output_text', text: 'hi' }] }] },
+      },
+    ),
+    undefined,
+    {},
+    (text) => seen.push(text),
+  );
+  expect(seen.at(-1)).toBe('**Planning**\n\nPick a palette.\n\n**Writing**');
+});

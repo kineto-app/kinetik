@@ -115,7 +115,7 @@ beforeEach(() => {
       expect(body.store).toBe(false);
       expect(body.stream).toBe(true);
       expect(body.model).toBe('gpt-6.1-sol');
-      expect(body.reasoning).toEqual({ effort: 'medium' });
+      expect(body.reasoning).toEqual({ effort: 'medium', summary: 'auto' });
       return new Response('data: test\n\n');
     }
     if (url.endsWith('/oauth/revoke')) return new Response(null, { status: 200 });
@@ -532,7 +532,7 @@ test('reasoning levels come from the catalog, persist per model, and reach infer
   const reopened = new BrowserChatGPT(base + 'connections/chatgpt/keys', store, fetcher);
   await reopened.responses({ account: 'person', request: {} }, new AbortController().signal);
   expect(refreshes).toBe(1);
-  expect(sent.reasoning).toEqual({ effort: 'xhigh' });
+  expect(sent.reasoning).toEqual({ effort: 'xhigh', summary: 'auto' });
   expect((await reopened.models()).reasoning).toBe('xhigh');
   await reopened.chooseModel('plain');
   await reopened.responses({ account: 'person', request: {} }, new AbortController().signal);
@@ -540,5 +540,35 @@ test('reasoning levels come from the catalog, persist per model, and reach infer
   await expect(reopened.chooseReasoning('low')).rejects.toThrow('not available');
   await reopened.chooseModel('gpt-6.1-sol');
   await reopened.responses({ account: 'person', request: {} }, new AbortController().signal);
-  expect(sent.reasoning).toEqual({ effort: 'medium' });
+  expect(sent.reasoning).toEqual({ effort: 'medium', summary: 'auto' });
+});
+
+test('a model that rejects reasoning summaries is asked once more without them, then never again', async () => {
+  const request = fetcher.getMockImplementation()!;
+  const sent: { reasoning?: unknown }[] = [];
+  fetcher.mockImplementation((input, init) => {
+    if (String(input).endsWith('/responses')) {
+      const body = JSON.parse(String(init?.body));
+      sent.push(body);
+      return Promise.resolve(
+        body.reasoning?.summary
+          ? Response.json({ error: { message: 'ChatGPT returned HTTP 400.' } }, { status: 400 })
+          : new Response('data: test\n\n'),
+      );
+    }
+    return request(input, init);
+  });
+  await begin();
+  await client.callback(callback());
+  const first = await client.responses(
+    { account: 'person', request: {} },
+    new AbortController().signal,
+  );
+  expect(first.status).toBe(200);
+  await client.responses({ account: 'person', request: {} }, new AbortController().signal);
+  expect(sent.map((body) => body.reasoning)).toEqual([
+    { effort: 'medium', summary: 'auto' },
+    { effort: 'medium' },
+    { effort: 'medium' },
+  ]);
 });

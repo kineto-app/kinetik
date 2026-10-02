@@ -607,6 +607,10 @@ export class Runtime {
                       this.drafts.set(id, text);
                       this.changed({ type: 'text', conversationId: id, text });
                     },
+                    onReasoning: (text) => {
+                      this.live.set(id, { step: step + 1, reasoning: text });
+                      this.changed({ type: 'reasoning', conversationId: id, text });
+                    },
                   },
                   controller.signal,
                 ),

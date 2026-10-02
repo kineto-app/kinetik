@@ -473,6 +473,11 @@ function agentReply(res, request) {
     );
     return true;
   };
+  if (last === 'Plan the carousel')
+    return streamSay(
+      'Here is the plan: a calm Lisbon cover, then one slide per day, ending with a packing tip.',
+      '**Planning the carousel**\n\nThe user wants a Lisbon carousel. I will start with a calm cover photo, then give each day its own slide so the story reads in order.\n\n**Choosing the ending**\n\nA short packing tip makes a useful last slide that people save.',
+    );
   if (last === 'Build the slides') {
     if (!output('slide-1'))
       return call('write', { path: '/workspace/slide-1.md', content: '# Lisbon' }, 'slide-1');

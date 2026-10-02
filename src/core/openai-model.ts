@@ -17,6 +17,7 @@ export async function readResponse(
   response: Response,
   onText?: (text: string) => void,
   meta: { usage?: Usage } = {},
+  onReasoning?: (text: string) => void,
 ): Promise<Record<string, unknown>[]> {
   if (!response.ok) {
     if ([401, 403].includes(response.status))
@@ -37,6 +38,7 @@ export async function readResponse(
   const finished = new Map<number, Record<string, unknown>>();
   let buffer = '',
     text = '',
+    reasoning = '',
     size = 0;
   try {
     while (true) {
@@ -70,6 +72,12 @@ export async function readResponse(
           started.add(event.output_index);
           if (event.type === 'response.output_item.done')
             finished.set(event.output_index, event.item);
+        }
+        if (event.type === 'response.reasoning_summary_part.added' && reasoning)
+          reasoning += '\n\n';
+        if (event.type === 'response.reasoning_summary_text.delta') {
+          reasoning += event.delta;
+          onReasoning?.(reasoning);
         }
         if (event.type === 'response.output_text.delta') {
           text += event.delta;
@@ -183,7 +191,7 @@ export class OpenAIModel implements Model {
       }),
     });
     const meta: { usage?: Usage } = {};
-    const items = await readResponse(response, request.onText, meta);
+    const items = await readResponse(response, request.onText, meta, request.onReasoning);
     const extra = { usage: meta.usage, contextWindow: config.contextWindow };
     const text = items
       .filter((item) => item.type === 'message')
