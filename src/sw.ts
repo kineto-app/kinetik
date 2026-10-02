@@ -13,10 +13,10 @@ const cacheName = cachePrefix + __BUILD_ID__;
 const store = new Store();
 const updateKey = 'app-update:' + scope.pathname;
 const operationLock = 'kinetik-runtime:' + scope.pathname;
-const host = new RuntimeHost(store, scope, () => {
+const host = new RuntimeHost(store, scope, (event) => {
   void sw.clients
     .matchAll()
-    .then((clients) => clients.forEach((client) => client.postMessage({ type: 'changed' })));
+    .then((clients) => clients.forEach((client) => client.postMessage({ type: 'changed', event })));
 });
 const initialize = () => host.initialize();
 async function operation(work: () => Promise<void>) {

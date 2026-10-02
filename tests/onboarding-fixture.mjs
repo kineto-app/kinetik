@@ -448,6 +448,41 @@ function agentReply(res, request) {
     send([
       { type: 'function_call', call_id: id, name: tool(name), arguments: JSON.stringify(args) },
     ]);
+  /** Streams a reply word by word, optionally after a reasoning summary. */
+  const streamSay = async (text, reasoning = '') => {
+    res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+    const pause = () => new Promise((resolve) => setTimeout(resolve, 120));
+    for (const delta of reasoning.match(/\S+\s*/g) ?? []) {
+      res.write(event({ type: 'response.reasoning_summary_text.delta', delta }));
+      await pause();
+    }
+    for (const delta of text.match(/\S+\s*/g)) {
+      res.write(event({ type: 'response.output_text.delta', delta }));
+      await pause();
+    }
+    res.end(
+      event({
+        type: 'response.completed',
+        response: {
+          output: [
+            { type: 'message', role: 'assistant', content: [{ type: 'output_text', text }] },
+          ],
+          usage: { input_tokens: 2400, output_tokens: 90 },
+        },
+      }),
+    );
+    return true;
+  };
+  if (last === 'Build the slides') {
+    if (!output('slide-1'))
+      return call('write', { path: '/workspace/slide-1.md', content: '# Lisbon' }, 'slide-1');
+    if (!output('slide-2'))
+      return call('write', { path: '/workspace/slide-2.md', content: '# Day two' }, 'slide-2');
+    if (!output('slide-3')) return call('exec', { command: 'sleep 4; echo rendered' }, 'slide-3');
+    return streamSay(
+      'Your three slides are ready: a Lisbon cover, a day-two plan and a rendered preview. Open the files panel to see them, or ask me to change the style.',
+    );
+  }
   if (last.startsWith('Summarise the conversation so far'))
     return say(
       'The user is planning a Lisbon trip, prefers short answers, and saved notes in /workspace/trip.md.',

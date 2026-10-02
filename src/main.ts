@@ -24,7 +24,7 @@ import { taskLabel } from './ui/task-labels';
 import { setupFiles } from './ui/files';
 import { setupUpdates } from './browser/updates';
 import { connect, rpc } from './browser/client';
-import type { Conversation, InstalledPlugin } from './core/types';
+import type { Conversation, InstalledPlugin, RuntimeEvent } from './core/types';
 import { setupConnections } from './ui/onboarding';
 import {
   setSettingsActions,
@@ -177,7 +177,8 @@ function render() {
   byId('status').dataset.state = c?.status ?? 'idle';
   byId('activity').hidden = !foreground;
   byId('activity-label').textContent =
-    c?.call?.state === 'pending' ? taskLabel(c.call.name) : 'Working';
+    (c?.call?.state === 'pending' ? taskLabel(c.call.name) : 'Working') +
+    (c?.live && c.live.step > 1 ? ` · step ${c.live.step}` : '');
   updateElapsed();
   byId('recovery').hidden = c?.status !== 'needs_review';
   renderAsk(c);
@@ -621,21 +622,34 @@ setInterval(() => {
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden) updateElapsed();
 });
-window.addEventListener('kinetik-changed', () => {
-  clearTimeout(refreshTimer);
-  refreshTimer = setTimeout(() => void refresh().catch(showError), 30);
-});
+window.addEventListener('kinetik-changed', (event) =>
+  changed((event as CustomEvent<RuntimeEvent | undefined>).detail),
+);
 window.addEventListener('kinetik-native-error', (event) =>
   showError((event as CustomEvent).detail),
 );
 navigator.serviceWorker?.addEventListener('message', (event) => {
-  if (event.data?.type === 'changed') {
-    clearTimeout(refreshTimer);
-    refreshTimer = setTimeout(() => {
-      void refresh().catch(showError);
-    }, 30);
-  }
+  if (event.data?.type === 'changed') changed(event.data.event);
 });
+/** Streamed text and step progress patch the open state; anything else reloads it. */
+function changed(event: RuntimeEvent | undefined) {
+  const c =
+    event && (event.type === 'text' || event.type === 'progress')
+      ? state.conversations.find((item) => item.id === event.conversationId)
+      : undefined;
+  if (c && event?.type === 'text' && c.status === 'running') {
+    c.draft = event.text;
+    render();
+    return;
+  }
+  if (c && event?.type === 'progress' && c.status === 'running') {
+    c.live = { step: event.step, tool: event.tool };
+    render();
+    return;
+  }
+  clearTimeout(refreshTimer);
+  refreshTimer = setTimeout(() => void refresh().catch(showError), 30);
+}
 async function start() {
   const registration = await connect();
   const updatesReady = registration

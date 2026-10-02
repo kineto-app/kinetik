@@ -25,6 +25,8 @@ import {
   type StagedAttachment,
   type Conversation,
   type InputSegments,
+  type LiveProgress,
+  type RuntimeEvent,
   type Model,
   type Skill,
   type Binding,
@@ -93,6 +95,7 @@ export class Runtime {
   notify: (alert: { conversationId: string; title: string; body: string }) => Promise<void> =
     async () => {};
   private drafts = new Map<string, string>();
+  private live = new Map<string, LiveProgress>();
   /** Model input already read, valid while the stored segment count and generation match. */
   private inputs = new Map<string, { segments: InputSegments; items: Item[] }>();
   private active = new Map<string, AbortController>();
@@ -100,7 +103,7 @@ export class Runtime {
   private workspace: ReturnType<typeof createFilesystem>;
   constructor(
     readonly store = new Store(),
-    private changed: () => void = () => {},
+    private changed: (event?: RuntimeEvent) => void = () => {},
     private model: Model = new MockModel(),
   ) {
     this.plugins = new Plugins(store, (name, text, id) => this.automations.emit(name, text, id));
@@ -124,7 +127,12 @@ export class Runtime {
   /** Conversations without their model input, which only the runtime reads. */
   async conversations(): Promise<Conversation[]> {
     return (await this.store.entries<Conversation>('conversation:'))
-      .map(([, c]) => ({ ...c, modelInput: undefined, draft: this.drafts.get(c.id) }))
+      .map(([, c]) => ({
+        ...c,
+        modelInput: undefined,
+        draft: this.drafts.get(c.id),
+        live: this.live.get(c.id),
+      }))
       .sort((a, b) => b.updatedAt - a.updatedAt);
   }
   async create(): Promise<Conversation> {
@@ -145,6 +153,10 @@ export class Runtime {
     );
     this.changed();
     return stored;
+  }
+  private progress(id: string, live: LiveProgress) {
+    this.live.set(id, live);
+    this.changed({ type: 'progress', conversationId: id, ...live });
   }
   /** The conversation with its model input joined in. */
   private async load(id: string): Promise<Conversation | undefined> {
@@ -553,6 +565,7 @@ export class Runtime {
         const repeats = new Map<string, number>();
         let overflowRetried = false;
         for (let step = 0; step < maxSteps; step++) {
+          this.progress(id, { step: step + 1 });
           const resumed = (await this.store.get<Conversation>(key(id)))?.call;
           // A call the user approved runs as it was proposed, without asking the model again.
           const approved = resumed?.state === 'pending' && resumed.approved ? resumed : undefined;
@@ -592,7 +605,7 @@ export class Runtime {
                     ),
                     onText: (text) => {
                       this.drafts.set(id, text);
-                      this.changed();
+                      this.changed({ type: 'text', conversationId: id, text });
                     },
                   },
                   controller.signal,
@@ -719,6 +732,7 @@ export class Runtime {
               ...value,
               call: { ...value.call!, approved: undefined },
             }));
+          this.progress(id, { step: step + 1, tool: output.name });
           const requestedTimeout = binding.tool.timeoutMs ?? 30000;
           const timeout = Number.isFinite(requestedTimeout)
             ? Math.min(60000, Math.max(1000, Math.trunc(requestedTimeout)))
@@ -888,6 +902,7 @@ export class Runtime {
       }));
     } finally {
       this.drafts.delete(id);
+      this.live.delete(id);
       this.active.delete(id);
     }
     if (!acquired) return;

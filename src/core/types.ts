@@ -55,6 +55,14 @@ export type Ask =
   | { kind: 'approval'; question: string }
   | { kind: 'choice'; question: string; options: string[] }
   | { kind: 'memory'; question: string; text: string };
+export type LiveProgress = { step: number; tool?: string };
+/**
+ * Pushed to open windows as hints. A window applies text and progress itself and reloads
+ * state for anything else; persisted changes always arrive as a plain change.
+ */
+export type RuntimeEvent =
+  | { type: 'text'; conversationId: string; text: string }
+  | ({ type: 'progress'; conversationId: string } & LiveProgress);
 /** Segment `i` of generation `g` lives at `model-input:<conversation>:<g>:<i>`. */
 export type InputSegments = { generation: string; segments: number };
 export type RunStatus =
@@ -110,6 +118,8 @@ export interface Conversation {
   /** Tokens used so far by the running turn. */
   turnUsage?: Usage;
   draft?: string;
+  /** In-memory progress of the running turn, served with state so a reload shows it. */
+  live?: LiveProgress;
 }
 export interface Skill {
   name: string;

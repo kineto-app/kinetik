@@ -94,6 +94,8 @@ The shell exposes a selected set of file/text commands, pipes, and shell syntax.
 
 Each reply shows how long the agent worked and how many tokens it used. When a chat fills about three quarters of the model's context window (the window comes from the ChatGPT model catalog; 200k tokens otherwise), the agent summarises everything before your latest request into short notes and keeps the latest request and its tool calls word for word. A quiet "Earlier messages summarised" line marks the spot; the older input is archived on the device. If the model still reports that a request is too long, the agent summarises once and retries; a second failure stops the turn and suggests a new chat. Type `/compact` to summarise on demand.
 
+While the agent works, the line above the composer names the current action and the step ("Running a command · step 3"). Streamed reply text and step changes reach the open window as events, so the window does not reload the whole app state for each word; anything saved still triggers a full reload. Model input is stored in append-only pieces next to the chat, so a step saves only what it added instead of rewriting the whole history.
+
 Tool calls that cannot have changed anything — a call to a tool that does not exist, arguments that fail the schema, or an error from Kinetik's own `read`, `list` or `read_skill` — go back to the agent as an error result so it can correct itself; the activity line counts them as "handled". Errors from tools that may have had side effects still pause the chat for review. A turn stops after 60 steps, or earlier when the agent repeats the same call with the same input more than three times.
 
 ## Photos, questions, approvals and memory
