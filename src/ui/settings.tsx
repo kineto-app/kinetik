@@ -146,8 +146,8 @@ function back() {
   else heading?.focus();
 }
 /** Resets the dialog to a page; the caller opens the dialog. */
-export function showSettings(page: 'root' | 'connections' = 'root') {
-  setStack(page === 'root' ? [{ page: 'root' }] : [{ page: 'root' }, { page: 'connections' }]);
+export function showSettings(page: 'root' | 'connections' | 'models' = 'root') {
+  setStack(page === 'root' ? [{ page: 'root' }] : [{ page: 'root' }, { page }]);
   clearFeedback();
 }
 /** Replaces the add page with the page of the plugin that was just added. */

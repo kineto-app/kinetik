@@ -312,3 +312,104 @@ test('a request rejected right after provider compaction restores the input and 
   expect(input[0]).toEqual({ role: 'user', content: 'One' });
   expect(await store.get('no-server-compact:chatgpt')).toBe(true);
 });
+
+/** Runs `work` as a new worker would after the old one was killed: the dead one's locks are gone. */
+async function asNewWorker(work: () => Promise<void>) {
+  const locks = Object.getOwnPropertyDescriptor(globalThis.navigator, 'locks');
+  Object.defineProperty(globalThis.navigator, 'locks', { value: undefined, configurable: true });
+  try {
+    await work();
+  } finally {
+    if (locks) Object.defineProperty(globalThis.navigator, 'locks', locks);
+    else delete (globalThis.navigator as { locks?: unknown }).locks;
+  }
+}
+
+test('a turn killed mid-tool finishes on the model it started with, even after a switch', async () => {
+  const store = new Store(crypto.randomUUID());
+  await store.put('model-choice', 'anthropic:claude-sonnet-5-5');
+  const router = (claude: Model, chatgpt: Model) => {
+    const model: Model = {
+      pin: () => store.get<string>('model-choice'),
+      next: (request, signal) =>
+        request.pin?.startsWith('anthropic:')
+          ? claude.next(request, signal)
+          : chatgpt.next(request, signal),
+    };
+    return model;
+  };
+  const never: Model = { next: () => new Promise(() => {}) };
+  const first = new Runtime(
+    store,
+    undefined,
+    router(
+      scripted([() => ({ type: 'tool', name: 'list', input: { path: '/' }, callId: 'l' })]).model,
+      never,
+    ),
+  );
+  slowReads(first, 10, true);
+  const c = await first.create();
+  await first.submit(c.id, 'Look');
+  void first.run(c.id);
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  // The user switches to ChatGPT while the Claude turn is cut off.
+  await store.delete('model-choice');
+  const claude = scripted([() => say('Claude finished.')]);
+  const chatgpt = scripted([]);
+  await asNewWorker(async () => {
+    const second = new Runtime(store, undefined, router(claude.model, chatgpt.model));
+    await second.recover();
+    await second.run(c.id);
+  });
+  expect(claude.seen).toHaveLength(1);
+  expect(chatgpt.seen).toHaveLength(0);
+  expect((await read(store, c.id)).messages.at(-1)?.text).toBe('Claude finished.');
+});
+
+test('a worker killed right after a provider compaction still undoes it when the next request fails', async () => {
+  const store = new Store(crypto.randomUUID());
+  let calls = 0;
+  const first: Model = {
+    compact: async () => [{ type: 'compaction', encrypted_content: 'opaque' }],
+    async next(request) {
+      calls++;
+      // Turn 1 fills the context; the request after the compaction never returns.
+      if (calls === 2) return new Promise<ModelStep>(() => {});
+      return {
+        type: 'text',
+        text: 'Answer to ' + request.message,
+        items: [
+          { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'A' }] },
+        ],
+        usage: { input: 9000, output: 10 },
+        contextWindow: 10000,
+      };
+    },
+  };
+  const a = new Runtime(store, undefined, first);
+  const c = await a.create();
+  await a.submit(c.id, 'One');
+  await a.run(c.id);
+  await a.submit(c.id, 'Two');
+  void a.run(c.id);
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  expect((await read(store, c.id)).serverCompaction).toBeTruthy();
+  let rejected = false;
+  const second: Model = {
+    async next(request) {
+      if (!rejected) {
+        rejected = true;
+        throw new Error('Model request failed: HTTP 400');
+      }
+      return { type: 'text', text: 'Recovered: ' + request.message };
+    },
+  };
+  await asNewWorker(async () => {
+    const b = new Runtime(store, undefined, second);
+    await b.recover();
+    await b.run(c.id);
+  });
+  const saved = await read(store, c.id);
+  expect(saved.messages.at(-1)?.text).toBe('Recovered: Two');
+  expect((await modelInput(store, c.id))![0]).toEqual({ role: 'user', content: 'One' });
+});

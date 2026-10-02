@@ -70,7 +70,15 @@ async function refreshOtherModels() {
   if (!current()?.messages.length) lastMessages = '';
   render();
 }
-window.addEventListener('kinetik-providers', () => void refreshOtherModels().catch(showError));
+window.addEventListener('kinetik-providers', () => {
+  void refreshOtherModels().catch(showError);
+  // A turn waiting for a key continues once one is saved.
+  void resumeWork();
+});
+/** The turn runs on Claude or Gemini, which use an API key instead of a sign-in. */
+function apiKeyTurn(c: Conversation) {
+  return /^(anthropic|google):/.test(c.turnModel ?? '');
+}
 renderSolid(
   () =>
     ModelPicker({
@@ -192,12 +200,15 @@ function render() {
   byId('connection-wait').hidden = c?.status !== 'waiting';
   byId('connection-wait-label').textContent =
     c?.waitingFor === 'signin'
-      ? 'Sign in to continue'
+      ? apiKeyTurn(c)
+        ? 'Check your API key to continue'
+        : 'Sign in to continue'
       : navigator.onLine
         ? 'Reconnecting…'
         : 'Waiting for connection…';
   scheduleReconnect();
-  byId('resume-work').textContent = c?.waitingFor === 'signin' ? 'Sign in' : 'Retry now';
+  byId('resume-work').textContent =
+    c?.waitingFor === 'signin' ? (apiKeyTurn(c) ? 'Check API key' : 'Sign in') : 'Retry now';
   updateComposer();
   byId('status').dataset.state = c?.status ?? 'idle';
   byId('activity').hidden = !foreground;
@@ -896,7 +907,13 @@ function resumeWork() {
     }));
 }
 byId('resume-work').onclick = () => {
-  if (current()?.waitingFor === 'signin') connectionSetup.open();
+  const c = current();
+  if (c?.waitingFor === 'signin' && apiKeyTurn(c)) {
+    // A Claude or Gemini turn waits for its API key, not for ChatGPT.
+    showSettings('models');
+    void refreshSettingsData().catch(showError);
+    openDialog('settings');
+  } else if (c?.waitingFor === 'signin') connectionSetup.open();
   else void resumeWork();
 };
 window.addEventListener('online', () => {

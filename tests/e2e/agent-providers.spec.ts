@@ -86,3 +86,28 @@ test('Claude and Gemini with your own API key', async ({ page, request }, info) 
   await expect(replies(page).last()).not.toContainText('Gemini');
   expect(await (await request.get(base + 'agent-requests')).json()).toHaveLength(1);
 });
+
+test('a wrong API key leads to Settings → Models, and a fixed key continues the turn', async ({
+  page,
+  request,
+}, info) => {
+  await request.get(base + 'reset');
+  await request.get('http://127.0.0.1:4174/providers/reset');
+  await request.post(base + 'connections/chatgpt/callback', { data: {} });
+  await request.get(base + 'agent-model');
+  await page.goto(base);
+  await expect(page.locator('#status')).toHaveText('Ready');
+  const mobile = Boolean(info.project.use.isMobile);
+  await addKey(page, mobile, 'Claude', 'anthropic', 'sk-ant-wrong-key-000');
+  await page.getByRole('button', { name: 'Close settings' }).click();
+  await pick(page, 'Claude Sonnet 5.5');
+  await send(page, 'Hello Claude');
+  await expect(page.locator('#connection-wait-label')).toHaveText('Check your API key to continue');
+  await page.screenshot({ path: info.outputPath('6-wrong-key.png') });
+  await page.getByRole('button', { name: 'Check API key' }).click();
+  const form = page.getByRole('form', { name: 'Claude' });
+  await form.getByLabel('Claude API key').fill('sk-ant-test-key-123');
+  await form.getByRole('button', { name: 'Save' }).click();
+  await page.getByRole('button', { name: 'Close settings' }).click();
+  await expect(replies(page).last()).toContainText('Hello from Claude.');
+});
