@@ -88,7 +88,10 @@ export function activityBatches(messages: Message[]): ActivityBatch[] {
     const key = provider(item.message) + ':' + taskKind(item.message.tool ?? '');
     const batch = batches.get(key) ?? { key, items: [], label: '', failed: false, running: false };
     batch.items.push(item);
-    batch.failed ||= !item.recovered && ['failed', 'unknown'].includes(item.outcome);
+    batch.failed ||=
+      !item.recovered &&
+      !item.message.activity?.returned &&
+      ['failed', 'unknown'].includes(item.outcome);
     batch.running ||= item.outcome === 'running';
     batches.set(key, batch);
   }
@@ -154,6 +157,8 @@ export function activityTitle(item: Activity): string {
 
 export function activityExplanation(item: Activity): string {
   if (item.recovered) return 'This attempt failed. A later retry of the same action succeeded.';
+  if (item.message.activity?.returned)
+    return 'This did not run or changed nothing, so the error went back to the agent to correct.';
   if (item.outcome === 'failed') return 'This action did not finish successfully.';
   if (item.outcome === 'unknown')
     return 'The result could not be confirmed. Review it before retrying.';

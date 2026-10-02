@@ -1,5 +1,6 @@
 import { demoTasks } from './demo-tasks';
 import type { Model, ModelRequest, ModelStep } from './types';
+import { compactPrompt } from './compaction';
 export function delay(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
     signal.throwIfAborted();
@@ -18,6 +19,11 @@ export function delay(ms: number, signal: AbortSignal): Promise<void> {
 export class MockModel implements Model {
   async next(request: ModelRequest, signal: AbortSignal): Promise<ModelStep> {
     await delay(80, signal);
+    if (request.message === compactPrompt)
+      return {
+        type: 'text',
+        text: `The user and Kinetik exchanged ${(request.history?.length ?? 1) - 1} earlier items.`,
+      };
     const example = demoTasks.find((task) => task.prompt === request.message.trim());
     if (example)
       return request.result === undefined

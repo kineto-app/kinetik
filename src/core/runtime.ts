@@ -1,6 +1,14 @@
 import Ajv from 'ajv';
 import { toolOutcome } from './tool-outcome';
-import { isConnectionError, SignInRequired } from './connection-error';
+import { ContextOverflow, isConnectionError, SignInRequired } from './connection-error';
+import {
+  compactAt,
+  compactPrompt,
+  defaultContextWindow,
+  estimateTokens,
+  splitPoint,
+  summaryPrefix,
+} from './compaction';
 import { localSkills } from './skills';
 import { Automations } from './automation';
 import { BackgroundProcesses, type BackgroundProcess } from './background';
@@ -22,6 +30,8 @@ import {
   type InstalledPlugin,
   type AppView,
   type Message,
+  type ModelStep,
+  type Usage,
 } from './types';
 
 function abortable<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
@@ -44,6 +54,12 @@ const printable = (value: unknown) =>
     ? value
     : (JSON.stringify(value, (key, value) => (key === '_meta' ? undefined : value), 2) ?? 'Done.')
   ).slice(0, 65536);
+const maxSteps = 60;
+const repeatLimit = 3;
+/** Kinetik's own read-only tools: their errors are facts the model can act on, not uncertain effects. */
+const readOnlyLocal = new Set(['read', 'list', 'read_skill']);
+const addUsage = (a: Usage | undefined, b: Usage | undefined): Usage | undefined =>
+  !a ? b : !b ? a : { input: a.input + b.input, output: a.output + b.output };
 const builtinSkill: Skill = {
   name: 'workspace',
   description: 'Work with the shared local files and the browser shell.',
@@ -137,6 +153,10 @@ export class Runtime {
       text.length > (messageId ? 32768 : 16384)
     )
       throw new Error('Enter a message up to 16,384 characters.');
+    if (text.trim() === '/compact' && !attachmentIds.length && !messageId) {
+      await this.compact(id);
+      return;
+    }
     await attachmentLock(id, async () => {
       const entry = message('user', text);
       if (messageId) entry.id = messageId;
@@ -372,6 +392,7 @@ export class Runtime {
             call: undefined,
             status: 'running',
             waitingFor: undefined,
+            turnUsage: value.activeMessage ? value.turnUsage : undefined,
           }));
         }
         const activeMessage = c.messages.find((m) => m.id === c!.activeMessage)!;
@@ -402,36 +423,54 @@ export class Runtime {
           '\nAvailable native skills:\n' +
           skills.map((s) => `${s.name}: ${s.description}\nPath: ${s.path}`).join('\n\n');
         let result = c.call?.state === 'completed' ? c.call.result : undefined;
-        for (let step = 0; step < 20; step++) {
-          const output = await abortable(
-            this.model.next(
-              {
-                message: activeMessage.text,
-                instructions,
-                tools: Object.keys(bindings).filter(
-                  (name) =>
-                    !bindings[name].tool.visibility ||
-                    bindings[name].tool.visibility.includes('model'),
-                ),
-                result,
-                history: (await this.store.get<Conversation>(key(id)))?.modelInput,
-                definitions: Object.fromEntries(
-                  Object.entries(bindings)
-                    .filter(([, b]) => !b.tool.visibility || b.tool.visibility.includes('model'))
-                    .map(([name, b]) => [
-                      name,
-                      { description: b.tool.description, inputSchema: b.tool.inputSchema },
-                    ]),
-                ),
-                onText: (text) => {
-                  this.drafts.set(id, text);
-                  this.changed();
+        const repeats = new Map<string, number>();
+        let overflowRetried = false;
+        for (let step = 0; step < maxSteps; step++) {
+          await this.compactIfNeeded(id, controller.signal);
+          let output: ModelStep;
+          const history = (await this.store.get<Conversation>(key(id)))?.modelInput;
+          try {
+            output = await this.requestStep(id, controller.signal, () =>
+              this.model.next(
+                {
+                  message: activeMessage.text,
+                  instructions,
+                  tools: Object.keys(bindings).filter(
+                    (name) =>
+                      !bindings[name].tool.visibility ||
+                      bindings[name].tool.visibility.includes('model'),
+                  ),
+                  result,
+                  history,
+                  definitions: Object.fromEntries(
+                    Object.entries(bindings)
+                      .filter(([, b]) => !b.tool.visibility || b.tool.visibility.includes('model'))
+                      .map(([name, b]) => [
+                        name,
+                        { description: b.tool.description, inputSchema: b.tool.inputSchema },
+                      ]),
+                  ),
+                  onText: (text) => {
+                    this.drafts.set(id, text);
+                    this.changed();
+                  },
                 },
-              },
-              controller.signal,
-            ),
-            controller.signal,
-          );
+                controller.signal,
+              ),
+            );
+          } catch (error) {
+            this.drafts.delete(id);
+            if (!(error instanceof ContextOverflow)) throw error;
+            // One summary and one retry; a second overflow means the current request alone is too large.
+            if (overflowRetried || !(await this.compactInput(id, controller.signal)))
+              throw new Error(
+                'This chat no longer fits the model, even after summarising earlier messages. Start a new chat to continue.',
+              );
+            overflowRetried = true;
+            step--;
+            continue;
+          }
+          overflowRetried = false;
           this.drafts.delete(id);
           // Steering received during inference takes precedence over an unexecuted tool
           // or stale answer. The old request remains in model history.
@@ -454,9 +493,11 @@ export class Runtime {
                     value.workStartedAt === undefined
                       ? undefined
                       : Math.max(0, Date.now() - value.workStartedAt),
+                  usage: value.turnUsage,
                 },
               ],
               workStartedAt: undefined,
+              turnUsage: undefined,
               retryAt: undefined,
               retryAttempts: undefined,
               turn: undefined,
@@ -467,12 +508,33 @@ export class Runtime {
             }));
             break;
           }
+          const signature = output.name + ':' + JSON.stringify(output.input);
+          repeats.set(signature, (repeats.get(signature) ?? 0) + 1);
+          if (repeats.get(signature)! > repeatLimit)
+            throw new Error(
+              `Stopped: the same action (${output.name}) was requested ${repeatLimit + 1} times with the same input.`,
+            );
           const binding = bindings[output.name];
-          if (!binding || (binding.tool.visibility && !binding.tool.visibility.includes('model')))
-            throw new Error('Tool is unavailable to the model: ' + output.name);
-          const validate = this.ajv.compile(binding.tool.inputSchema);
-          if (!validate(output.input))
-            throw new Error('Invalid tool arguments: ' + this.ajv.errorsText(validate.errors));
+          let rejected =
+            !binding || (binding.tool.visibility && !binding.tool.visibility.includes('model'))
+              ? 'There is no tool named ' + output.name + '.'
+              : undefined;
+          if (!rejected) {
+            const validate = this.ajv.compile(binding.tool.inputSchema);
+            if (!validate(output.input))
+              rejected = 'Invalid tool arguments: ' + this.ajv.errorsText(validate.errors);
+          }
+          // Nothing ran, so the model can correct itself instead of the turn stopping.
+          if (rejected) {
+            result = await this.recordToolError(
+              id,
+              output,
+              binding?.provider,
+              rejected,
+              backgroundTurn,
+            );
+            continue;
+          }
           await this.update(id, (value) => ({
             ...value,
             modelInput: [...(value.modelInput ?? []), ...(output.items ?? [])],
@@ -573,6 +635,22 @@ export class Runtime {
             const call = (await this.store.get<Conversation>(key(id)))?.call;
             if (
               !controller.signal.aborted &&
+              binding.provider === 'local' &&
+              readOnlyLocal.has(output.name) &&
+              !isConnectionError(error)
+            ) {
+              result = await this.recordToolError(
+                id,
+                output,
+                binding.provider,
+                errorText(error),
+                backgroundTurn,
+                true,
+              );
+              continue;
+            }
+            if (
+              !controller.signal.aborted &&
               call?.operationId &&
               binding.tool.recover &&
               (isConnectionError(error) || error instanceof SignInRequired)
@@ -605,7 +683,10 @@ export class Runtime {
             }));
             break;
           }
-          if (step === 19) throw new Error('Turn reached the 20-step prototype limit.');
+          if (step === maxSteps - 1)
+            throw new Error(
+              `Stopped after ${maxSteps} steps. Ask me to continue if more work is needed.`,
+            );
         }
       }
     };
@@ -656,6 +737,152 @@ export class Runtime {
       (next.pending.length || (next.status === 'queued' && next.activeMessage))
     )
       await this.run(id);
+  }
+  /** Runs one model request and records its token usage on the conversation. */
+  private async requestStep(
+    id: string,
+    signal: AbortSignal,
+    request: () => Promise<ModelStep>,
+  ): Promise<ModelStep> {
+    const output = await abortable(request(), signal);
+    const c = await this.store.get<Conversation>(key(id));
+    const window = output.contextWindow ?? c?.context?.window ?? defaultContextWindow;
+    const tokens = output.usage
+      ? output.usage.input + output.usage.output
+      : estimateTokens(c?.modelInput) + estimateTokens(output.items);
+    await this.update(id, (value) => ({
+      ...value,
+      context: { tokens, window },
+      turnUsage: addUsage(value.turnUsage, output.usage),
+    }));
+    return output;
+  }
+  /** Records a tool call that failed without uncertain effects and hands the error to the model. */
+  private async recordToolError(
+    id: string,
+    output: Extract<ModelStep, { type: 'tool' }>,
+    provider: string | undefined,
+    error: string,
+    backgroundTurn: boolean,
+    ran = false,
+  ): Promise<string> {
+    const text = 'Error: ' + error;
+    await this.update(id, (value) => ({
+      ...value,
+      modelInput: [
+        ...(value.modelInput ?? []),
+        ...(ran ? [] : (output.items ?? [])),
+        ...(output.callId
+          ? [{ type: 'function_call_output', call_id: output.callId, output: text }]
+          : []),
+      ],
+      call: ran ? { ...value.call!, state: 'completed', result: text } : undefined,
+      messages: [
+        ...value.messages,
+        ...(!ran && output.narration
+          ? [
+              {
+                ...message('assistant', output.narration),
+                visibility: backgroundTurn ? ('internal' as const) : undefined,
+              },
+            ]
+          : []),
+        {
+          ...message('tool', text, `${output.name} · ${provider ?? 'unknown'}`),
+          ...(ran ? { id: value.call!.id } : {}),
+          activity: { input: output.input, outcome: 'failed' as const, returned: true },
+          visibility: backgroundTurn ? ('internal' as const) : undefined,
+        },
+      ],
+    }));
+    return text;
+  }
+  private async compactIfNeeded(id: string, signal: AbortSignal) {
+    const c = await this.store.get<Conversation>(key(id));
+    const window = c?.context?.window ?? defaultContextWindow;
+    const tokens = c?.context?.tokens ?? estimateTokens(c?.modelInput);
+    if (tokens >= window * compactAt) await this.compactInput(id, signal);
+  }
+  /**
+   * Replaces model input before the latest user request with a model-written summary. The older
+   * part is archived first and the swap is one write, so redoing it after a crash is harmless.
+   */
+  private async compactInput(id: string, signal: AbortSignal): Promise<boolean> {
+    const c = await this.store.get<Conversation>(key(id));
+    const input = c?.modelInput ?? [];
+    if (!c || c.call?.state === 'pending') return false;
+    let cut = splitPoint(input);
+    if (cut < 2) return false;
+    let summary: string | undefined;
+    // An older part that itself overflows is shortened from the start until it fits.
+    for (let start = 0; summary === undefined && start < cut;) {
+      try {
+        const step = await abortable(
+          this.model.next(
+            {
+              message: compactPrompt,
+              instructions: 'You write compact working notes about a conversation.',
+              tools: [],
+              definitions: {},
+              history: [...input.slice(start, cut), { role: 'user', content: compactPrompt }],
+            },
+            signal,
+          ),
+          signal,
+        );
+        if (step.type !== 'text') throw new Error('The summary request called a tool.');
+        summary = step.text;
+      } catch (error) {
+        if (!(error instanceof ContextOverflow)) throw error;
+        start =
+          splitPoint(input.slice(0, Math.max(start + 2, Math.floor((start + cut) / 2)))) || cut;
+        if (start >= cut) return false;
+      }
+    }
+    const n = (c.compactions ?? 0) + 1;
+    await this.store.put(`model-archive:${id}:${n}`, input.slice(0, cut));
+    const before = c.context?.tokens ?? estimateTokens(input);
+    let applied = false;
+    await this.update(id, (value) => {
+      const current = value.modelInput ?? [];
+      // Only append-only growth is expected; anything else means another writer replaced it.
+      if (current.length < input.length || value.compactions !== c.compactions) return value;
+      applied = true;
+      const next = [{ role: 'user', content: summaryPrefix + summary }, ...current.slice(cut)];
+      return {
+        ...value,
+        modelInput: next,
+        compactions: n,
+        context: {
+          tokens: estimateTokens(next),
+          window: value.context?.window ?? defaultContextWindow,
+        },
+        messages: [
+          ...value.messages,
+          {
+            ...message('notice', 'Summarised earlier messages to keep this chat fast.'),
+            compaction: { items: cut, tokens: before },
+          },
+        ],
+      };
+    });
+    return applied;
+  }
+  /** On-demand compaction, outside a running turn. */
+  async compact(id: string): Promise<void> {
+    if (this.active.has(id))
+      throw new Error('Wait until the current work finishes, then try again.');
+    const controller = new AbortController();
+    this.active.set(id, controller);
+    try {
+      if (!(await this.compactInput(id, controller.signal)))
+        await this.update(id, (value) => ({
+          ...value,
+          messages: [...value.messages, message('notice', 'Nothing to summarise yet.')],
+        }));
+    } finally {
+      this.active.delete(id);
+    }
   }
   private waitForConnection(id: string, error?: unknown) {
     return this.update(id, (c) =>

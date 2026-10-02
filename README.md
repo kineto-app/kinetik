@@ -90,6 +90,12 @@ Files live in a virtual filesystem, not arbitrary host folders. Import/export ha
 
 The shell exposes a selected set of file/text commands, pipes, and shell syntax. Network commands, Python, JavaScript execution, SQLite, gzip, and native processes are excluded. Commands are bounded to 15 seconds; plugin calls receive a 30-second timeout. Trusted JavaScript can ignore cancellation or block its worker, so this is not a hard sandbox guarantee.
 
+## Long tasks and long chats
+
+Each reply shows how long the agent worked and how many tokens it used. When a chat fills about three quarters of the model's context window (the window comes from the ChatGPT model catalog; 200k tokens otherwise), the agent summarises everything before your latest request into short notes and keeps the latest request and its tool calls word for word. A quiet "Earlier messages summarised" line marks the spot; the older input is archived on the device. If the model still reports that a request is too long, the agent summarises once and retries; a second failure stops the turn and suggests a new chat. Type `/compact` to summarise on demand.
+
+Tool calls that cannot have changed anything — a call to a tool that does not exist, arguments that fail the schema, or an error from Kinetik's own `read`, `list` or `read_skill` — go back to the agent as an error result so it can correct itself; the activity line counts them as "handled". Errors from tools that may have had side effects still pause the chat for review. A turn stops after 60 steps, or earlier when the agent repeats the same call with the same input more than three times.
+
 ## Plugins and skills
 
 Open **Settings → Connections → Add a connection**, select **Use demo connection**, add it, then choose **Turn on**. Its `exec` replacement echoes what it received instead of running a shell. Choose **Turn off** to restore local execution. Its skill appears in `/skills` and loads through `read_skill` independently of workspace replacements.

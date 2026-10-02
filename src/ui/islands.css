@@ -595,3 +595,31 @@ dialog::backdrop,
 .icon-slot {
   display: contents;
 }
+
+/* Earlier model input was summarised: a quiet divider, not a message. */
+.message.compaction-note {
+  margin-block: var(--space-content);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+}
+.compaction-note p {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  white-space: nowrap;
+}
+.compaction-note p::before,
+.compaction-note p::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--line);
+}
+.compaction-note .icon {
+  width: 13px;
+  height: 13px;
+}

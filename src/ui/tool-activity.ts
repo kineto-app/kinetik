@@ -46,22 +46,25 @@ function summary(label: string, mark: IconName, note?: string) {
   node.append(arrow);
   return node;
 }
+const handled = (item: Activity) => Boolean(item.message.activity?.returned);
 const statusWord = (item: Activity) =>
   item.recovered
     ? 'Fixed'
-    : item.outcome === 'failed'
-      ? 'Failed'
-      : item.outcome === 'unknown'
-        ? 'Needs review'
-        : item.outcome === 'running'
-          ? 'Running'
-          : undefined;
+    : handled(item)
+      ? 'Handled'
+      : item.outcome === 'failed'
+        ? 'Failed'
+        : item.outcome === 'unknown'
+          ? 'Needs review'
+          : item.outcome === 'running'
+            ? 'Running'
+            : undefined;
 /** One step row: what kind of action, a plain title, and a status word only when it matters. */
 function receipt(item: Activity) {
   const { message, outcome, recovered } = item;
   const row = element('details', 'tool-details');
   row.dataset.activityKey = message.id;
-  row.dataset.outcome = recovered ? 'recovered' : outcome;
+  row.dataset.outcome = recovered ? 'recovered' : handled(item) ? 'handled' : outcome;
   row.append(
     summary(
       activityTitle(item),
@@ -199,9 +202,10 @@ export function renderToolActivity(timeline: HTMLElement, conversation?: Convers
       .flatMap((batch) => batch.items)
       .sort((a, b) => data.messages.indexOf(a.message) - data.messages.indexOf(b.message));
     const failed = steps.filter(
-      (item) => !item.recovered && ['failed', 'unknown'].includes(item.outcome),
+      (item) => !item.recovered && !handled(item) && ['failed', 'unknown'].includes(item.outcome),
     ).length;
     const fixed = steps.filter((item) => item.recovered).length;
+    const corrected = steps.filter(handled).length;
     const running = steps.some((item) => item.outcome === 'running');
     const state = failed ? 'failed' : running ? 'running' : 'completed';
     card.dataset.outcome = state;
@@ -210,8 +214,9 @@ export function renderToolActivity(timeline: HTMLElement, conversation?: Convers
         ? taskLabel(steps.find((item) => item.outcome === 'running')!.message.tool ?? '') + '…'
         : sentence(batches.map((batch) => batch.label)),
       failed ? 'info' : running ? 'clock' : 'check',
-      [failed && `${failed} failed`, fixed && `${fixed} fixed`].filter(Boolean).join(' · ') ||
-        undefined,
+      [failed && `${failed} failed`, fixed && `${fixed} fixed`, corrected && `${corrected} handled`]
+        .filter(Boolean)
+        .join(' · ') || undefined,
     );
     heading.querySelector('.activity-label')!.classList.add('tool-group-label');
     const body = element('div', 'tool-group-steps');

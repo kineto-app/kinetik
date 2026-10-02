@@ -1,7 +1,8 @@
 import { onCleanup, onMount, Show } from 'solid-js';
 import type { Message } from '../core/types';
 import { renderMessageContent, copyButton } from './message-content';
-import { messageTime, workDuration } from './time';
+import { messageTime, tokenCount, workDuration } from './time';
+import { icon } from './icons';
 import { mountApp } from './mcp-app';
 import { mountFile } from './files';
 import { attachmentCarousel } from './attachments';
@@ -35,10 +36,21 @@ export function MessageBubble(props: {
       );
   });
   onCleanup(() => disposers.forEach((dispose) => dispose()));
+  if (item.compaction) {
+    props.article.classList.add('compaction-note');
+    return (
+      <p
+        title={`${item.text} ${item.compaction.items} earlier items, about ${tokenCount(item.compaction.tokens)} tokens.`}
+      >
+        <span class="icon-slot" innerHTML={icon('refresh')} />
+        <span>Earlier messages summarised</span>
+      </p>
+    );
+  }
   return (
     <Show when={!onlyWidget && item.role !== 'tool'}>
       {item.role === 'assistant' && item.durationMs !== undefined
-        ? workDuration(item.durationMs)
+        ? workDuration(item.durationMs, item.usage)
         : null}
       <div class="message-label">
         <Show when={item.role === 'assistant'}>
