@@ -73,8 +73,9 @@ window.addEventListener('kinetik-compose', (event) => {
     .detail;
   if (conversationId !== selected) return;
   const prompt = byId<HTMLTextAreaElement>('prompt');
-  prompt.value = text;
-  updateComposer();
+  const suggestion = text.slice(0, 4000);
+  prompt.value = prompt.value.trim() ? prompt.value + '\n' + suggestion : suggestion;
+  prompt.dispatchEvent(new Event('input', { bubbles: true }));
   prompt.focus();
 });
 window.addEventListener('kinetik-custom-model', () => {
@@ -291,6 +292,9 @@ function render() {
       timeline
         .querySelector<HTMLElement>(`[data-message-id="${CSS.escape(item.id)}"]`)
         ?.toggleAttribute('data-queued', Boolean(item.queue));
+      timeline
+        .querySelector<HTMLElement>(`[data-message-id="${CSS.escape(item.id)}"]`)
+        ?.toggleAttribute('data-unsent', Boolean(item.unsent));
       const hiddenActivity = isInternalActivity(item);
       if ((hiddenActivity && !item.app && !item.file) || renderedMessages.has(item.id)) continue;
       renderedMessages.add(item.id);
@@ -302,6 +306,7 @@ function render() {
       article.dataset.role = item.role;
       article.dataset.messageId = item.id;
       article.toggleAttribute('data-queued', Boolean(item.queue));
+      article.toggleAttribute('data-unsent', Boolean(item.unsent));
       timeline.insertBefore(article, timeline.querySelector('[data-draft]'));
       disposeContent.push(
         renderSolid(

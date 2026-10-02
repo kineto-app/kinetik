@@ -75,5 +75,5 @@ body:has(.mcp-app-panel:modal) {
 }
 
 .app-approval {
-  margin-top: 8px;
+  margin-top: var(--space-inline);
 }

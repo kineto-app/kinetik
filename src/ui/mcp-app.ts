@@ -112,6 +112,8 @@ export function mountApp(
       card.className = 'ask-card app-approval';
       card.setAttribute('role', 'group');
       card.setAttribute('aria-label', 'App action approval');
+      card.setAttribute('aria-live', 'polite');
+      card.tabIndex = -1;
       const question = document.createElement('p');
       question.className = 'ask-question';
       question.textContent = `Allow this app to run “${name}”?`;
@@ -134,7 +136,8 @@ export function mountApp(
       actions.append(choice('Decline', false), choice('Approve', true));
       card.append(question, details, actions);
       panel.append(card);
-      actions.querySelector<HTMLButtonElement>('.primary')?.focus({ preventScroll: true });
+      card.focus({ preventScroll: true });
+      card.scrollIntoView({ block: 'nearest' });
     });
   const context = () => ({
     ...hostStyles(),
@@ -236,14 +239,10 @@ export function mountApp(
         busy = true;
         const call = { id: view.id, name: data.params?.name, input: data.params?.arguments ?? {} };
         try {
-          try {
-            reply(await rpc('appCall', call));
-          } catch (error) {
-            if (!String((error as Error).message).startsWith('Approval required')) throw error;
-            if (!(await approve(String(call.name), call.input)))
-              throw new Error('The user declined this action.');
-            reply(await rpc('appCall', { ...call, approved: true }));
-          }
+          const approval = await rpc<boolean>('appApproval', call);
+          if (approval && !(await approve(String(call.name), call.input)))
+            throw new Error('The user declined this action.');
+          reply(await rpc('appCall', { ...call, approved: approval }));
         } finally {
           busy = false;
         }

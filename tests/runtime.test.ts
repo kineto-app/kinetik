@@ -347,6 +347,11 @@ test('returning to the app leaves a live embedded-app call alone', async () => {
   let finish!: (result: unknown) => void;
   vi.spyOn(runtime.plugins, 'snapshot').mockResolvedValue({
     bindings: {
+      // The tool the widget calls; plugins expose it, and without it the call needs approval.
+      widget__save: {
+        provider: 'widget',
+        tool: { description: 'save', inputSchema: {}, execute: async () => ({}) },
+      },
       widget: {
         provider: 'widget',
         tool: {
@@ -597,6 +602,11 @@ test('embedded apps keep working after their plugin updates, but not after it is
   });
   const snapshot = vi.spyOn(runtime.plugins, 'snapshot').mockResolvedValue({
     bindings: {
+      // The tool the widget calls; plugins expose it, and without it the call needs approval.
+      widget__charms_widget_session: {
+        provider: 'widget',
+        tool: { description: 'charms_widget_session', inputSchema: {}, execute: async () => ({}) },
+      },
       widget: {
         provider: 'widget',
         tool: {

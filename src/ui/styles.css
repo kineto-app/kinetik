@@ -85,7 +85,7 @@ a {
 }
 .danger {
   background: var(--bad);
-  color: white;
+  color: var(--on-accent);
   font-weight: 600;
 }
 .secondary {

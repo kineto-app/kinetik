@@ -55,6 +55,10 @@ interface Session {
 }
 
 /** Browser credentials are kept separately from workspace files and conversation history. */
+/** A turn pins its model when it starts; later requests send it back. */
+const pinnedModel = (pin: { model?: unknown } | undefined, fallback: string) =>
+  typeof pin?.model === 'string' && /^[\w.:-]{1,100}$/.test(pin.model) ? pin.model : fallback;
+
 export class BrowserChatGPT {
   private async storedSession(): Promise<Session | undefined> {
     const session = await this.store.get<Session | null>('session');
@@ -499,11 +503,7 @@ export class BrowserChatGPT {
     signal: AbortSignal,
   ) {
     const session = await this.access(body.account, signal);
-    // A turn pins its model and level when it starts; later requests send them back.
-    const model =
-      typeof body.pin?.model === 'string' && /^[\w.:-]{1,100}$/.test(body.pin.model)
-        ? body.pin.model
-        : session.model;
+    const model = pinnedModel(body.pin, session.model);
     const effort =
       typeof body.pin?.effort === 'string' && /^[a-z]{1,20}$/.test(body.pin.effort)
         ? body.pin.effort
@@ -535,7 +535,10 @@ export class BrowserChatGPT {
     return retried;
   }
   /** Provider-side compaction of older input; returns the compacted items. */
-  async compact(body: { account: string; input: Record<string, unknown>[] }, signal: AbortSignal) {
+  async compact(
+    body: { account: string; input: Record<string, unknown>[]; pin?: { model?: unknown } },
+    signal: AbortSignal,
+  ) {
     const session = await this.access(body.account, signal);
     const response = await this.request(
       this.modelRelay ? this.modelRelay + 'compact' : resource + '/responses/compact',
@@ -545,7 +548,7 @@ export class BrowserChatGPT {
         redirect: 'error',
         signal,
         headers: { Authorization: 'Bearer ' + session.access, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: session.model, input: body.input }),
+        body: JSON.stringify({ model: pinnedModel(body.pin, session.model), input: body.input }),
       },
     );
     if (!response.ok) {

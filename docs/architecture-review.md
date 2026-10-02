@@ -27,9 +27,9 @@ About **5 / 10**. The ideas are good. They were packed into too few files, and a
 - Worker-kill tests for each new persisted state; the mock model, fake IndexedDB and Playwright fixtures.
 - Narrow interfaces between `Runtime` and its parts (`AutomationHost`, `BackgroundHost`).
 
-## Bugs found (open)
+## Bugs found
 
-Each was traced in the code; none is fixed by the structure work.
+Each was traced in the code. All seven are fixed in step 1 (#33), each with a regression test that failed before the fix. What the fixes leave on purpose is listed under Status.
 
 1. **Approval bypass (security).** `background` start (`core/background.ts`) never checks `tool.approval`, so a tool that needs approval, such as `charms_files_delete`, runs without a card when the model starts it as a background job. A widget's `tools/call` (`AppCalls.call`) has the same gap.
 2. **Widgets can speak as the user.** An MCP App's `ui/message` (`ui/mcp-app.ts`) is submitted as a user message straight away. A compromised widget could ask the agent to run a command in the sandbox, and `charms_exec` needs no approval. Put the text in the composer instead.
@@ -79,6 +79,34 @@ Smaller findings:
 
 **Do not copy:** the microkernel and 80-plugin layout; pi-ai or pi-durable as dependencies (bundle size, no IndexedDB backend, Experimental); telling the model "outcome unknown" for actions that send, pay or delete; saving every stream chunk; session trees and branching; dropping the step cap or approvals.
 
+## pi-durable, from its announcement
+
+[The pi-durable post](https://earendil.com/posts/pi-durable/) describes the following design:
+
+- Every step runs as a task that commits a checkpoint before moving on.
+- Transcript and typed state change in one commit.
+- After a crash, model requests rerun, and interrupted answers are kept and marked aborted.
+- Tools declared `replay: "safe"` rerun; other tools report the interruption to the model with their partial output.
+- A `requestId` makes each submission exactly-once.
+- Sub-agents are conversations owned by a tool call. They keep their own checkpoints and are found again after a restart.
+- Compaction runs in the background and blocks only when the next request would not fit.
+- Watchers get the committed state once, then only changes.
+- Conversations store tool and extension names, never code.
+- The post marks the project as experimental.
+
+What Kinetik takes from it:
+
+- **Idempotent submit.** Let `submit` honour a client-chosen message id, which it already accepts, as a dedupe key. A retried send after a worker restart then never posts twice. (Step 5.)
+- **Background compaction.** Start summarising at the threshold without blocking the turn, and wait only when the next request would overflow. (Step 6, with long-turn compaction.)
+- **Changes, not snapshots, to windows.** Send the state once, then only changes. This is the same as step 5's lighter `state`.
+- **Owned sub-agents.** Persist the `delegate` helper's progress as a child conversation, so a restart continues it instead of starting over. (Step 6.)
+- **Keep aborted partial answers, marked as aborted,** instead of dropping the draft. (Step 6, with typed events.)
+
+What it does not take:
+
+- Telling the model "interrupted" for side-effecting tools. Kinetik keeps the user review.
+- Storing tool names instead of code. Kinetik pins code per turn by digest (step 1), so a plugin update cannot change a running turn.
+
 ## Structure after this change
 
 ```
@@ -110,7 +138,7 @@ src/
 
 Each step is small enough for one PR. The order puts risk first.
 
-1. **Fix the bugs above.** S. Gate every execution path through the approval check (background start and widget calls). Widget messages fill the composer. Pin `{provider, model, effort}` per turn and key `no-server-compact:` by it. Stop clears the queue flags. `Store.entries` uses a key range.
+1. **Fix the bugs above.** S–M. Gate every execution path through the approval check (background start and widget calls). Widget messages fill the composer. Pin `{provider, model, effort}` per turn and key `no-server-compact:` by it. Stop clears the queue flags. `Store.entries` uses a key range. A schema version `meta:schema` with a migrations list run once at startup, a startup sweep, a delete-chat op, and plugin code stored once by digest.
 2. **One place for tool safety.** S–M. Add `effects` to `ToolDefinition` (`readOnly`, `approval`, `command`, `host`), set it in `localTools` and the MCP mapping, and delete the `readOnlyLocal`, `parallelSafe` and `rerunnable` sets and the `__charms_exec` suffix test. Replay safety still comes only from `provider === 'local' && readOnly`, never from a server's `readOnlyHint`.
 3. **Finish splitting the turn.** M.
    - **Turn state:** one `Turn` object on the conversation instead of about ten flat optional fields, and one `endTurn()` that every exit and `stop` use.
@@ -118,26 +146,40 @@ Each step is small enough for one PR. The order puts risk first.
    - **Tool pipeline:** move it out of `run` into named steps.
    - **Recovery:** move `recoverWork` to `recovery.ts`.
 
-   This changes the persisted shape, so it needs a migration, and therefore comes after step 5's schema version.
+   This changes the persisted shape, so it ships a migration on step 1's schema version.
 
 4. **Model layer hygiene.** S–M. Inject a `ResponsesTransport` instead of the fake `fetch`, and let `OpenAIModel` own the request body. Share one `model-http.ts` (SSE events, HTTP errors, tool-name encoding, step shaping) between both adapters. Add `ModelRejected` so only a real rejection undoes compaction.
 5. **Production readiness.** S–M.
    - **Trace log:** a local per-turn trace (step, tool, model, status, ms, error), shown in Settings → Advanced and included in exports.
    - **Lighter `state` op:** returns summaries, and changes name the conversation, so windows refresh one chat.
    - **Typed RPC:** a shared op union with a protocol version.
-   - **Schema version:** `meta:schema` with a migrations list run once at startup.
-   - **Cleanup:** a sweep at startup and a delete-chat op.
+   - **Idempotent submit:** a client message id dedupes a retried send.
 6. **Later.** M–L.
-   - Compaction for one long turn (adopt idea 1).
-   - Typed events with streamed tool output.
+   - Compaction for one long turn (adopt idea 1), started in the background.
+   - Typed events with streamed tool output; an aborted partial answer is kept and marked.
    - Chat messages stored append-only.
-   - Plugins referenced by digest instead of copied.
    - Ports (`Store`, `Workspace`, `Locks`) so the core runs in Node for evals.
    - `main.ts` split by screen.
+   - The `delegate` helper persisted as an owned child conversation.
 
 **Do not:** add a state-machine library, a DI container, a middleware chain, a plugin microkernel or a rewrite. Five to eight focused modules are enough.
 
 ## Status
 
-- **Done:** step 0, the structure move above. It is a pure move with no behaviour change; the unit and browser tests pass unchanged apart from import paths.
-- **Open:** steps 1 to 6, starting with the bug fixes.
+- **Done:**
+  - Step 0, the structure move above (#32). It is a pure move with no behaviour change.
+  - Step 1, all seven bugs (#33):
+    - every execution path checks approval, and widgets ask before an approval-gated call;
+    - widget messages fill the composer;
+    - a turn pins provider, model and effort;
+    - Stop clears queue flags;
+    - prefix reads use key ranges;
+    - a schema version with migrations;
+    - a startup sweep, chat deletion, and plugin code stored once by digest.
+  - Left on purpose by step 1:
+    - `app:` records stay while their chat exists, because a widget re-renders from them; deleting the chat removes them.
+    - `ConversationStore.update` still reads inline `modelInput`, because migration 1 moves old chats through it instead of copying that logic.
+    - The helper-mode ChatGPT session pins only the provider; the helper picks model and effort on its side.
+    - A pinned model name is checked for shape, not against the catalog.
+    - An older build opening a newer schema runs no migrations and does not warn.
+- **Open:** steps 2 to 6.

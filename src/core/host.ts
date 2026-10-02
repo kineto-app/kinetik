@@ -60,7 +60,7 @@ export class RuntimeHost {
               JSON.parse(String(init?.body)),
               init?.signal ?? new AbortController().signal,
             ),
-          (account, input, signal) => chatgpt!.compact({ account, input }, signal),
+          (account, input, signal, pin) => chatgpt!.compact({ account, input, pin }, signal),
         )
       : helper
         ? new OpenAIModel(new URL('responses', helper).href, async () => {
@@ -254,6 +254,15 @@ export class RuntimeHost {
             string(data.name),
             string(data.text),
             data.id as string | undefined,
+          );
+          break;
+        case 'appApproval':
+          if (!data.input || typeof data.input !== 'object' || Array.isArray(data.input))
+            throw new Error('Invalid tool input.');
+          result = await runtime.appNeedsApproval(
+            string(data.id),
+            string(data.name),
+            data.input as Record<string, unknown>,
           );
           break;
         case 'delete':

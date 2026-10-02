@@ -40,16 +40,27 @@ export async function sweep(store: Store, now = Date.now()) {
     'plugin-code:',
   ])
     for (const key of await store.keys(prefix)) if (!used.has(key)) stale.push(key);
+  const installed = (await store.get<InstalledPlugin[]>('plugins')) ?? [];
+  for (const key of await store.keys('skills:'))
+    if (!installed.some((p) => key.startsWith(`skills:${p.manifest.id}:${p.digest}:`)))
+      stale.push(key);
   if (stale.length) await store.updateMany([], () => stale.map((key) => [key, undefined]));
 }
 
-/** Everything stored for one conversation; shared leftovers are swept afterwards. */
+/** Everything stored for one conversation, including the files only its messages refer to. */
 export async function conversationKeys(store: Store, id: string) {
   const keys = [
     'conversation:' + id,
     ...(await store.keys(`model-input:${id}:`)),
     ...(await store.keys(`model-archive:${id}:`)),
   ];
+  const c = await store.get<Conversation>('conversation:' + id);
+  for (const file of c?.attachments ?? [])
+    keys.push('attachment-bytes:' + file.id, 'attachment-preview:' + file.id);
+  for (const m of c?.messages ?? []) {
+    if (m.file?.snapshotId) keys.push('shared-file:' + m.file.snapshotId);
+    for (const file of m.attachments ?? []) keys.push('attachment-preview:' + file.id);
+  }
   const apps = new Set<string>();
   for (const [key, app] of await store.entries<{ conversationId?: string }>('app:'))
     if (app.conversationId === id) {

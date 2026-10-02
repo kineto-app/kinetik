@@ -37,6 +37,8 @@ export interface Message {
   attachments?: Attachment[];
   /** Queued to run after the current work instead of steering it; cleared once it starts. */
   queue?: 'after';
+  /** Stopped before the model saw it. */
+  unsent?: boolean;
   visibility?: 'internal';
   source?: 'background';
   tool?: string;

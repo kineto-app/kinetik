@@ -186,12 +186,13 @@ export class OpenAIModel implements Model {
       account: string,
       input: Record<string, unknown>[],
       signal: AbortSignal,
+      pin?: TurnPin,
     ) => Promise<Record<string, unknown>[]>,
   ) {}
-  async compact(input: Record<string, unknown>[], _pin: TurnPin | undefined, signal: AbortSignal) {
+  async compact(input: Record<string, unknown>[], pin: TurnPin | undefined, signal: AbortSignal) {
     if (!this.compactor) return undefined;
     const config = await this.configuration();
-    return this.compactor(config.account, input, signal);
+    return this.compactor(config.account, input, signal, pin);
   }
   async next(request: ModelRequest, signal: AbortSignal): Promise<ModelStep> {
     const config = await this.configuration();

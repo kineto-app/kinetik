@@ -43,6 +43,7 @@ test('bug 1: a widget asks before running an action that needs approval', async 
   await app.getByRole('button', { name: 'Publish' }).click();
   await expect(card).toContainText('Allow this app to run “publish”?');
   await expect(card).toContainText('Lisbon');
+  await expect(card.getByRole('button', { name: 'Approve' })).toBeInViewport();
   await page.screenshot({ path: info.outputPath('1-widget-approval.png') });
   await card.getByRole('button', { name: 'Decline' }).click();
   await expect(app.locator('#result')).toHaveText('Declined');
@@ -80,4 +81,26 @@ test('bug 6: a chat can be deleted with everything stored for it', async ({ page
   const after = await rpc<{ conversations: Conversation[] }>(page, 'state');
   expect(after.conversations.some((c) => c.id === id)).toBe(false);
   await page.screenshot({ path: info.outputPath('4-deleted.png') });
+});
+
+test('bug 4: a queued message stopped before it ran is marked as not sent', async ({
+  page,
+  request,
+}, info) => {
+  const base = 'http://127.0.0.1:4174/onboarding/';
+  await request.get(base + 'reset');
+  await request.post(base + 'connections/chatgpt/callback', { data: {} });
+  await request.get(base + 'agent-model');
+  await page.goto(base);
+  await expect(page.locator('#status')).toHaveText('Ready');
+  await send(page, 'Slow task');
+  await expect(page.locator('#status')).toHaveText('Working…');
+  await page.getByRole('textbox', { name: 'Message', exact: true }).fill('Then send me a summary');
+  await page.getByRole('button', { name: 'Send after current work' }).click();
+  await expect(page.locator('[data-role=user][data-queued]')).toHaveCount(1);
+  await page.getByRole('button', { name: 'Stop' }).click();
+  const unsent = page.locator('[data-role=user][data-unsent]');
+  await expect(unsent).toHaveCount(1);
+  await expect(page.locator('[data-role=user][data-queued]')).toHaveCount(0);
+  await page.screenshot({ path: info.outputPath('5-not-sent.png') });
 });

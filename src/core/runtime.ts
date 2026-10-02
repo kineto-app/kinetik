@@ -928,7 +928,9 @@ export class Runtime {
       ...c,
       status: c.status === 'needs_review' ? c.status : 'stopped',
       pending: [],
-      messages: c.messages.map((m) => (m.queue ? { ...m, queue: undefined } : m)),
+      messages: c.messages.map((m) =>
+        c.pending.includes(m.id) ? { ...m, queue: undefined, unsent: true } : m,
+      ),
       workStartedAt: undefined,
     }));
     await this.background.cancelConversation(id);
@@ -937,11 +939,14 @@ export class Runtime {
   private prepared?: Promise<void>;
   /** Migrates and cleans storage once per worker, before any recovery. */
   private prepare() {
+    // A failed migration is retried on the next start; a failed sweep only leaves garbage.
     return (this.prepared ??= migrate({
       store: this.store,
       chats: this.chats,
       plugins: this.plugins,
-    }).then(() => sweep(this.store)));
+    })
+      .then(() => sweep(this.store))
+      .catch(() => {}));
   }
   recover(): Promise<void> {
     return (this.recovery ??= this.prepare()
@@ -955,27 +960,27 @@ export class Runtime {
     await this.background.cancelConversation(id);
     const keys = await conversationKeys(this.store, id);
     await this.store.updateMany([], () => keys.map((key) => [key, undefined]));
-    await sweep(this.store);
     this.changed();
   }
   private async recoverWork(): Promise<void> {
-    for (const [key, call] of await this.store.entries<{
+    for (const [callKey, call] of await this.store.entries<{
       state: string;
       conversationId: string;
       name: string;
     }>('app-call:')) {
-      if (call.state !== 'pending' || this.apps.running(key)) continue;
-      await this.chats.update(call.conversationId, (value) => ({
-        ...value,
-        messages: [
-          ...value.messages,
-          message(
-            'notice',
-            `The worker stopped during app tool ${call.name}. Check its effects before trying again.`,
-          ),
-        ],
-      }));
-      await this.store.put(key, { ...call, state: 'unknown' });
+      if (call.state !== 'pending' || this.apps.running(callKey)) continue;
+      if (await this.store.get(key(call.conversationId)))
+        await this.chats.update(call.conversationId, (value) => ({
+          ...value,
+          messages: [
+            ...value.messages,
+            message(
+              'notice',
+              `The worker stopped during app tool ${call.name}. Check its effects before trying again.`,
+            ),
+          ],
+        }));
+      await this.store.put(callKey, { ...call, state: 'unknown' });
     }
     for (const c of await this.conversations()) {
       if (this.active.has(c.id)) continue;
@@ -1137,6 +1142,9 @@ export class Runtime {
   }
   appCall(id: string, name: string, input: Record<string, unknown>, approved = false) {
     return this.apps.call(id, name, input, approved);
+  }
+  appNeedsApproval(id: string, name: string, input: Record<string, unknown>) {
+    return this.apps.needsApproval(id, name, input);
   }
   importFile(name: string, bytes: Uint8Array) {
     return this.workspaceFiles.importFile(name, bytes);

@@ -115,7 +115,10 @@ test('bug 1: a widget cannot call a tool that needs approval without the user ap
     },
     sources: [],
   });
-  await expect(runtime.appCall('widget', 'publish', {})).rejects.toThrow('Approval required');
+  expect(await runtime.appNeedsApproval('widget', 'publish', {})).toBe(true);
+  // A tool the plugin does not expose is treated as needing approval too.
+  expect(await runtime.appNeedsApproval('widget', 'hidden', {})).toBe(true);
+  await expect(runtime.appCall('widget', 'publish', {})).rejects.toThrow('needs your approval');
   expect(called).toEqual([]);
   expect(await runtime.appCall('widget', 'publish', {}, true)).toBe('Done');
   expect(called).toEqual(['publish']);
@@ -194,6 +197,7 @@ test('bug 4: Stop clears a queued message instead of leaving it marked as queued
   await runtime.run(id);
   const queued = (await read(store, id)).messages.find((m) => m.text === 'After that, summarise');
   expect(queued?.queue).toBeUndefined();
+  expect(queued?.unsent).toBe(true);
 });
 
 test('bug 5: reading records by prefix only visits keys with that prefix', async () => {
@@ -318,6 +322,9 @@ test('bug 6: startup removes records nothing refers to any more', async () => {
     startedAt: Date.now(),
   });
   await store.put('plugin-code:orphan', 'code');
+  await store.put('plugins', [plugin('code', 'current')]);
+  await store.put('skills:demo:current:s', { revision: '1', skills: [] });
+  await store.put('skills:demo:old:s', { revision: '1', skills: [] });
   await runtime.recover();
   const keys = (await store.entries('')).map(([key]) => key);
   expect(keys).toContain(`model-archive:${c.id}:2`);
@@ -325,12 +332,14 @@ test('bug 6: startup removes records nothing refers to any more', async () => {
   expect(keys).toContain('shared-file:kept');
   expect(keys).toContain('app-call:open');
   expect(keys).toContain('background:new');
+  expect(keys).toContain('skills:demo:current:s');
   for (const gone of [
     'shared-file:orphan',
     'attachment-preview:orphan',
     'app-call:done',
     'background:old',
     'plugin-code:orphan',
+    'skills:demo:old:s',
   ])
     expect(keys).not.toContain(gone);
 });
@@ -353,4 +362,51 @@ test('bug 7: migrations interrupted by a restart run again without changing the 
   expect(twice.input?.segments).toBe(once.input?.segments);
   expect(twice.plugins).toEqual(once.plugins);
   expect(await store.get('meta:schema')).toBe(4);
+});
+
+test('bug 6: deleting one chat never touches files another chat still uses', async () => {
+  const store = new Store(crypto.randomUUID());
+  const runtime = new Runtime(store);
+  const a = await runtime.create();
+  const b = await runtime.create();
+  await store.put('shared-file:other', new Uint8Array([1]));
+  const staged = await runtime.stageAttachment(
+    b.id,
+    'b.jpg',
+    new Uint8Array([1]),
+    new Uint8Array([2]),
+  );
+  await runtime.deleteConversation(a.id);
+  const keys = (await store.entries('')).map(([key]) => key);
+  expect(keys).toContain('shared-file:other');
+  expect(keys).toContain('attachment-bytes:' + staged.id);
+  expect(keys).toContain('attachment-preview:' + staged.id);
+});
+
+test('bug 7: a failing migration or sweep never stops the app from starting', async () => {
+  const store = new Store(crypto.randomUUID());
+  const runtime = new Runtime(store);
+  await store.put('app-call:orphan', { state: 'pending', conversationId: 'gone', name: 'x' });
+  vi.spyOn(store, 'keys').mockRejectedValueOnce(new Error('disk error'));
+  await runtime.recover();
+  expect((await store.get<{ state: string }>('app-call:orphan'))?.state).toBe('unknown');
+});
+
+test('bug 3: ChatGPT compaction uses the model the turn pinned', async () => {
+  const sent: unknown[] = [];
+  const model = new OpenAIModel(
+    'https://example.test/responses',
+    async () => ({ account: 'a', model: 'current-model' }),
+    fetch,
+    async (_account, _input, _signal, pin) => {
+      sent.push(pin);
+      return [{ type: 'compaction' }];
+    },
+  );
+  await model.compact(
+    [],
+    { provider: 'chatgpt', model: 'pinned-model' },
+    new AbortController().signal,
+  );
+  expect(sent).toEqual([{ provider: 'chatgpt', model: 'pinned-model' }]);
 });
