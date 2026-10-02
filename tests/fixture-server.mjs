@@ -2,6 +2,7 @@ import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { renderConnectPage } from '../bin/connect-page.mjs';
 import { onboardingFixture } from './onboarding-fixture.mjs';
+import { providerFixture } from './provider-fixture.mjs';
 let revision = 1,
   fail = false;
 const manifest = {
@@ -12,6 +13,15 @@ const manifest = {
   entry: 'plugin.js',
 };
 const server = createServer(async (req, res) => {
+  // Provider endpoints answer their own CORS preflights with the SDK headers they need.
+  if (req.url?.startsWith('/providers/')) {
+    const body = async () => {
+      let text = '';
+      for await (const part of req) text += part;
+      return text;
+    };
+    if (await providerFixture(req, res, body)) return;
+  }
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader(

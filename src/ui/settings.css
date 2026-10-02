@@ -275,3 +275,7 @@ label.settings-row {
   font-size: 15px;
   line-height: 1.45;
 }
+
+.provider-key-fields {
+  padding: 4px var(--space-content) var(--space-content);
+}

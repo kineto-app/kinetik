@@ -28,6 +28,7 @@ import {
   type LiveProgress,
   type RuntimeEvent,
   type Model,
+  type ModelRequest,
   type Skill,
   type Binding,
   type InstalledPlugin,
@@ -455,10 +456,13 @@ export class Runtime {
       let c = await this.store.get<Conversation>(key(id));
       if (!c || c.status === 'needs_review' || c.status === 'stopped') return;
       const pinned = c.plugins ?? (await this.plugins.list());
+      const choice = await this.model.pin?.();
       await this.update(id, (value) => ({
         ...value,
         plugins: pinned,
         status: value.status === 'stopped' ? value.status : 'running',
+        // A turn keeps the provider and model it started with, even if the user switches.
+        turnModel: value.workStartedAt === undefined ? choice : value.turnModel,
         workStartedAt: value.workStartedAt ?? Date.now(),
         waitingFor: undefined,
       }));
@@ -599,7 +603,8 @@ export class Runtime {
             const history = (await this.load(id))?.modelInput;
             try {
               output = await this.requestStep(id, controller.signal, () =>
-                this.model.next(
+                this.modelNext(
+                  id,
                   {
                     message: activeMessage.text,
                     instructions,
@@ -1045,6 +1050,12 @@ export class Runtime {
     }
     return images;
   }
+  /** A model request with the provider and model pinned for this conversation's turn. */
+  private async modelNext(id: string, request: ModelRequest, signal: AbortSignal) {
+    const c = await this.store.get<Conversation>(key(id));
+    const pin = c?.workStartedAt !== undefined ? c.turnModel : await this.model.pin?.();
+    return this.model.next({ ...request, pin }, signal);
+  }
   /** Runs one model request and records its token usage on the conversation. */
   private async requestStep(
     id: string,
@@ -1185,7 +1196,8 @@ export class Runtime {
     for (let step = 1; step <= helperSteps; step++) {
       this.progress(id, { step: this.live.get(id)?.step ?? 1, tool: 'delegate', helperStep: step });
       const output = await abortable(
-        this.model.next(
+        this.modelNext(
+          id,
           {
             message: task,
             instructions: helperInstructions,
@@ -1308,7 +1320,8 @@ export class Runtime {
     for (let start = 0; summary === undefined && start < cut;) {
       try {
         const step = await abortable(
-          this.model.next(
+          this.modelNext(
+            id,
             {
               message: compactPrompt,
               instructions: 'You write compact working notes about a conversation.',

@@ -40,6 +40,7 @@
     "package:native-update": "node scripts/package-native-update.mjs"
   },
   "dependencies": {
+    "@earendil-works/pi-ai": "1.0.0",
     "@kobalte/core": "^0.13.14",
     "@tauri-apps/api": "^2.12.0",
     "@tauri-apps/plugin-dialog": "^2.8.0",

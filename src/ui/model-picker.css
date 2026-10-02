@@ -260,3 +260,10 @@
   color: var(--muted);
   font-size: 0.75rem;
 }
+
+.model-group-label {
+  padding: 8px 12px 2px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}

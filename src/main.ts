@@ -25,6 +25,7 @@ import { setupFiles } from './ui/files';
 import { setupUpdates } from './browser/updates';
 import { connect, rpc } from './browser/client';
 import type { Conversation, InstalledPlugin, RuntimeEvent } from './core/types';
+import type { ProvidersState } from './core/model-router';
 import { setupConnections } from './ui/onboarding';
 import {
   setSettingsActions,
@@ -54,17 +55,38 @@ setupViewport();
 const byId = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 let state: State = { conversations: [], plugins: [], automations: [], background: [] };
 let connectionState: SetupState | undefined;
-const [modelState, setModelState] = createSignal({ enabled: false, model: '' });
+const [modelState, setModelState] = createSignal({ chatgpt: false, hostChatgpt: false, model: '' });
+/** Claude or Gemini keys saved in Settings, and the chosen model if it is one of theirs. */
+const [otherModels, setOtherModels] = createSignal<{ connected: boolean; choice?: string }>({
+  connected: false,
+});
+async function refreshOtherModels() {
+  const result = await rpc<ProvidersState>('providers', { action: 'state' });
+  setOtherModels({
+    connected: result.providers.some((provider) => provider.connected),
+    choice: result.choice,
+  });
+}
+window.addEventListener('kinetik-providers', () => void refreshOtherModels().catch(showError));
 renderSolid(
   () =>
     ModelPicker({
       get enabled() {
-        return modelState().enabled;
+        return modelState().chatgpt || otherModels().connected;
+      },
+      get chatgpt() {
+        return modelState().chatgpt;
+      },
+      get hostChatgpt() {
+        return modelState().hostChatgpt;
       },
       get model() {
         return modelState().model;
       },
-      onSelected: () => connectionSetup.refresh(),
+      onSelected: async () => {
+        await refreshOtherModels();
+        await connectionSetup.refresh();
+      },
     }),
   byId('model-picker'),
 );
@@ -507,7 +529,8 @@ byId('composer').onsubmit = (event) => {
     renderAttachments();
     updateComposer();
     try {
-      if (connectionState?.chatgpt.available) {
+      // A chosen Claude or Gemini model needs no ChatGPT sign-in.
+      if (connectionState?.chatgpt.available && !otherModels().choice) {
         await connectionSetup.refresh();
         if (!connectionState.chatgpt.connected) {
           connectionSetup.open();
@@ -702,6 +725,7 @@ async function start() {
     ? setupUpdates(registration)
     : import('./platform/updates').then(({ setupNativeUpdates }) => setupNativeUpdates());
   await refresh();
+  await refreshOtherModels().catch(() => {});
   await connectionSetup.initialize();
   await rpc('resume');
   await rpc('tick');
@@ -753,7 +777,8 @@ const connectionSetup = setupConnections((value) => {
   connectionState = value;
   setSettingsSetup(value);
   setModelState({
-    enabled: Boolean(value.chatgpt.connected && value.chatgpt.browser),
+    chatgpt: Boolean(value.chatgpt.connected && value.chatgpt.browser),
+    hostChatgpt: Boolean(value.chatgpt.connected && !value.chatgpt.browser),
     model: value.chatgpt.model ?? '',
   });
   if (becameConnected) void resumeWork();

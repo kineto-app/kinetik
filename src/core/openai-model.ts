@@ -1,7 +1,7 @@
 import type { Model, ModelRequest, ModelStep, Usage } from './types';
 import { ConnectionError, ContextOverflow, SignInRequired } from './connection-error';
 
-async function toolName(name: string): Promise<string> {
+export async function toolName(name: string): Promise<string> {
   const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(name));
   const suffix = [...new Uint8Array(bytes)]
     .slice(0, 10)
@@ -118,6 +118,16 @@ export async function readResponse(
   }
 }
 
+/** Items written by other providers, reduced to what the Responses API accepts. */
+export function forOpenAI(history: Record<string, unknown>[] | undefined) {
+  return history
+    ?.filter((item) => item.type !== 'pi_thinking')
+    .map((item) => {
+      if (item.type !== 'function_call' || !('provider' in item)) return item;
+      const { provider: _provider, thought_signature: _signature, ...call } = item;
+      return call;
+    });
+}
 /** Models without image input get a note in place of each photo instead of a rejected request. */
 function withoutImages(history: Record<string, unknown>[] | undefined) {
   return history?.map((item) =>
@@ -213,8 +223,10 @@ export class OpenAIModel implements Model {
           instructions: request.instructions,
           input:
             config.images === false
-              ? withoutImages(request.history)
-              : (latestImages(request.history) ?? [{ role: 'user', content: request.message }]),
+              ? withoutImages(forOpenAI(request.history))
+              : (latestImages(forOpenAI(request.history)) ?? [
+                  { role: 'user', content: request.message },
+                ]),
           tools: tools.length
             ? [{ type: 'namespace', name: 'kinetik', description: 'Kinetik agent tools', tools }]
             : [],

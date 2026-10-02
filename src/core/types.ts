@@ -113,6 +113,8 @@ export interface Conversation {
   updatedAt: number;
   /** Persisted across steering and recovery; cleared when this turn ends. */
   workStartedAt?: number;
+  /** `provider:model` this turn uses; meaningful while `workStartedAt` is set. */
+  turnModel?: string;
   /**
    * Model input as Runtime.update sees it. It is stored in append-only segments under
    * `input`, so a step writes only its new items; older builds stored it inline here.
@@ -215,6 +217,8 @@ export interface ModelRequest {
   onText?: (text: string) => void;
   /** The model's reasoning summary so far, when the provider streams one. */
   onReasoning?: (text: string) => void;
+  /** The provider and model this turn uses, fixed when the turn starts (`provider:model`). */
+  pin?: string;
 }
 export interface Usage {
   input: number;
@@ -241,6 +245,8 @@ export type ModelStep = (
 ) & { usage?: Usage; contextWindow?: number };
 export interface Model {
   next(request: ModelRequest, signal: AbortSignal): Promise<ModelStep>;
+  /** The provider and model a new turn should use, when there is a choice. */
+  pin?(): Promise<string | undefined>;
 }
 export const errorText = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);

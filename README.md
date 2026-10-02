@@ -100,6 +100,12 @@ Tool calls that cannot have changed anything — a call to a tool that does not 
 
 A turn stops after 60 steps, or earlier when the agent repeats the same call with the same input more than three times.
 
+## Claude and Gemini
+
+**Settings → Models** takes your own Claude (Anthropic) or Gemini (Google) API key, plus an optional endpoint for a gateway. The key is stored on the device under the connection-token prefix: in secure storage in the apps, never in an export. The composer's model menu then lists Claude Sonnet 5.5, Opus 5.5, Fable 5.1 and Haiku 4.5, and Gemini 3.8 Flash and 3.1 Pro Preview, next to ChatGPT. A turn keeps the model it started with even if you switch mid-turn.
+
+These models run through [pi-ai](https://www.npmjs.com/package/@earendil-works/pi-ai) behind Kinetik's `Model` interface. Chats keep one history in the Responses format: each request is translated for the chosen provider, and replies are translated back, so a chat can move between providers. What only one provider can read stays with it: OpenAI's encrypted reasoning, Claude's thinking signatures and Gemini's thought signatures are sent only to their own provider. Claude and Gemini are called directly from the device (Anthropic's browser-access header, Gemini's CORS), with no Kinetik server in between. pi-ai adds about 670 KB to the web worker bundle; the apps load each provider's code only when it is used.
+
 ## Photos, questions, approvals and memory
 
 Attached photos reach the model as images, not only as file paths, when the selected ChatGPT model accepts images (the model catalog says which do); other models get a note that a photo was attached. The agent still gets the file path, so a tool can use the original. Each request carries at most the 8 newest photos and 4 MB of them; older photos are replaced by a note, since every request resends the history and the hosted relay caps a request at 8 MB.
