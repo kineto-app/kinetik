@@ -14,16 +14,16 @@ import { Automations } from './automation';
 import { BackgroundProcesses, type BackgroundProcess } from './background';
 import { Store } from '../browser/store';
 import { ConversationStore, conversationKey as key } from './conversation-store';
+import { Attachments, attachmentLock } from './attachments';
+import { abortable } from './abortable';
 import { createFilesystem } from '../browser/filesystem';
-import { Plugins, digest } from '../plugins/loader';
+import { Plugins } from '../plugins/loader';
 import { MockModel } from '../models/mock';
 import { localTools } from './tools';
 import {
   errorText,
   message,
   modelMessageText,
-  type Attachment,
-  type StagedAttachment,
   type Conversation,
   type LiveProgress,
   type RuntimeEvent,
@@ -39,22 +39,8 @@ import {
   type Ask,
 } from './types';
 
-function abortable<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const abort = () => reject(signal.reason ?? new Error('Cancelled'));
-    if (signal.aborted) {
-      promise.catch(() => undefined);
-      abort();
-      return;
-    }
-    signal.addEventListener('abort', abort, { once: true });
-    promise.then(resolve, reject).finally(() => signal.removeEventListener('abort', abort));
-  });
-}
 type Item = Record<string, unknown>;
 type ReadOnlyResult = { text: string; response?: unknown; failed?: boolean };
-const attachmentLock = <T>(id: string, work: () => Promise<T>) =>
-  globalThis.navigator?.locks ? navigator.locks.request('kinetik-attachments:' + id, work) : work();
 const printable = (value: unknown) =>
   (typeof value === 'string'
     ? value
@@ -64,12 +50,6 @@ const maxSteps = 60;
 /** Pending messages that interrupt at the next boundary; queued follow-ups wait for the turn to end. */
 const steering = (c: Conversation | undefined) =>
   (c?.pending ?? []).filter((id) => c!.messages.find((m) => m.id === id)?.queue !== 'after');
-const base64 = (bytes: Uint8Array) => {
-  let text = '';
-  for (let i = 0; i < bytes.length; i += 0x8000)
-    text += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-  return btoa(text);
-};
 const repeatLimit = 3;
 /** Kinetik's own read-only tools: their errors are facts the model can act on, not uncertain effects. */
 const readOnlyLocal = new Set(['read', 'list', 'read_skill']);
@@ -102,6 +82,7 @@ export class Runtime {
   private active = new Map<string, AbortController>();
   private ajv = new Ajv({ strict: false });
   private chats: ConversationStore;
+  private attachments: Attachments;
   private workspace: ReturnType<typeof createFilesystem>;
   constructor(
     readonly store = new Store(),
@@ -112,6 +93,7 @@ export class Runtime {
     this.plugins = new Plugins(store, (name, text, id) => this.automations.emit(name, text, id));
     this.automations = new Automations(store, this, changed);
     this.workspace = createFilesystem(store);
+    this.attachments = new Attachments(store, this.chats, this.plugins, this.workspace);
     this.background = new BackgroundProcesses(store, {
       resolve: async (job) => {
         const snapshot = await this.plugins.snapshot(
@@ -193,7 +175,7 @@ export class Runtime {
       if (queue === 'after' && ['running', 'queued', 'waiting'].includes(current?.status ?? ''))
         entry.queue = 'after';
       const prepared = attachmentIds.length
-        ? await this.prepareAttachments(id, attachmentIds)
+        ? await this.attachments.prepare(id, attachmentIds)
         : undefined;
       if (prepared) entry.attachments = prepared.files;
       await this.steer(id, entry, true, prepared?.plugins);
@@ -201,117 +183,14 @@ export class Runtime {
         await this.store.delete('attachment-bytes:' + attachment.id);
     });
   }
-  async stageAttachment(
-    id: string,
-    name: string,
-    bytes: Uint8Array,
-    preview?: Uint8Array,
-  ): Promise<StagedAttachment> {
-    if (!name || name.length > 255 || /[\/\\\x00-\x1f]/.test(name) || ['.', '..'].includes(name))
-      throw new Error('Choose a file with a valid name.');
-    if (!(bytes instanceof Uint8Array) || bytes.byteLength > 25 * 1024 * 1024)
-      throw new Error('Choose a file smaller than 25 MB.');
-    if (
-      preview !== undefined &&
-      (!(preview instanceof Uint8Array) || preview.byteLength > 2 * 1024 * 1024)
-    )
-      throw new Error('Invalid file preview.');
-    const file = { id: crypto.randomUUID(), name, size: bytes.byteLength };
-    await this.store.put('attachment-bytes:' + file.id, bytes);
-    // Previews outlive sending: remote providers keep no local copy to show.
-    if (preview) await this.store.put('attachment-preview:' + file.id, preview);
-    try {
-      await this.chats.update(id, (c) => {
-        const files = c.attachments ?? [];
-        if (
-          files.length >= 10 ||
-          files.reduce((sum, f) => sum + f.size, file.size) > 25 * 1024 * 1024
-        )
-          throw new Error('Attach up to 10 files, 25 MB in total.');
-        return { ...c, attachments: [...files, file] };
-      });
-    } catch (error) {
-      await this.store.delete('attachment-bytes:' + file.id);
-      await this.store.delete('attachment-preview:' + file.id);
-      throw error;
-    }
-    return file;
+  stageAttachment(id: string, name: string, bytes: Uint8Array, preview?: Uint8Array) {
+    return this.attachments.stage(id, name, bytes, preview);
   }
-  attachmentPreview(attachmentId: string): Promise<Uint8Array | undefined> {
-    return this.store.get<Uint8Array>('attachment-preview:' + attachmentId);
+  attachmentPreview(attachmentId: string) {
+    return this.attachments.preview(attachmentId);
   }
-  async removeAttachment(id: string, attachmentId: string): Promise<void> {
-    await attachmentLock(id, async () => {
-      let removed = false;
-      await this.chats.update(id, (c) => {
-        removed = Boolean(c.attachments?.some((f) => f.id === attachmentId));
-        return { ...c, attachments: c.attachments?.filter((f) => f.id !== attachmentId) };
-      });
-      if (removed) {
-        await this.store.delete('attachment-bytes:' + attachmentId);
-        await this.store.delete('attachment-preview:' + attachmentId);
-      }
-    });
-  }
-  private async prepareAttachments(
-    id: string,
-    ids: string[],
-  ): Promise<{ files: Attachment[]; plugins: InstalledPlugin[] }> {
-    const c = await this.store.get<Conversation>(key(id));
-    if (!c || ids.some((id) => !c.attachments?.some((f) => f.id === id)))
-      throw new Error('Attachment is no longer available. Add it again.');
-    const records = c.plugins ?? (await this.plugins.list());
-    const { bindings, sources } = await this.plugins.snapshot(
-      localTools(await this.workspace, () => [], this.store),
-      records,
-    );
-    const provider = bindings.write?.provider;
-    const source = sources.find((s) => s.installed.manifest.id === provider);
-    const upload = source?.plugin.files?.upload;
-    if (!provider || (provider !== 'local' && !upload))
-      throw new Error(
-        'This connection does not support file uploads. Update the connection and try again.',
-      );
-    const uploadRevision = source
-      ? await digest(JSON.stringify([source.installed.digest, source.installed.settings]))
-      : 'local';
-    const result: Attachment[] = [];
-    const signal = AbortSignal.timeout(120000);
-    for (const attachmentId of ids) {
-      const file = c.attachments!.find((f) => f.id === attachmentId)!;
-      if (file.uploaded?.provider === provider && file.uploadRevision === uploadRevision) {
-        result.push(file.uploaded);
-        continue;
-      }
-      const bytes = await this.store.get<Uint8Array>('attachment-bytes:' + file.id);
-      if (!bytes) throw new Error('Attachment is no longer available. Add it again.');
-      let path: string;
-      if (provider === 'local') {
-        if (bytes.length > 4 * 1024 * 1024)
-          throw new Error('Local attachments must be smaller than 4 MB.');
-        const fs = (await this.workspace).fs;
-        const directory = '/workspace/attachments/' + file.id;
-        await fs.mkdir(directory, { recursive: true });
-        path = directory + '/' + file.name;
-        await fs.writeFile(path, bytes);
-      } else {
-        ({ path } = await abortable(
-          upload!({ id: file.id, name: file.name, bytes }, signal),
-          signal,
-        ));
-        if (typeof path !== 'string' || !path || path.length > 4096 || /[\x00-\x1f]/.test(path))
-          throw new Error('The connection returned an invalid attachment path.');
-      }
-      const uploaded = { id: file.id, name: file.name, size: file.size, path, provider };
-      await this.chats.update(id, (value) => ({
-        ...value,
-        attachments: value.attachments?.map((f) =>
-          f.id === file.id ? { ...f, uploaded, uploadRevision } : f,
-        ),
-      }));
-      result.push(uploaded);
-    }
-    return { files: result, plugins: records };
+  removeAttachment(id: string, attachmentId: string) {
+    return this.attachments.remove(id, attachmentId);
   }
   private async steer(
     id: string,
@@ -416,7 +295,7 @@ export class Runtime {
             }));
             break;
           }
-          const images = await this.pendingImages(c);
+          const images = await this.attachments.images(c);
           c = await this.chats.update(id, (value) => {
             // Steering joins now; a queued follow-up waits until no steering is left, one at a time.
             const steer = steering(value);
@@ -965,19 +844,6 @@ export class Runtime {
         ],
       }));
     }
-  }
-  /** Downscaled JPEG previews of photos attached to pending user messages, as data URLs. */
-  private async pendingImages(c: Conversation): Promise<Map<string, string[]>> {
-    const images = new Map<string, string[]>();
-    for (const id of c.pending) {
-      const urls: string[] = [];
-      for (const file of c.messages.find((m) => m.id === id)?.attachments ?? []) {
-        const preview = await this.store.get<Uint8Array>('attachment-preview:' + file.id);
-        if (preview) urls.push('data:image/jpeg;base64,' + base64(preview));
-      }
-      if (urls.length) images.set(id, urls);
-    }
-    return images;
   }
   private async pinFor(id: string) {
     const c = await this.store.get<Conversation>(key(id));
