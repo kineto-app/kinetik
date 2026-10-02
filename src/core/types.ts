@@ -60,6 +60,8 @@ export type LiveProgress = {
   tool?: string;
   reasoning?: string;
   activity?: 'summarising';
+  /** Step of a helper agent started by `delegate`. */
+  helperStep?: number;
 };
 /**
  * Pushed to open windows as hints. A window applies text and progress itself and reloads
@@ -226,6 +228,13 @@ export type ModelStep = (
       name: string;
       input: Record<string, unknown>;
       callId?: string;
+      narration?: string;
+      items?: Record<string, unknown>[];
+    }
+  | {
+      /** Several calls in one response; only read-only tools may run this way. */
+      type: 'tools';
+      calls: { name: string; input: Record<string, unknown>; callId: string }[];
       narration?: string;
       items?: Record<string, unknown>[];
     }

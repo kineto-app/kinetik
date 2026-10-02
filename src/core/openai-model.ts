@@ -218,7 +218,7 @@ export class OpenAIModel implements Model {
           tools: tools.length
             ? [{ type: 'namespace', name: 'kinetik', description: 'Kinetik agent tools', tools }]
             : [],
-          parallel_tool_calls: false,
+          parallel_tool_calls: true,
           include: ['reasoning.encrypted_content'],
           store: false,
           stream: true,
@@ -234,10 +234,23 @@ export class OpenAIModel implements Model {
       .map((part) => part.text ?? '')
       .join('');
     const calls = items.filter((item) => item.type === 'function_call');
+    const decode = (call: Record<string, unknown>) => {
+      const name = names.get(String(call.name));
+      if (!name || typeof call.call_id !== 'string' || typeof call.arguments !== 'string')
+        throw new Error('Model returned an unknown tool call.');
+      const input = JSON.parse(call.arguments);
+      if (!input || typeof input !== 'object' || Array.isArray(input))
+        throw new Error('Invalid tool arguments.');
+      return { name, input, callId: call.call_id };
+    };
     if (calls.length > 1)
-      throw new Error(
-        'Model returned parallel calls despite parallel_tool_calls=false. No tool was executed.',
-      );
+      return {
+        type: 'tools',
+        calls: calls.map(decode),
+        narration: text || undefined,
+        items,
+        ...extra,
+      };
     if (calls.length) {
       const call = calls[0];
       const name = names.get(String(call.name));

@@ -186,7 +186,8 @@ function render() {
       : c?.live?.activity === 'summarising'
         ? 'Summarising earlier messages…'
         : (thought?.heading ?? 'Working')) +
-    (c?.live && c.live.step > 1 ? ` · step ${c.live.step}` : '');
+    (c?.live && c.live.step > 1 ? ` · step ${c.live.step}` : '') +
+    (c?.live?.helperStep ? ` · helper step ${c.live.helperStep}` : '');
   renderThought(thought);
   updateElapsed();
   byId('recovery').hidden = c?.status !== 'needs_review';
@@ -678,7 +679,12 @@ function changed(event: RuntimeEvent | undefined) {
     return;
   }
   if (c && event?.type === 'progress' && c.status === 'running') {
-    c.live = { step: event.step, tool: event.tool, activity: event.activity };
+    c.live = {
+      step: event.step,
+      tool: event.tool,
+      activity: event.activity,
+      helperStep: event.helperStep,
+    };
     render();
     return;
   }

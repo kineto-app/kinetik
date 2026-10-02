@@ -51,6 +51,8 @@ export function taskLabel(name: string, complete = false, count = 1): string {
       return complete ? 'Requested cancellation' : 'Requesting cancellation';
     case 'automation':
       return complete ? 'Updated a routine' : 'Updating your routine';
+    case 'delegate':
+      return complete ? 'Asked a helper' : 'Asking a helper';
     case 'background':
       return complete ? 'Started background work' : 'Starting background work';
     default: {

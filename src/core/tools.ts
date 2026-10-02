@@ -133,6 +133,18 @@ export function localTools(
         throw new Error('The ask tool is answered by the user, not executed.');
       },
     ),
+    delegate: bind(
+      'Hand a self-contained reading or research task to a helper agent that can only read files and skills. It returns its findings as this tool’s result. Use it for large reading jobs so this chat stays short; describe exactly what to find and report.',
+      {
+        type: 'object',
+        properties: { task: { type: 'string', minLength: 1, maxLength: 4000 } },
+        required: ['task'],
+        additionalProperties: false,
+      },
+      async () => {
+        throw new Error('The delegate tool is run by the agent runtime.');
+      },
+    ),
     remember: bind(
       'Propose a new version of the user’s saved memory: short notes about them and their preferences that every chat reads. The user confirms before it is saved. Send the complete new text, not a diff.',
       {
