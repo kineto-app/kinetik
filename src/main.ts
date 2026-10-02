@@ -264,7 +264,8 @@ function render() {
         draft.dataset.draft = 'true';
         // Re-rendered content would otherwise be re-announced in full on every frame.
         draft.setAttribute('aria-busy', 'true');
-        draft.innerHTML = `<div class="message-label"><img src="./icon.svg" width="24" height="24" alt="" />Kinetik<span class="streaming-label">Writing</span></div><div class="message-content streaming-content"></div>`;
+        // Holds the line the final reply's "Worked for" takes, so the swap does not shift text.
+        draft.innerHTML = `<div class="work-duration">${icon('clock')}Working…</div><div class="message-label"><img src="./icon.svg" width="24" height="24" alt="" />Kinetik<span class="streaming-label">Writing</span></div><div class="message-content streaming-content"></div>`;
         timeline.append(draft);
       }
       draftText = c.draft;

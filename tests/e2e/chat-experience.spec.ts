@@ -288,6 +288,7 @@ test('a streaming reply shows Markdown formatting before it completes', async ({
   await expect(draft.locator('li')).toHaveCount(2);
   await expect(draft.locator('.code-block code')).toHaveText('const ready =');
   await expect(draft).toContainText('Writing');
+  await expect(draft.locator('.work-duration')).toHaveText('Working…');
   await expect(draft).toHaveAttribute('aria-busy', 'true');
   await expect(page.locator('[data-role=assistant]')).toHaveCount(0);
   await page.screenshot({ path: info.outputPath('streaming-markdown.png') });
@@ -295,13 +296,10 @@ test('a streaming reply shows Markdown formatting before it completes', async ({
   await request.get(base + 'finish-stream');
   const message = page.locator('[data-role=assistant]');
   await expect(message.locator('.code-block code')).toHaveText('const ready = true;');
-  // Only the "Worked for" line the final reply adds above its label moves the content.
-  const durationLine = await message
-    .locator('.work-duration')
-    .evaluate((el) => el.offsetHeight + parseFloat(getComputedStyle(el).marginBottom));
-  expect((await message.locator('strong').boundingBox())!.y - streamedTop).toBeCloseTo(
-    durationLine,
-    0,
+  // The draft reserves the "Worked for" line, so the final reply lands without moving.
+  await expect(message.locator('.work-duration')).toContainText('Worked for');
+  expect(Math.abs((await message.locator('strong').boundingBox())!.y - streamedTop)).toBeLessThan(
+    1,
   );
   await expect(draft).toHaveCount(0);
   await expect(message.locator('strong')).toHaveText('the plan');
