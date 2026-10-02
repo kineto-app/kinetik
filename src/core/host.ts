@@ -20,6 +20,8 @@ export class RuntimeHost {
   runtime!: Runtime;
   connections!: Connections;
   private initialized?: Promise<void>;
+  /** Platform alert for finished work; the runtime decides when to call it. */
+  notify: Runtime['notify'] = async () => {};
   constructor(
     readonly store: Store,
     readonly scope: URL,
@@ -75,6 +77,9 @@ export class RuntimeHost {
             })
           : undefined,
     );
+    runtime.notify = async (alert) => {
+      if (await store.get<boolean>('notify')) await this.notify(alert);
+    };
     const connections = new Connections(store, runtime.plugins, config, scope, () =>
       chatgpt!.status(),
     );
@@ -256,7 +261,24 @@ export class RuntimeHost {
             string(data.text),
             undefined,
             data.attachments as string[] | undefined,
+            data.queue === 'after' ? 'after' : undefined,
           );
+          break;
+        case 'answer':
+          followup = string(data.id);
+          await runtime.answer(followup, string(data.value));
+          break;
+        case 'notifications':
+          if (data.enabled !== undefined) await runtime.store.put('notify', data.enabled === true);
+          result = (await runtime.store.get<boolean>('notify')) === true;
+          break;
+        case 'memory':
+          if (data.text !== undefined) {
+            if (typeof data.text !== 'string' || data.text.length > 4000)
+              throw new Error('Memory must be text up to 4,000 characters.');
+            await runtime.store.put('memory', data.text);
+          }
+          result = (await runtime.store.get<string>('memory')) ?? '';
           break;
         case 'attachmentStage':
           if (!(data.bytes instanceof Uint8Array)) throw new Error('Invalid file bytes.');

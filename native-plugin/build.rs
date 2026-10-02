@@ -3,6 +3,7 @@ const COMMANDS: &[&str] = &[
     "secure_put",
     "background",
     "file_info",
+    "notify",
     "register_listener",
     "remove_listener",
 ];

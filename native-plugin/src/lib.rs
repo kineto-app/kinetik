@@ -40,6 +40,7 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
             commands::secure_put,
             commands::background,
             commands::file_info,
+            commands::notify,
             commands::register_listener,
             commands::remove_listener
         ])

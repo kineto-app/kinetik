@@ -1,5 +1,6 @@
 import { MessageBubble } from './ui/message';
 import { makePreview, trayItem } from './ui/attachments';
+import { jsonView } from './ui/json-view';
 import { ModelPicker } from './ui/model-picker';
 import { setupDataTransfer } from './ui/data-transfer';
 import { createSignal } from 'solid-js';
@@ -31,6 +32,7 @@ import {
   setSettingsSetup,
   showAddedPlugin,
   showSettings,
+  refreshSettingsData,
 } from './ui/settings';
 import type { SetupState } from './connections/manager';
 
@@ -156,7 +158,9 @@ function render() {
     ? 'Working…'
     : c?.status === 'needs_review'
       ? 'Needs review'
-      : 'Ready';
+      : c?.status === 'asking'
+        ? 'Waiting for your answer'
+        : 'Ready';
   byId('composer-hint').textContent = foreground
     ? 'Send another message to guide Kinetik as it works.'
     : 'Enter for a new line. Use Send to send your message.';
@@ -176,6 +180,7 @@ function render() {
     c?.call?.state === 'pending' ? taskLabel(c.call.name) : 'Working';
   updateElapsed();
   byId('recovery').hidden = c?.status !== 'needs_review';
+  renderAsk(c);
   const serialized = JSON.stringify([selected, c?.messages, c?.draft, c?.call, c?.status]);
   if (serialized !== lastMessages) {
     const forceScroll = !lastMessages || followNextMessage;
@@ -227,6 +232,9 @@ function render() {
       timeline.append(empty);
     }
     for (const item of c?.messages ?? []) {
+      timeline
+        .querySelector<HTMLElement>(`[data-message-id="${CSS.escape(item.id)}"]`)
+        ?.toggleAttribute('data-queued', Boolean(item.queue));
       const hiddenActivity = isInternalActivity(item);
       if ((hiddenActivity && !item.app && !item.file) || renderedMessages.has(item.id)) continue;
       renderedMessages.add(item.id);
@@ -237,6 +245,7 @@ function render() {
       if (item.role === 'assistant') replacesDraft = false;
       article.dataset.role = item.role;
       article.dataset.messageId = item.id;
+      article.toggleAttribute('data-queued', Boolean(item.queue));
       timeline.insertBefore(article, timeline.querySelector('[data-draft]'));
       disposeContent.push(
         renderSolid(
@@ -280,6 +289,55 @@ async function refresh() {
   uiStorage.setItem('kinetik-conversation', selected);
   render();
 }
+let askShown = '';
+/** The question a paused call is waiting on, answered with buttons. */
+function renderAsk(c: Conversation | undefined) {
+  const panel = byId('ask');
+  const ask = c?.status === 'asking' && c.call?.state === 'awaiting' ? c.call.ask : undefined;
+  const signature = ask ? c!.id + c!.call!.id : '';
+  panel.hidden = !ask;
+  if (signature === askShown) return;
+  askShown = signature;
+  if (!ask) return panel.replaceChildren();
+  const conversationId = c!.id;
+  const button = (label: string, value: string, primary = false) => {
+    const node = document.createElement('button');
+    node.type = 'button';
+    node.className = primary ? 'primary' : 'secondary';
+    node.textContent = label;
+    node.onclick = () => {
+      for (const other of panel.querySelectorAll('button')) other.disabled = true;
+      void rpc('answer', { id: conversationId, value }).then(refresh).catch(showError);
+    };
+    return node;
+  };
+  const title = document.createElement('p');
+  title.className = 'ask-question';
+  title.textContent = ask.question;
+  const actions = document.createElement('div');
+  actions.className = 'ask-actions';
+  const parts: Node[] = [title];
+  if (ask.kind === 'approval') {
+    const details = document.createElement('div');
+    details.className = 'ask-details';
+    details.append(jsonView(c!.call!.input));
+    parts.push(details);
+    actions.append(button('Decline', 'decline'), button('Approve', 'approve', true));
+  } else if (ask.kind === 'choice') {
+    actions.classList.add('ask-options');
+    actions.append(...ask.options.map((option) => button(option, option)));
+  } else {
+    const text = document.createElement('p');
+    text.className = 'ask-memory';
+    text.textContent = ask.text;
+    parts.push(text);
+    actions.append(button('Not now', 'dismiss'), button('Save to memory', 'save', true));
+  }
+  panel.replaceChildren(...parts, actions);
+  panel
+    .querySelector<HTMLElement>('.ask-actions button:last-child')
+    ?.focus({ preventScroll: true });
+}
 let submitting = false;
 let pickingFile = false;
 function renderAttachments() {
@@ -319,6 +377,9 @@ function updateComposer() {
   const stopping = busy && !input.value.trim() && !hasAttachments;
   byId('stop').hidden = !stopping;
   byId('send').hidden = stopping;
+  // While work runs, Send steers it now; the clock queues the message for afterwards.
+  byId('queue').hidden = !busy || stopping;
+  byId<HTMLButtonElement>('queue').disabled = submitting || pickingFile;
   byId('work-options').hidden = !busy;
   if (!busy) byId<HTMLDetailsElement>('work-options').open = false;
   byId<HTMLButtonElement>('send').disabled =
@@ -391,8 +452,15 @@ byId('new-chat').onclick = () => {
   })().catch(showError);
 };
 byId('top-new-chat').onclick = () => byId('new-chat').click();
+let queueNext = false;
+byId('queue').onclick = () => {
+  queueNext = true;
+  byId<HTMLFormElement>('composer').requestSubmit();
+};
 byId('composer').onsubmit = (event) => {
   event.preventDefault();
+  const queue = queueNext ? 'after' : undefined;
+  queueNext = false;
   void (async () => {
     const input = byId<HTMLTextAreaElement>('prompt');
     const text = input.value;
@@ -411,7 +479,7 @@ byId('composer').onsubmit = (event) => {
       }
       if (!current()) selected = (await rpc<Conversation>('create')).id;
       followNextMessage = true;
-      await rpc('submit', { id: selected, text, attachments });
+      await rpc('submit', { id: selected, text, attachments, queue });
       input.value = '';
       updateComposer();
       byId('error').textContent = '';
@@ -443,6 +511,7 @@ function openDialog(name: string) {
 byId('automations-open').onclick = () => openDialog('automations');
 byId('settings-open').onclick = () => {
   showSettings();
+  void refreshSettingsData().catch(showError);
   openDialog('settings');
 };
 byId('attach').onclick = () => {

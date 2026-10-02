@@ -412,7 +412,21 @@ export async function onboardingFixture(req, res) {
 function agentReply(res, request) {
   const event = (value) => 'data: ' + JSON.stringify(value) + '\n\n';
   const users = request.input.filter((item) => item.role === 'user');
-  const last = String(users.at(-1)?.content ?? '');
+  const text = (item) =>
+    Array.isArray(item?.content)
+      ? item.content
+          .filter((part) => part.type === 'input_text')
+          .map((part) => part.text)
+          .join('')
+      : String(item?.content ?? '');
+  const last = text(users.at(-1)).split('\n\nAttached files')[0];
+  const images = Array.isArray(users.at(-1)?.content)
+    ? users.at(-1).content.filter((part) => part.type === 'input_image').length
+    : 0;
+  // Only outputs after the latest user message belong to the current request.
+  const turn = request.input.slice(request.input.lastIndexOf(users.at(-1)));
+  const output = (id) =>
+    turn.find((item) => item.type === 'function_call_output' && item.call_id === id)?.output;
   const calls = request.input.filter((item) => item.type === 'function_call_output');
   const tool = (prefix) =>
     request.tools[0]?.tools.find((t) => t.name.startsWith(prefix + '_'))?.name;
@@ -450,6 +464,40 @@ function agentReply(res, request) {
     );
     return true;
   }
+  if (images)
+    return say(
+      `I can see ${images} photo${images > 1 ? 's' : ''}. I will use them for the carousel.`,
+    );
+  if (last === 'Pick a style')
+    return output('ask-1')
+      ? say(
+          `Great — ${output('ask-1').replace('The user chose: ', '')} it is. Building the carousel now.`,
+        )
+      : call(
+          'ask',
+          {
+            question: 'Which style should the carousel use?',
+            options: ['Bold', 'Calm', 'Playful'],
+          },
+          'ask-1',
+        );
+  if (last === 'Remember I write in Russian')
+    return output('mem-1')
+      ? say('Got it. I will keep that in mind in every chat.')
+      : call('remember', { text: 'Writes in Russian. Prefers short answers.' }, 'mem-1');
+  if (last === 'Publish my post')
+    return output('pub-1')
+      ? say(
+          output('pub-1').startsWith('The user declined')
+            ? 'Okay, I did not publish it.'
+            : 'Published your post.',
+        )
+      : call('mcp__publish', { title: 'Three days in Lisbon' }, 'pub-1');
+  if (last === 'Slow task')
+    return output('slow-1')
+      ? say('Slow task finished.')
+      : call('exec', { command: 'sleep 3; echo built' }, 'slow-1');
+  if (last === 'Then send me a summary') return say('Here is the summary you queued: all done.');
   if (last === 'Save my trip note') {
     if (calls.length === 0) return call('write', { path: 42 }, 'fix-1');
     if (calls.length === 1) return call('read', { path: '/workspace/missing.md' }, 'fix-2');

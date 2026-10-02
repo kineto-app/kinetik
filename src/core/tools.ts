@@ -113,6 +113,38 @@ export function localTools(
         return { file: { path: resolved, name: resolved.split('/').at(-1)!, snapshotId } };
       },
     ),
+    ask: bind(
+      'Ask the user to choose between a few options shown as buttons. Use when you need a decision; the answer comes back as this tool’s result.',
+      {
+        type: 'object',
+        properties: {
+          question: { type: 'string', minLength: 1, maxLength: 300 },
+          options: {
+            type: 'array',
+            minItems: 2,
+            maxItems: 6,
+            items: { type: 'string', minLength: 1, maxLength: 80 },
+          },
+        },
+        required: ['question', 'options'],
+        additionalProperties: false,
+      },
+      async () => {
+        throw new Error('The ask tool is answered by the user, not executed.');
+      },
+    ),
+    remember: bind(
+      'Propose a new version of the user’s saved memory: short notes about them and their preferences that every chat reads. The user confirms before it is saved. Send the complete new text, not a diff.',
+      {
+        type: 'object',
+        properties: { text: { type: 'string', maxLength: 4000 } },
+        required: ['text'],
+        additionalProperties: false,
+      },
+      async () => {
+        throw new Error('The remember tool is confirmed by the user, not executed.');
+      },
+    ),
     read_skill: bind(
       'Read native skill instructions independently of the workspace provider.',
       schema({ path: text }, ['path']),

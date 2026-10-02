@@ -154,6 +154,12 @@ sw.addEventListener('push', (event) => {
     }),
   );
 });
+// Only when no Kinetik window is in front; an open window already shows the result.
+host.notify = async ({ title, body }) => {
+  const windows = await sw.clients.matchAll({ type: 'window', includeUncontrolled: true });
+  if (windows.some((client) => client.visibilityState === 'visible')) return;
+  await sw.registration.showNotification(title, { body, tag: 'kinetik-work' });
+};
 sw.addEventListener('notificationclick', (event) => {
   event.notification.close();
   event.waitUntil(sw.clients.openWindow(scope.href));
