@@ -10,7 +10,7 @@ import { ConversationStore, conversationKey as key } from './conversation-store'
 import { Attachments, attachmentLock } from './attachments';
 import { abortable } from './abortable';
 import { functionOutput, printable, withOutput } from './model-input';
-import { readOnlyLocal, ReadOnlyTools, rerunnable } from './read-only';
+import { localReadOnly, ReadOnlyTools } from './read-only';
 import { AppCalls } from './apps';
 import { WorkspaceFiles } from './workspace-files';
 import { migrate } from './migrations';
@@ -616,10 +616,7 @@ export class Runtime {
                   id: value.call!.id,
                   activity: {
                     input: output.input,
-                    outcome: toolOutcome(
-                      response,
-                      output.name === 'exec' || output.name.endsWith('__charms_exec'),
-                    ),
+                    outcome: toolOutcome(response, binding.tool.command),
                   },
                   app,
                   file:
@@ -633,12 +630,7 @@ export class Runtime {
             }));
           } catch (error) {
             const call = (await this.store.get<Conversation>(key(id)))?.call;
-            if (
-              !controller.signal.aborted &&
-              binding.provider === 'local' &&
-              readOnlyLocal.has(output.name) &&
-              !isConnectionError(error)
-            ) {
+            if (!controller.signal.aborted && localReadOnly(binding) && !isConnectionError(error)) {
               result = await this.recordToolError(
                 id,
                 output,
@@ -983,6 +975,7 @@ export class Runtime {
         }));
       await this.store.put(callKey, { ...call, state: 'unknown' });
     }
+    const local = localTools(await this.workspace, () => [builtinSkill], this.store);
     for (const c of await this.conversations()) {
       if (this.active.has(c.id)) continue;
       if (
@@ -994,7 +987,7 @@ export class Runtime {
         if (
           c.call?.state === 'pending' &&
           c.call.provider === 'local' &&
-          rerunnable.has(c.call.name) &&
+          localReadOnly(local[c.call.name]) &&
           !c.call.approved
         ) {
           // It changed nothing, so running it again is safe; the approved path runs it as proposed.
@@ -1028,10 +1021,7 @@ export class Runtime {
             return;
           }
           try {
-            const snapshot = await this.plugins.snapshot(
-              localTools(await this.workspace, () => [builtinSkill], this.store),
-              c.plugins ?? [],
-            );
+            const snapshot = await this.plugins.snapshot(local, c.plugins ?? []);
             const tool = snapshot.bindings[c.call.name]?.tool;
             if (c.status !== 'stopped' && tool?.recover && c.call.operationId) {
               const signal = AbortSignal.timeout(10000);
@@ -1063,10 +1053,7 @@ export class Runtime {
                       id: value.call!.id,
                       activity: {
                         input: value.call!.input,
-                        outcome: toolOutcome(
-                          status.result,
-                          value.call!.name === 'exec' || value.call!.name.endsWith('__charms_exec'),
-                        ),
+                        outcome: toolOutcome(status.result, tool.command),
                       },
                       visibility: value.turn === 'background' ? 'internal' : undefined,
                     },

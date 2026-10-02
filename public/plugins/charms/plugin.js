@@ -49,6 +49,7 @@ return (async () => {
   const exec = tools.charms_exec;
   tools.charms_exec = {
     ...exec,
+    command: true,
     async execute(input, context) {
       const result = await exec.execute(context.background ? { ...input, background: true } : input, context);
       const data = payload(result);

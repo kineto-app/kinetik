@@ -55,7 +55,8 @@ export function localTools(
     description: string,
     inputSchema: Record<string, unknown>,
     execute: Binding['tool']['execute'],
-  ): Binding => ({ provider: 'local', tool: { description, inputSchema, execute } });
+    effects?: Pick<Binding['tool'], 'readOnly' | 'command'>,
+  ): Binding => ({ provider: 'local', tool: { description, inputSchema, execute, ...effects } });
   return {
     exec: bind(
       'Run a bounded just-bash command in the shared browser filesystem.',
@@ -75,11 +76,13 @@ export function localTools(
         const result = await bash.exec(String(input.command), { signal: context.signal });
         return `${result.stdout}${result.stderr ? '\n' + result.stderr : ''}${result.exitCode ? '\nExit code: ' + result.exitCode : ''}`;
       },
+      { command: true },
     ),
     read: bind(
       'Read a UTF-8 file from the shared browser filesystem.',
       schema({ path: text }, ['path']),
       async (input) => fs.readFile(path(input.path)),
+      { readOnly: true },
     ),
     write: bind(
       'Replace a UTF-8 file in the shared browser filesystem.',
@@ -101,6 +104,7 @@ export function localTools(
       'List a directory in the shared browser filesystem.',
       schema({ path: text }, ['path']),
       async (input) => (await fs.readdir(path(input.path))).join('\n'),
+      { readOnly: true },
     ),
     show_file: bind(
       'Share a finished local file with the user as a downloadable attachment. Creates a snapshot; later edits do not change it. Writing a file does not share it.',
@@ -144,6 +148,7 @@ export function localTools(
       async () => {
         throw new Error('The delegate tool is run by the agent runtime.');
       },
+      { readOnly: true },
     ),
     remember: bind(
       'Propose a new version of the user’s saved memory: short notes about them and their preferences that every chat reads. The user confirms before it is saved. Send the complete new text, not a diff.',
@@ -166,6 +171,7 @@ export function localTools(
           throw new Error('Unknown native skill path. Use /skills to inspect the catalog.');
         return skill.content;
       },
+      { readOnly: true },
     ),
   };
 }
