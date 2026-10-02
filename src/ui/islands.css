@@ -57,14 +57,60 @@ dialog:not(.connection-setup) {
 .brand {
   font-size: 20px;
 }
+/* New chat sits last in the sidebar, where the thumb rests. */
 .new-chat {
-  background: var(--accent-fill);
-  color: var(--on-accent);
+  justify-content: center;
+  gap: var(--space-inline);
+  min-height: var(--target);
+  background: var(--hover);
+  color: var(--ink);
   padding-inline: var(--space-section);
 }
 .new-chat:hover {
-  background: var(--accent-fill);
-  filter: brightness(0.95);
+  background: var(--panel);
+}
+/* Recent chats: a colour dot, the title and how long ago; the open one gets a soft fill. */
+.conversation {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  padding: var(--space-inline) 10px;
+  border-radius: var(--radius-inner);
+  color: var(--muted);
+  font-weight: 400;
+}
+.conversation:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+.conversation[aria-current='true'] {
+  background: var(--hover);
+  color: var(--ink);
+  font-weight: 500;
+}
+.conversation-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: light-dark(hsl(var(--hue) 55% 52%), hsl(var(--hue) 65% 70%));
+}
+.conversation-dot.working {
+  animation: thinking 1.2s ease-in-out infinite;
+}
+.conversation-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.conversation-time {
+  flex: none;
+  font-size: 11px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
 }
 .nav-tools {
   border-top: 0;

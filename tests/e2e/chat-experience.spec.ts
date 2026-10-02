@@ -306,3 +306,36 @@ test('a streaming reply shows Markdown formatting before it completes', async ({
   await expect(message).not.toHaveClass(/message-enter/);
   expect(errors).toEqual([]);
 });
+
+test('sidebar lists chats with a colour dot and age, and keeps New chat at the bottom', async ({
+  page,
+}, info) => {
+  await page.goto('/');
+  await expect(page.locator('#status')).toHaveText('Ready');
+  await send(page, 'Plan my weekend');
+  await expect(page.locator('[data-role=assistant]')).toHaveCount(1);
+  if (info.project.use.isMobile) await page.getByRole('button', { name: 'Toggle chats' }).click();
+  const chats = page.getByRole('navigation', { name: 'Recent chats' });
+  const chat = chats.getByRole('button', { name: /Plan my weekend/ });
+  await expect(chat).toHaveAttribute('aria-current', 'true');
+  await expect(chat.locator('.conversation-dot')).toBeVisible();
+  await expect(chat.locator('time')).toHaveText('now');
+  const sidebar = page.locator('#sidebar');
+  const newChat = sidebar.getByRole('button', { name: 'New chat' });
+  await expect(newChat.locator('svg')).toBeVisible();
+  // The last control in the sidebar, closest to the thumb.
+  expect(
+    await sidebar.evaluate((el) => [...el.querySelectorAll('button:not([hidden])')].at(-1)?.id),
+  ).toBe('new-chat');
+  for (const theme of ['light', 'dark']) {
+    await page.evaluate((theme) => (document.documentElement.dataset.theme = theme), theme);
+    // The phone drawer's own role="dialog" on <aside> is a known, separate issue.
+    expect(
+      (await new AxeBuilder({ page }).include('#conversations').include('#new-chat').analyze())
+        .violations,
+    ).toEqual([]);
+  }
+  await page.screenshot({ path: info.outputPath('sidebar.png') });
+  await newChat.click();
+  await expect(page.locator('#title')).toHaveText('New chat');
+});
