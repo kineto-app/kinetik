@@ -582,8 +582,9 @@ export function SettingsDialog() {
       <section class="settings-page" hidden={page() !== 'models'}>
         <p class="settings-note">
           Use Claude or Gemini with your own API key. The key stays on this device and is never
-          exported. Pick the model in the composer; a running task keeps the model it started with.
-          Switching keeps the chat, but one provider's private reasoning is not passed to another.
+          exported; in a browser, installed connections can read it, as they can your chats. Pick
+          the model in the composer; a running task keeps the model it started with. Switching keeps
+          the chat, but one provider's private reasoning is not passed to another.
         </p>
         <Index each={providers().providers}>
           {(provider) => <ProviderKeyForm provider={provider()} />}
