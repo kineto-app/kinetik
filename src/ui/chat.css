@@ -359,9 +359,6 @@
 .thinking-dots i:nth-child(3) {
   animation-delay: 240ms;
 }
-.streaming-content {
-  white-space: pre-wrap;
-}
 .streaming-label {
   font-size: 11px;
   font-weight: 400;
@@ -373,19 +370,14 @@
   bottom: 12px;
   left: 50%;
   transform: translateX(-50%);
-  min-height: 40px;
-  padding: 8px 14px;
+  width: var(--target);
+  height: var(--target);
+  padding: 0;
   border: 1px solid var(--control-line);
-  border-radius: 24px;
+  border-radius: 50%;
   background: var(--ground);
   box-shadow: var(--chat-shadow);
-  font-size: 12px;
   z-index: 1;
-  white-space: nowrap;
-}
-.jump-latest .icon {
-  width: 14px;
-  height: 14px;
 }
 .jump-latest:hover {
   background: var(--sidebar-fill);
@@ -513,9 +505,6 @@ dialog[open]::backdrop {
     padding: 6px;
   }
   .copy-action {
-    min-height: 44px;
-  }
-  .jump-latest {
     min-height: 44px;
   }
 }

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Show activity between narration as one quiet line in plain words ("Read 2 files, ran a command · 1 fixed") that opens into a flat, compact list of steps with kind icons and a status word only when it matters.
+
+- Open activity steps as an inset submenu with tool, where it ran, and Input / Result as highlighted JSON with Copy, instead of a separate technical-details link. A group with a single step opens straight into its details.
+
+- Format replies while they stream, with no jump when the final reply lands. Make the latest-message control a round arrow button. Show recent chats with a colour dot and age, and move New chat with its icon to the bottom of the sidebar.
+
 - Choose a reasoning level for the current ChatGPT model with a Faster ↔ Smarter slider in the composer's model panel. Add several files at once from the file picker on web and Android. Saved widgets keep working after their plugin updates, so their images load again. Widgets have no host border, and the phone model sheet blocks taps on the chat behind it.
 
 - Show attached photos as thumbnails in the composer and as a swipeable row of photos and file cards in sent messages, with a full-screen photo viewer. Move the model picker into the composer as an icon that opens a list, or a bottom sheet on phones. Keep the one-line composer pill-shaped.

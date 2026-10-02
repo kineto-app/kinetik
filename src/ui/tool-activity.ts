@@ -4,11 +4,13 @@ import {
   activityExplanation,
   activityTitle,
   isInternalActivity,
-  technicalDetails,
+  technicalParts,
   type Activity,
 } from './activity-data';
-import { icon } from './icons';
-import { taskLabel } from './task-labels';
+import { icon, type IconName } from './icons';
+import { jsonText, jsonView } from './json-view';
+import { copyButton } from './message-content';
+import { taskKind, taskLabel } from './task-labels';
 
 const signatures = new WeakMap<HTMLElement, string>();
 
@@ -18,47 +20,108 @@ function element<K extends keyof HTMLElementTagNameMap>(tag: K, className: strin
   if (text !== undefined) node.textContent = text;
   return node;
 }
-function summary(label: string, status: string, count?: number) {
+const kindIcons: Record<string, IconName> = {
+  read: 'file',
+  write: 'file',
+  edit: 'file',
+  show_file: 'file',
+  list: 'folder',
+  exec: 'terminal',
+  read_skill: 'book',
+  find_skill: 'book',
+  render: 'monitor',
+  job: 'clock',
+  job_cancel: 'clock',
+  background: 'clock',
+  automation: 'clock',
+};
+function summary(label: string, mark: IconName, note?: string) {
   const node = element('summary', 'activity-summary');
-  const mark = element('span', 'activity-mark');
-  mark.innerHTML = icon(status === 'completed' ? 'check' : status === 'running' ? 'clock' : 'info');
-  node.append(mark, element('span', 'activity-label', label));
-  if (count && count > 1) {
-    const badge = element('span', 'activity-count', String(count));
-    badge.setAttribute('aria-label', `${count} action groups`);
-    node.append(badge);
-  }
+  const glyph = element('span', 'activity-mark');
+  glyph.innerHTML = icon(mark);
+  node.append(glyph, element('span', 'activity-label', label));
+  if (note) node.append(element('span', 'activity-note', note));
   const arrow = element('span', 'activity-chevron');
   arrow.innerHTML = icon('chevron');
   node.append(arrow);
   return node;
 }
+const statusWord = (item: Activity) =>
+  item.recovered
+    ? 'Fixed'
+    : item.outcome === 'failed'
+      ? 'Failed'
+      : item.outcome === 'unknown'
+        ? 'Needs review'
+        : item.outcome === 'running'
+          ? 'Running'
+          : undefined;
+/** One step row: what kind of action, a plain title, and a status word only when it matters. */
 function receipt(item: Activity) {
   const { message, outcome, recovered } = item;
   const row = element('details', 'tool-details');
   row.dataset.activityKey = message.id;
   row.dataset.outcome = recovered ? 'recovered' : outcome;
-  const suffix = recovered
-    ? ' · Retried'
-    : outcome === 'failed'
-      ? ' · Failed'
-      : outcome === 'unknown'
-        ? ' · Needs review'
-        : '';
-  row.append(summary(activityTitle(item) + suffix, recovered ? 'completed' : outcome));
+  row.append(
+    summary(
+      activityTitle(item),
+      kindIcons[taskKind(message.tool ?? '')] ?? 'plug',
+      statusWord(item),
+    ),
+    stepBody(item),
+  );
+  return row;
+}
+const placeNames: Record<string, string> = { local: 'This device' };
+/** A step opens as an inset submenu: what happened, where, and its input and result. */
+function stepBody(item: Activity) {
+  const { message } = item;
   const body = element('div', 'activity-body');
   body.append(element('p', 'activity-explanation', activityExplanation(item)));
-  const technical = element('details', 'activity-technical');
-  technical.dataset.activityKey = message.id + ':technical';
-  technical.append(element('summary', '', 'Technical details'));
-  // Format large output only if the user asks to inspect it.
-  technical.addEventListener('toggle', () => {
-    if (technical.open && !technical.querySelector('pre'))
-      technical.append(element('pre', '', technicalDetails(message)));
-  });
-  body.append(technical);
-  row.append(body);
-  return row;
+  const parts = technicalParts(message);
+  const place =
+    parts.provider &&
+    (placeNames[parts.provider] ??
+      parts.provider.charAt(0).toUpperCase() + parts.provider.slice(1));
+  const facts = element('dl', 'activity-facts');
+  facts.append(
+    element('dt', '', 'Tool'),
+    element('dd', '', [parts.tool, place].filter(Boolean).join(' · ')),
+  );
+  body.append(facts);
+  for (const [label, value] of [
+    ['Input', parts.input],
+    ['Result', parts.result],
+  ] as const) {
+    if (value === undefined || value === '') continue;
+    const block = element('details', 'activity-json');
+    block.dataset.activityKey = message.id + ':' + label.toLowerCase();
+    const head = element('summary', '');
+    const arrow = element('span', 'activity-chevron');
+    arrow.innerHTML = icon('chevron');
+    head.append(element('span', 'activity-label', label), arrow);
+    block.append(head);
+    // Format large output only if the user asks to inspect it.
+    block.addEventListener('toggle', () => {
+      if (!block.open || block.querySelector('pre')) return;
+      const view = element('div', 'activity-json-view');
+      view.append(
+        jsonView(value),
+        copyButton(jsonText(value), 'Copy ' + label.toLowerCase(), true),
+      );
+      block.append(view);
+    });
+    body.append(block);
+  }
+  return body;
+}
+
+/** "Read 2 files, ran a command and 1 more" — plain words for the collapsed line. */
+function sentence(labels: string[]) {
+  const shown = labels
+    .slice(0, 2)
+    .map((label, index) => (index ? label.charAt(0).toLowerCase() + label.slice(1) : label));
+  return shown.join(', ') + (labels.length > 2 ? ` and ${labels.length - 2} more` : '');
 }
 
 /** Keep narration and widgets in place; only receipts belong inside activity cards. */
@@ -132,39 +195,29 @@ export function renderToolActivity(timeline: HTMLElement, conversation?: Convers
       ? document.activeElement?.closest<HTMLElement>('[data-activity-key]')?.dataset.activityKey
       : undefined;
     const batches = activityBatches(data.messages);
-    const failed = batches.some((batch) => batch.failed);
-    const running = batches.some((batch) => batch.running);
+    const steps = batches
+      .flatMap((batch) => batch.items)
+      .sort((a, b) => data.messages.indexOf(a.message) - data.messages.indexOf(b.message));
+    const failed = steps.filter(
+      (item) => !item.recovered && ['failed', 'unknown'].includes(item.outcome),
+    ).length;
+    const fixed = steps.filter((item) => item.recovered).length;
+    const running = steps.some((item) => item.outcome === 'running');
     const state = failed ? 'failed' : running ? 'running' : 'completed';
-    const label = failed
-      ? 'Needs attention'
-      : running
-        ? taskLabel(
-            data.messages.find((message) => message.activity?.outcome === 'running')?.tool ?? '',
-          )
-        : batches.length === 1
-          ? batches[0].label
-          : data.messages.some((message) => message.activity?.outcome === 'started')
-            ? 'Activity'
-            : 'Actions completed';
     card.dataset.outcome = state;
-    const heading = summary(label, state, batches.length);
+    const heading = summary(
+      running
+        ? taskLabel(steps.find((item) => item.outcome === 'running')!.message.tool ?? '') + '…'
+        : sentence(batches.map((batch) => batch.label)),
+      failed ? 'info' : running ? 'clock' : 'check',
+      [failed && `${failed} failed`, fixed && `${fixed} fixed`].filter(Boolean).join(' · ') ||
+        undefined,
+    );
     heading.querySelector('.activity-label')!.classList.add('tool-group-label');
     const body = element('div', 'tool-group-steps');
-    for (const batch of batches) {
-      if (batch.items.length === 1) body.append(receipt(batch.items[0]));
-      else {
-        const row = element('details', 'activity-batch');
-        row.dataset.activityKey = 'batch:' + batch.key;
-        row.dataset.outcome = batch.failed ? 'failed' : batch.running ? 'running' : 'completed';
-        row.append(
-          summary(batch.label + (batch.failed ? ' · Needs attention' : ''), row.dataset.outcome),
-        );
-        const calls = element('div', 'activity-calls');
-        calls.append(...batch.items.map(receipt));
-        row.append(calls);
-        body.append(row);
-      }
-    }
+    // A single step would repeat the line's own words; its details open directly instead.
+    if (steps.length === 1) body.append(stepBody(steps[0]));
+    else body.append(...steps.map(receipt));
     card.replaceChildren(heading, body);
     if (headingFocused) heading.focus({ preventScroll: true });
     for (const node of card.querySelectorAll<HTMLDetailsElement>('details')) {

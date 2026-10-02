@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest';
 import { toolOutcome } from '../src/core/tool-outcome';
-import { activityBatches, activityExplanation, technicalDetails } from '../src/ui/activity-data';
+import { activityBatches, activityExplanation, technicalParts } from '../src/ui/activity-data';
 import { taskLabel } from '../src/ui/task-labels';
 import type { Message } from '../src/core/types';
 
@@ -89,7 +89,7 @@ test('technical details mask token fields and URLs, ordinary descriptions never 
     url: 'https://example.org/?token=placeholder-url-token',
     message: '<script>unsafe()</script>',
   });
-  const detail = technicalDetails(message);
+  const detail = JSON.stringify(technicalParts(message));
   expect(detail).not.toContain('placeholder-private-token');
   expect(detail).not.toContain('placeholder-render-token');
   expect(detail).not.toContain('placeholder-nested-token');

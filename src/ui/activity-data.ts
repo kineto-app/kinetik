@@ -187,7 +187,7 @@ export function activityExplanation(item: Activity): string {
     case 'job':
       return 'Retrieved the latest status of background work.';
     default:
-      return 'The tool returned a result. Open technical details to inspect it.';
+      return 'The tool returned a result.';
   }
 }
 
@@ -216,20 +216,19 @@ function redact(value: unknown): unknown {
   return value;
 }
 
-export function technicalDetails(message: Message): string {
+/** Tool name, where it ran, and redacted input and result for the step details. */
+export function technicalParts(message: Message) {
+  const [tool, provider] = (message.tool ?? 'Tool').split(' · ');
   let result: unknown = message.text;
   try {
     result = JSON.parse(message.text);
   } catch {
     /* Text output. */
   }
-  const safe = redact(result);
-  return (
-    (message.tool ?? 'Tool') +
-    '\n\n' +
-    (message.activity
-      ? 'Input\n' + JSON.stringify(redact(message.activity.input), null, 2) + '\n\nResult\n'
-      : '') +
-    (typeof safe === 'string' ? safe : JSON.stringify(safe, null, 2))
-  );
+  return {
+    tool,
+    provider,
+    input: message.activity ? redact(message.activity.input) : undefined,
+    result: redact(result),
+  };
 }

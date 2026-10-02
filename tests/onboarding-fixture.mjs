@@ -13,6 +13,8 @@ let failModel = false;
 let modelRequests = 0;
 let narratedModel = false;
 let backgroundModel = false;
+let streamModel = false;
+let finishStream;
 let remoteRuns = 0;
 let remoteDone = false;
 let connected = false,
@@ -61,6 +63,14 @@ export async function onboardingFixture(req, res) {
     remoteDone = true;
     return reply({});
   }
+  if (url.pathname === prefix + 'stream-model') {
+    streamModel = true;
+    return reply({});
+  }
+  if (url.pathname === prefix + 'finish-stream') {
+    finishStream?.();
+    return reply({});
+  }
   if (url.pathname === prefix + 'narrated-model') {
     narratedModel = true;
     return reply({});
@@ -77,6 +87,8 @@ export async function onboardingFixture(req, res) {
     modelRequests = 0;
     narratedModel = false;
     backgroundModel = false;
+    streamModel = false;
+    finishStream?.();
     remoteRuns = 0;
     remoteDone = false;
     failModel = false;
@@ -257,6 +269,30 @@ export async function onboardingFixture(req, res) {
     if (failModel) {
       failModel = false;
       return reply({ error: 'Temporary model failure' }, 503);
+    }
+    if (streamModel) {
+      await body();
+      const event = (value) => 'data: ' + JSON.stringify(value) + '\n\n';
+      // Held open mid-reply, with an unclosed code fence, until the test finishes it.
+      const partial =
+        'Here is **the plan**:\n\n- Pack a bag\n- Book a train\n\n```js\nconst ready =';
+      const text = partial + ' true;\n```';
+      res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+      res.write(event({ type: 'response.output_text.delta', delta: partial }));
+      await new Promise((resolve) => (finishStream = resolve));
+      finishStream = undefined;
+      res.end(
+        event({ type: 'response.output_text.delta', delta: text.slice(partial.length) }) +
+          event({
+            type: 'response.completed',
+            response: {
+              output: [
+                { type: 'message', role: 'assistant', content: [{ type: 'output_text', text }] },
+              ],
+            },
+          }),
+      );
+      return true;
     }
     if (backgroundModel) {
       const { request } = JSON.parse(await body());

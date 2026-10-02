@@ -9,6 +9,17 @@ export function elapsed(ms: number): string {
     : `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
 }
 
+/** "now", "5m", "3h", a weekday within a week, then a short date. */
+export function shortAge(timestamp: number, now = Date.now()): string {
+  const minutes = Math.floor((now - timestamp) / 60000);
+  if (minutes < 1) return 'now';
+  if (minutes < 60) return minutes + 'm';
+  if (minutes < 24 * 60) return Math.floor(minutes / 60) + 'h';
+  const date = new Date(timestamp);
+  if (minutes < 7 * 24 * 60) return date.toLocaleDateString([], { weekday: 'short' });
+  return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+}
+
 export function messageTime(timestamp: number): HTMLTimeElement {
   const time = document.createElement('time');
   time.className = 'message-time';
