@@ -65,7 +65,6 @@ export function ModelPicker(props: {
     try {
       await rpc('chatgpt', { action: 'model', model });
       setSelected(model);
-      setReasoning(models().find((entry) => entry.slug === model)?.defaultReasoning);
       setOpen(false);
       await props.onSelected();
     } catch (e) {
@@ -73,18 +72,20 @@ export function ModelPicker(props: {
     } finally {
       setSaving(false);
     }
+    // The connection decides the effective level (GPT-6.1 Sol defaults to medium); read it back.
+    await load();
   }
-  async function chooseReasoning(effort: string) {
-    setSaving(true);
+  // Saves run in order, so the last level the user stopped on is the one stored.
+  let saves = Promise.resolve();
+  function chooseReasoning(effort: string) {
     setError('');
-    try {
-      await rpc('chatgpt', { action: 'reasoning', effort });
-      setReasoning(effort);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setSaving(false);
-    }
+    setReasoning(effort);
+    saves = saves
+      .then(() => rpc('chatgpt', { action: 'reasoning', effort }))
+      .catch((e) => {
+        setError(e instanceof Error ? e.message : String(e));
+        return load();
+      });
   }
   const levels = () => models().find((model) => model.slug === selected())?.reasoning ?? [];
   const name = () =>
@@ -181,11 +182,7 @@ export function ModelPicker(props: {
               </Show>
               <Show when={levels().length > 1}>
                 <hr class="model-menu-separator" />
-                <ReasoningSlider
-                  levels={levels()}
-                  value={reasoning()}
-                  onChange={(effort) => void chooseReasoning(effort)}
-                />
+                <ReasoningSlider levels={levels()} value={reasoning()} onChange={chooseReasoning} />
               </Show>
             </Popover.Content>
           </Popover.Portal>

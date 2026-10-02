@@ -92,7 +92,18 @@ for (const relay of [false, true]) {
                     { effort: 'ultra', description: 'Automatic task delegation' },
                   ],
                 },
-                { slug: 'gpt-6.1-sol', display_name: 'GPT-6.1 Sol', visibility: 'list' },
+                {
+                  slug: 'gpt-6.1-sol',
+                  display_name: 'GPT-6.1 Sol',
+                  visibility: 'list',
+                  // The catalog default differs from the app's medium default on purpose.
+                  default_reasoning_level: 'low',
+                  supported_reasoning_levels: [
+                    { effort: 'low', description: 'Fast responses' },
+                    { effort: 'medium', description: 'Balanced' },
+                    { effort: 'high', description: 'Deeper reasoning' },
+                  ],
+                },
                 { slug: 'hidden-model', display_name: 'Hidden model', visibility: 'hidden' },
               ],
             },
@@ -221,6 +232,12 @@ for (const relay of [false, true]) {
       [],
     );
     await page.screenshot({ path: test.info().outputPath('reasoning-menu.png') });
+    await page.evaluate(() => (document.documentElement.dataset.theme = 'light'));
+    expect((await new AxeBuilder({ page }).include('.model-menu').analyze()).violations).toEqual(
+      [],
+    );
+    await page.screenshot({ path: test.info().outputPath('reasoning-menu-light.png') });
+    await page.evaluate(() => (document.documentElement.dataset.theme = 'dark'));
     if (test.info().project.use.isMobile) {
       // The sheet is modal: a tap outside closes it and reaches nothing underneath.
       await page.mouse.click(20, 120);
@@ -247,6 +264,16 @@ for (const relay of [false, true]) {
       document.getAnimations().every((animation) => animation.playState !== 'running'),
     );
     await page.screenshot({ path: test.info().outputPath('reasoning-high.png') });
+    // The level name sits on the gradient here; check its contrast in both themes.
+    expect((await new AxeBuilder({ page }).include('.model-menu').analyze()).violations).toEqual(
+      [],
+    );
+    await page.evaluate(() => (document.documentElement.dataset.theme = 'light'));
+    expect((await new AxeBuilder({ page }).include('.model-menu').analyze()).violations).toEqual(
+      [],
+    );
+    await page.screenshot({ path: test.info().outputPath('reasoning-high-light.png') });
+    await page.evaluate(() => (document.documentElement.dataset.theme = 'dark'));
     await page.keyboard.press('Escape');
     await expect(testModel).toHaveAttribute('title', 'Test model · High reasoning');
     const devtools = await context.newCDPSession(page);
@@ -271,6 +298,13 @@ for (const relay of [false, true]) {
     modelListUnavailable = false;
     await reopened.getByRole('button', { name: 'Try again' }).click();
     await expect(reopened.getByRole('button', { name: 'Test model', exact: true })).toBeEnabled();
+    // Switching back shows the level actually sent (medium), not the catalog default (low).
+    await reopened.getByRole('button', { name: 'GPT-6.1 Sol', exact: true }).click();
+    await reopened.getByRole('button', { name: 'Choose model, GPT-6.1 Sol' }).click();
+    await expect(reopened.getByRole('slider', { name: 'Reasoning level' })).toHaveAttribute(
+      'aria-valuetext',
+      'Medium',
+    );
   });
 }
 

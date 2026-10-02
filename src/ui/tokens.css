@@ -14,8 +14,8 @@
   --hover: light-dark(rgba(25, 22, 22, 0.06), rgba(255, 255, 255, 0.09));
   --ok: light-dark(rgb(58, 150, 96), rgb(114, 196, 148));
   --bad: light-dark(rgb(198, 74, 74), rgb(226, 124, 124));
-  /* Reasoning slider: cool (faster) to warm (smarter) around the accent. */
-  --reasoning-cool: light-dark(rgb(80, 160, 225), rgb(120, 190, 240));
+  /* Reasoning slider: cool (faster) to warm (smarter). Light cool keeps white labels at 4.5:1. */
+  --reasoning-cool: light-dark(rgb(40, 110, 190), rgb(120, 190, 240));
   --reasoning-warm: light-dark(rgb(214, 86, 170), rgb(236, 120, 196));
   --accent-ink: light-dark(color-mix(in srgb, var(--accent) 80%, var(--ink)), var(--accent));
   /* Slightly deeper fill keeps small button labels above 4.5:1 in light mode. */
