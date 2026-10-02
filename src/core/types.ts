@@ -113,6 +113,8 @@ export interface Conversation {
   updatedAt: number;
   /** Persisted across steering and recovery; cleared when this turn ends. */
   workStartedAt?: number;
+  /** A provider-side compaction not yet accepted by a request; undone if the next one fails. */
+  serverCompaction?: { n: number; head: number };
   /** `provider:model` this turn uses; meaningful while `workStartedAt` is set. */
   turnModel?: string;
   /**
@@ -247,6 +249,12 @@ export interface Model {
   next(request: ModelRequest, signal: AbortSignal): Promise<ModelStep>;
   /** The provider and model a new turn should use, when there is a choice. */
   pin?(): Promise<string | undefined>;
+  /** Provider-side compaction of older input into opaque items, when the provider has it. */
+  compact?(
+    input: Record<string, unknown>[],
+    pin: string | undefined,
+    signal: AbortSignal,
+  ): Promise<Record<string, unknown>[] | undefined>;
 }
 export const errorText = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);

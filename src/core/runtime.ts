@@ -639,6 +639,16 @@ export class Runtime {
               );
             } catch (error) {
               this.drafts.delete(id);
+              if (
+                !controller.signal.aborted &&
+                !isConnectionError(error) &&
+                !(error instanceof SignInRequired) &&
+                !(error instanceof ContextOverflow) &&
+                (await this.undoServerCompaction(id))
+              ) {
+                step--;
+                continue;
+              }
               if (!(error instanceof ContextOverflow)) throw error;
               // One summary and one retry; a second overflow means the current request alone is too large.
               if (overflowRetried || !(await this.compactInput(id, controller.signal)))
@@ -1050,11 +1060,52 @@ export class Runtime {
     }
     return images;
   }
+  private async pinFor(id: string) {
+    const c = await this.store.get<Conversation>(key(id));
+    return c?.workStartedAt !== undefined ? c.turnModel : await this.model.pin?.();
+  }
   /** A model request with the provider and model pinned for this conversation's turn. */
   private async modelNext(id: string, request: ModelRequest, signal: AbortSignal) {
-    const c = await this.store.get<Conversation>(key(id));
-    const pin = c?.workStartedAt !== undefined ? c.turnModel : await this.model.pin?.();
-    return this.model.next({ ...request, pin }, signal);
+    return this.model.next({ ...request, pin: await this.pinFor(id) }, signal);
+  }
+  /** Provider compaction when available and not known to fail for this model; else undefined. */
+  private async serverCompact(input: Item[], pin: string | undefined, signal: AbortSignal) {
+    if (!this.model.compact || (await this.store.get('no-server-compact:' + (pin ?? 'chatgpt'))))
+      return undefined;
+    try {
+      const output = await abortable(this.model.compact(input, pin, signal), signal);
+      return Array.isArray(output) &&
+        output.length &&
+        output.every((item) => item && typeof item === 'object' && !Array.isArray(item))
+        ? output
+        : undefined;
+    } catch (error) {
+      signal.throwIfAborted();
+      return undefined;
+    }
+  }
+  /**
+   * The first request after a provider compaction was rejected: put the archived input back,
+   * stop using provider compaction for this model, and let the step run again.
+   */
+  private async undoServerCompaction(id: string): Promise<boolean> {
+    const c = await this.load(id);
+    if (!c?.serverCompaction) return false;
+    const { n, head } = c.serverCompaction;
+    const archived = await this.store.get<Item[]>(`model-archive:${id}:${n}`);
+    if (!archived) return false;
+    await this.store.put('no-server-compact:' + (c.turnModel ?? 'chatgpt'), true);
+    await this.update(id, (value) =>
+      value.serverCompaction?.n !== n
+        ? value
+        : {
+            ...value,
+            serverCompaction: undefined,
+            modelInput: [...archived, ...(value.modelInput ?? []).slice(head)],
+            context: undefined,
+          },
+    );
+    return true;
   }
   /** Runs one model request and records its token usage on the conversation. */
   private async requestStep(
@@ -1072,6 +1123,8 @@ export class Runtime {
       ...value,
       context: { tokens, window },
       turnUsage: addUsage(value.turnUsage, output.usage),
+      // A request that worked accepts any provider compaction before it.
+      serverCompaction: undefined,
     }));
     return output;
   }
@@ -1315,9 +1368,12 @@ export class Runtime {
     if (!c || c.call?.state === 'pending') return false;
     let cut = splitPoint(input);
     if (cut < 2) return false;
+    const pin = await this.pinFor(id);
+    let head = await this.serverCompact(input.slice(0, cut), pin, signal);
+    const server = Boolean(head);
     let summary: string | undefined;
     // An older part that itself overflows is shortened from the start until it fits.
-    for (let start = 0; summary === undefined && start < cut;) {
+    for (let start = 0; !head && summary === undefined && start < cut;) {
       try {
         const step = await abortable(
           this.modelNext(
@@ -1342,6 +1398,7 @@ export class Runtime {
         if (start >= cut) return false;
       }
     }
+    head ??= [{ role: 'user', content: summaryPrefix + summary }];
     const n = (c.compactions ?? 0) + 1;
     await this.store.put(`model-archive:${id}:${n}`, input.slice(0, cut));
     const before = c.context?.tokens ?? estimateTokens(input);
@@ -1351,11 +1408,12 @@ export class Runtime {
       // Only append-only growth is expected; anything else means another writer replaced it.
       if (current.length < input.length || value.compactions !== c.compactions) return value;
       applied = true;
-      const next = [{ role: 'user', content: summaryPrefix + summary }, ...current.slice(cut)];
+      const next = [...head!, ...current.slice(cut)];
       return {
         ...value,
         modelInput: next,
         compactions: n,
+        serverCompaction: server ? { n, head: head!.length } : undefined,
         context: {
           tokens: estimateTokens(next),
           window: value.context?.window ?? defaultContextWindow,
@@ -1363,7 +1421,12 @@ export class Runtime {
         messages: [
           ...value.messages,
           {
-            ...message('notice', 'Summarised earlier messages to keep this chat fast.'),
+            ...message(
+              'notice',
+              server
+                ? 'ChatGPT summarised earlier messages to keep this chat fast. Only ChatGPT can read this summary; Claude and Gemini will not see the earlier messages.'
+                : 'Summarised earlier messages to keep this chat fast.',
+            ),
             compaction: { items: cut, tokens: before },
           },
         ],

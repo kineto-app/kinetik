@@ -603,3 +603,29 @@ test('a 400 that also fails without summaries leaves summaries on', async () => 
     { effort: 'medium', summary: 'auto' },
   ]);
 });
+
+test('provider compaction goes to the relay or the compact endpoint with the session model', async () => {
+  const request = fetcher.getMockImplementation()!;
+  const urls: string[] = [];
+  fetcher.mockImplementation((input, init) => {
+    if (String(input).endsWith('compact')) {
+      urls.push(String(input));
+      expect(JSON.parse(String(init?.body))).toEqual({
+        model: 'gpt-6.1-sol',
+        input: [{ role: 'user', content: 'hi' }],
+      });
+      return Promise.resolve(
+        Response.json({ output: [{ type: 'compaction', encrypted_content: 'x' }] }),
+      );
+    }
+    return request(input, init);
+  });
+  await begin();
+  await client.callback(callback());
+  const output = await client.compact(
+    { account: 'person', input: [{ role: 'user', content: 'hi' }] },
+    new AbortController().signal,
+  );
+  expect(output).toEqual([{ type: 'compaction', encrypted_content: 'x' }]);
+  expect(urls).toEqual(['https://api.openai.com/v1/responses/compact']);
+});

@@ -219,3 +219,96 @@ test('a helper or a read interrupted by a restart runs again instead of going to
   expect(saved.status).toBe('idle');
   expect(saved.messages.at(-1)?.text).toBe('Helper: Nothing there.');
 });
+
+/** A model whose text replies report a nearly full context, with optional provider compaction. */
+function fullModel(compact?: Model['compact'], fail?: () => boolean) {
+  const seen: ModelRequest[] = [];
+  const model: Model = {
+    compact,
+    async next(request) {
+      seen.push(request);
+      if (request.message.startsWith('Summarise the conversation')) return say('Local notes.');
+      if (fail?.()) throw new Error('Model request failed: HTTP 400');
+      return {
+        type: 'text',
+        text: 'Answer to ' + request.message,
+        items: [
+          { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'A' }] },
+        ],
+        usage: { input: 9000, output: 10 },
+        contextWindow: 10000,
+      };
+    },
+  };
+  return { model, seen };
+}
+
+test('ChatGPT compaction replaces older input with its opaque items when available', async () => {
+  const store = new Store(crypto.randomUUID());
+  const compacted = [{ type: 'compaction', encrypted_content: 'opaque' }];
+  const calls: unknown[][] = [];
+  const { model, seen } = fullModel(async (input) => {
+    calls.push(input);
+    return compacted;
+  });
+  const runtime = new Runtime(store, undefined, model);
+  const c = await runtime.create();
+  await runtime.submit(c.id, 'One');
+  await runtime.run(c.id);
+  await runtime.submit(c.id, 'Two');
+  await runtime.run(c.id);
+  expect(calls[0]).toEqual([
+    { role: 'user', content: 'One' },
+    { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'A' }] },
+  ]);
+  expect(seen.some((r) => r.message.startsWith('Summarise'))).toBe(false);
+  expect(seen.at(-1)?.history?.[0]).toEqual(compacted[0]);
+  const saved = await read(store, c.id);
+  expect(saved.serverCompaction).toBeUndefined();
+  expect(saved.messages.find((m) => m.compaction)?.text).toContain('Only ChatGPT can read');
+});
+
+test('a failed provider compaction falls back to the local summary', async () => {
+  const store = new Store(crypto.randomUUID());
+  const { model, seen } = fullModel(async () => {
+    throw new Error('Compaction failed: HTTP 404');
+  });
+  const runtime = new Runtime(store, undefined, model);
+  const c = await runtime.create();
+  await runtime.submit(c.id, 'One');
+  await runtime.run(c.id);
+  await runtime.submit(c.id, 'Two');
+  await runtime.run(c.id);
+  expect(seen.some((r) => r.message.startsWith('Summarise'))).toBe(true);
+  expect((await modelInput(store, c.id))?.[0]).toMatchObject({
+    content: expect.stringContaining('Local notes.'),
+  });
+});
+
+test('a request rejected right after provider compaction restores the input and stops using it', async () => {
+  const store = new Store(crypto.randomUUID());
+  let rejectOnce = false;
+  const { model } = fullModel(
+    async () => {
+      rejectOnce = true;
+      return [{ type: 'compaction', encrypted_content: 'opaque' }];
+    },
+    () => {
+      if (!rejectOnce) return false;
+      rejectOnce = false;
+      return true;
+    },
+  );
+  const runtime = new Runtime(store, undefined, model);
+  const c = await runtime.create();
+  await runtime.submit(c.id, 'One');
+  await runtime.run(c.id);
+  await runtime.submit(c.id, 'Two');
+  await runtime.run(c.id);
+  const saved = await read(store, c.id);
+  expect(saved.messages.at(-1)?.text).toBe('Answer to Two');
+  const input = (await modelInput(store, c.id))!;
+  expect(input.some((i) => i.type === 'compaction')).toBe(false);
+  expect(input[0]).toEqual({ role: 'user', content: 'One' });
+  expect(await store.get('no-server-compact:chatgpt')).toBe(true);
+});

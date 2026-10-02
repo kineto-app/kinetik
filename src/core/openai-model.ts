@@ -192,7 +192,17 @@ export class OpenAIModel implements Model {
       images?: boolean;
     }>,
     private request: typeof fetch = fetch.bind(globalThis),
+    private compactor?: (
+      account: string,
+      input: Record<string, unknown>[],
+      signal: AbortSignal,
+    ) => Promise<Record<string, unknown>[]>,
   ) {}
+  async compact(input: Record<string, unknown>[], _pin: string | undefined, signal: AbortSignal) {
+    if (!this.compactor) return undefined;
+    const config = await this.configuration();
+    return this.compactor(config.account, forOpenAI(input) ?? [], signal);
+  }
   async next(request: ModelRequest, signal: AbortSignal): Promise<ModelStep> {
     const config = await this.configuration();
     if (!config.account || !config.model)

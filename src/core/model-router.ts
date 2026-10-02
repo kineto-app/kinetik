@@ -20,6 +20,11 @@ export class ModelRouter implements Model {
   pin(): Promise<string | undefined> {
     return this.store.get<string>('model-choice');
   }
+  async compact(input: Record<string, unknown>[], pin: string | undefined, signal: AbortSignal) {
+    // Compaction items are opaque to every provider but the one that wrote them.
+    if (isProvider(pin?.split(':')[0])) return undefined;
+    return this.chatgpt.compact?.(input, pin, signal);
+  }
   next(request: ModelRequest, signal: AbortSignal): Promise<ModelStep> {
     return isProvider(request.pin?.split(':')[0])
       ? this.other.next(request, signal)

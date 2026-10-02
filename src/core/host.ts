@@ -60,6 +60,7 @@ export class RuntimeHost {
               JSON.parse(String(init?.body)),
               init?.signal ?? new AbortController().signal,
             ),
+          (account, input, signal) => chatgpt!.compact({ account, input }, signal),
         )
       : helper
         ? new OpenAIModel(new URL('responses', helper).href, async () => {
