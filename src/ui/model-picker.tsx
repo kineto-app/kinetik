@@ -212,21 +212,20 @@ function ReasoningSlider(props: {
   };
   // Taps and drags are handled here so every platform jumps to the touched stop.
   let dragging = false;
+  // Each level owns an equal segment; touching a segment selects it.
   const indexAt = (event: PointerEvent) => {
-    const track = event.currentTarget as HTMLElement;
-    const box = track.getBoundingClientRect();
-    const knob = parseFloat(getComputedStyle(track).getPropertyValue('--knob'));
-    const t = (event.clientX - box.left - knob / 2) / Math.max(1, box.width - knob);
-    return Math.round(Math.min(1, Math.max(0, t)) * (props.levels.length - 1));
+    const box = (event.currentTarget as HTMLElement).getBoundingClientRect();
+    const segment = Math.floor(((event.clientX - box.left) / box.width) * props.levels.length);
+    return Math.min(props.levels.length - 1, Math.max(0, segment));
   };
-  const position = () => index() / (props.levels.length - 1);
+  const fill = () => (index() + 1) / props.levels.length;
   return (
     <div class="reasoning" role="group" aria-label="Reasoning">
       <div class="model-menu-label">Reasoning</div>
       <div
         class="reasoning-slider"
-        classList={{ 'is-low': index() === 0 }}
-        style={{ '--position': position() }}
+        classList={{ 'is-short': fill() < 0.5 }}
+        style={{ '--fill': fill() }}
         onPointerDown={(event) => {
           dragging = true;
           event.currentTarget.setPointerCapture(event.pointerId);
@@ -248,7 +247,7 @@ function ReasoningSlider(props: {
           <div class="reasoning-fill" />
         </div>
         <div class="reasoning-ticks" aria-hidden="true">
-          <For each={props.levels}>{() => <i />}</For>
+          <For each={props.levels.slice(1)}>{() => <i />}</For>
         </div>
         <span class="reasoning-name" aria-hidden="true">
           {effortName(level().effort)}

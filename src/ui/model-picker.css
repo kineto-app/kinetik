@@ -134,16 +134,16 @@
   }
 }
 
-/* Reasoning: a finger-sized pill that warms from cool to accent to warm as it gets smarter. */
+/* Reasoning: equal segments that fill with a cool-to-warm glow as it gets smarter. */
 .reasoning-slider {
-  --knob: var(--target);
+  --knob: 24px;
   position: relative;
+  height: var(--target);
+  margin: 2px var(--space-content) 0;
+  border-radius: var(--radius-inner);
+  background: var(--hover);
   cursor: pointer;
   touch-action: pan-y;
-  height: 52px;
-  margin: 2px var(--space-content) 0;
-  border-radius: var(--radius);
-  background: var(--hover);
 }
 .reasoning-slider:has(input:focus-visible) {
   outline: 2px solid var(--accent-ink);
@@ -158,61 +158,58 @@
 .reasoning-fill {
   position: absolute;
   inset: 0;
-  border-radius: var(--radius);
+  border-radius: var(--radius-inner);
   background: linear-gradient(
     90deg,
     var(--reasoning-cool),
     var(--accent) 55%,
     var(--reasoning-warm)
   );
-  /* The gradient spans the whole track, so its colour follows the position. */
-  clip-path: inset(
-    0 calc(100% - var(--knob) - (100% - var(--knob)) * var(--position)) 0 0 round var(--radius)
-  );
+  /* The gradient spans the whole track, so its colour follows the level. */
+  clip-path: inset(0 calc(100% * (1 - var(--fill))) 0 0 round var(--radius-inner));
   transition: clip-path var(--duration) var(--ease-out);
 }
+/* One divider between neighbouring segments. */
 .reasoning-ticks {
   position: absolute;
-  inset: 16px calc(var(--knob) / 2);
+  inset: 12px 0;
   display: flex;
-  justify-content: space-between;
+  justify-content: space-evenly;
   pointer-events: none;
 }
 .reasoning-ticks i {
   width: 2px;
   border-radius: 1px;
-  background: color-mix(in srgb, var(--ink) 14%, transparent);
-}
-.reasoning-ticks i:first-child,
-.reasoning-ticks i:last-child {
-  visibility: hidden;
+  background: color-mix(in srgb, var(--ink) 18%, transparent);
 }
 .reasoning-name {
   position: absolute;
-  inset: 0 auto 0 var(--space-section);
+  inset: 0 auto 0 var(--space-content);
   display: flex;
   align-items: center;
-  font-size: 0.9375rem;
+  font-size: 0.875rem;
   font-weight: 700;
   color: var(--on-accent);
   pointer-events: none;
 }
-.reasoning-slider.is-low .reasoning-name {
-  left: calc(var(--knob) + var(--space-inline));
+/* A short fill has no room for the name beside the knob; it moves to the empty part. */
+.reasoning-slider.is-short .reasoning-name {
+  left: calc(100% * var(--fill) + var(--space-inline));
   color: var(--ink);
 }
 .reasoning-knob {
   position: absolute;
   top: 50%;
-  left: calc(var(--knob) / 2 + (100% - var(--knob)) * var(--position));
-  width: 28px;
-  height: 28px;
-  margin: -14px 0 0 -14px;
+  /* Sits just inside the end of the fill. */
+  left: calc(100% * var(--fill) - var(--knob) - 10px);
+  width: var(--knob);
+  height: var(--knob);
+  margin-top: calc(var(--knob) / -2);
   border-radius: 50%;
   background: white;
   box-shadow:
-    0 0 0 5px color-mix(in srgb, white 22%, transparent),
-    0 0 16px color-mix(in srgb, white 60%, transparent);
+    0 0 0 4px color-mix(in srgb, white 22%, transparent),
+    0 0 14px color-mix(in srgb, white 60%, transparent);
   transition: left var(--duration) var(--ease-out);
   pointer-events: none;
 }
@@ -232,15 +229,14 @@
 .reasoning-slider input::-webkit-slider-runnable-track {
   height: 100%;
 }
-/* Thumb width equals --knob, so the native value maps onto the drawn knob. */
 .reasoning-slider input::-webkit-slider-thumb {
   -webkit-appearance: none;
-  width: var(--knob);
-  height: 52px;
+  width: 1px;
+  height: 100%;
 }
 .reasoning-slider input::-moz-range-thumb {
-  width: var(--knob);
-  height: 52px;
+  width: 1px;
+  height: 100%;
   border: 0;
 }
 .reasoning-ends {

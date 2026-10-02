@@ -99,9 +99,14 @@ for (const relay of [false, true]) {
                   // The catalog default differs from the app's medium default on purpose.
                   default_reasoning_level: 'low',
                   supported_reasoning_levels: [
-                    { effort: 'low', description: 'Fast responses' },
-                    { effort: 'medium', description: 'Balanced' },
-                    { effort: 'high', description: 'Deeper reasoning' },
+                    { effort: 'low', description: 'Fast responses with lighter reasoning' },
+                    {
+                      effort: 'medium',
+                      description: 'Balances speed and depth for everyday tasks',
+                    },
+                    { effort: 'high', description: 'Greater depth for complex problems' },
+                    { effort: 'xhigh', description: 'Extra depth for complex problems' },
+                    { effort: 'max', description: 'Maximum depth for the hardest problems' },
                   ],
                 },
                 { slug: 'hidden-model', display_name: 'Hidden model', visibility: 'hidden' },
@@ -305,6 +310,12 @@ for (const relay of [false, true]) {
       'aria-valuetext',
       'Medium',
     );
+    await reopened.waitForFunction(() =>
+      document.getAnimations().every((animation) => animation.playState !== 'running'),
+    );
+    await reopened.screenshot({ path: test.info().outputPath('reasoning-five-levels.png') });
+    await reopened.evaluate(() => (document.documentElement.dataset.theme = 'dark'));
+    await reopened.screenshot({ path: test.info().outputPath('reasoning-five-levels-dark.png') });
   });
 }
 
