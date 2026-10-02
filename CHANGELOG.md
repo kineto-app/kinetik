@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Rebuild Settings as an inset grouped list: a ChatGPT account row on top, Appearance as an in-row Light / Dark / Auto switch, and Export / Import in the data row. Connections become a page inside Settings with one page per service (status, version, Update, Turn on or off, Disconnect, Advanced) and an Add a connection page, replacing the separate connections dialog and the Manage / Disconnect buttons. The sidebar Connections button opens that page once setup is complete instead of the guided setup's last step.
+
 - Show activity between narration as one quiet line in plain words ("Read 2 files, ran a command · 1 fixed") that opens into a flat, compact list of steps with kind icons and a status word only when it matters.
 
 - Open activity steps as an inset submenu with tool, where it ran, and Input / Result as highlighted JSON with Copy, instead of a separate technical-details link. A group with a single step opens straight into its details.

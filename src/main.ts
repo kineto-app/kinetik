@@ -3,7 +3,7 @@ import { makePreview, trayItem } from './ui/attachments';
 import { ModelPicker } from './ui/model-picker';
 import { setupDataTransfer } from './ui/data-transfer';
 import { createSignal } from 'solid-js';
-import { ConversationList, PluginList } from './ui/lists';
+import { ConversationList } from './ui/lists';
 import { isNative } from './platform/environment';
 import { setupViewport } from './browser/viewport';
 import { renderToolActivity } from './ui/tool-activity';
@@ -25,6 +25,13 @@ import { setupUpdates } from './browser/updates';
 import { connect, rpc } from './browser/client';
 import type { Conversation, InstalledPlugin } from './core/types';
 import { setupConnections } from './ui/onboarding';
+import {
+  setSettingsActions,
+  setSettingsPlugins,
+  setSettingsSetup,
+  showAddedPlugin,
+  showSettings,
+} from './ui/settings';
 import type { SetupState } from './connections/manager';
 
 type State = {
@@ -130,24 +137,6 @@ renderSolid(
       choose,
     }),
   byId('conversations'),
-);
-renderSolid(
-  () =>
-    PluginList({
-      get plugins() {
-        return view().state.plugins;
-      },
-      enable: async (id, enabled) => {
-        await rpc('enable', { id, enabled });
-        await refresh();
-      },
-      update: async (id) => {
-        await rpc('update', { id });
-        await refresh();
-      },
-      error: (error) => showError(error, 'plugin-error'),
-    }),
-  byId('plugin-list'),
 );
 function render() {
   setView({ state, selected });
@@ -280,9 +269,7 @@ function render() {
   }
   updateJumpButton();
   renderAutomations(state.automations, refresh, choose);
-  byId('plugin-count').textContent = String(
-    state.plugins.filter((p) => p.enabledAt !== null).length,
-  );
+  setSettingsPlugins(state.plugins);
 }
 async function refresh() {
   const generation = ++refreshGeneration;
@@ -453,8 +440,11 @@ function openDialog(name: string) {
   for (const dialog of document.querySelectorAll<HTMLDialogElement>('dialog:modal')) dialog.close();
   byId<HTMLDialogElement>(name + '-dialog').showModal();
 }
-for (const name of ['plugins', 'automations', 'settings'])
-  byId(name + '-open').onclick = () => openDialog(name);
+byId('automations-open').onclick = () => openDialog('automations');
+byId('settings-open').onclick = () => {
+  showSettings();
+  openDialog('settings');
+};
 byId('attach').onclick = () => {
   if (!isNative) {
     byId<HTMLInputElement>('upload').click();
@@ -493,13 +483,17 @@ byId('plugin-form').onsubmit = (event) => {
     byId('plugin-error').textContent = '';
     byId('plugin-error').dataset.kind = '';
     try {
+      const source = byId<HTMLInputElement>('plugin-source').value;
       await rpc('install', {
-        source: byId<HTMLInputElement>('plugin-source').value,
+        source,
         settings: byId<HTMLTextAreaElement>('plugin-settings').value,
       });
-      byId('plugin-error').textContent = 'Added. Choose Enable to let Kinetik use this connection.';
-      byId('plugin-error').dataset.kind = 'success';
       await refresh();
+      const added = state.plugins.find((p) => p.source === source);
+      if (added) showAddedPlugin(added.manifest.id);
+      byId('plugin-error').textContent =
+        'Added. Choose Turn on to let Kinetik use this connection.';
+      byId('plugin-error').dataset.kind = 'success';
     } finally {
       install.disabled = false;
       install.textContent = 'Add connection';
@@ -628,6 +622,7 @@ const connectionSetup = setupConnections((value) => {
     (value.chatgpt.connected && !connectionState?.chatgpt.connected) ||
     (value.charms.status === 'connected' && connectionState?.charms.status !== 'connected');
   connectionState = value;
+  setSettingsSetup(value);
   setModelState({
     enabled: Boolean(value.chatgpt.connected && value.chatgpt.browser),
     model: value.chatgpt.model ?? '',
@@ -646,39 +641,15 @@ const connectionSetup = setupConnections((value) => {
   byId('connections-summary').textContent = attention
     ? 'Needs attention'
     : connected.join(' · ') || (configured ? 'Not connected' : 'Manage services');
-  byId('managed-section').hidden = !configured;
   byId('connection-status').innerHTML = icon('plug');
   byId('connection-status').classList.add('icon-button');
   byId('connection-status').title =
     value.chatgpt.available && !value.chatgpt.connected ? 'Connect ChatGPT' : 'Reconnect Charms';
-  byId('charms-state').textContent =
-    value.charms.status === 'connected'
-      ? 'Connected · cloud workspace'
-      : value.charms.status === 'disabled'
-        ? 'Disabled'
-        : value.charms.status === 'reconnect'
-          ? 'Reconnect to continue'
-          : 'Not connected';
-  byId('chatgpt-state').textContent = value.chatgpt.connected
-    ? 'Connected'
-    : value.chatgpt.available
-      ? 'Not connected'
-      : 'Unavailable on this host';
-  byId('connection-disconnect').hidden = !['connected', 'disabled', 'reconnect'].includes(
-    value.charms.status,
-  );
-  byId('chatgpt-disconnect').hidden = !value.chatgpt.connected;
   if (value.chatgpt.available) {
     byId('model-label').textContent = 'ChatGPT';
     byId('model-status').textContent = value.chatgpt.connected
       ? 'ChatGPT subscription'
       : 'Connect ChatGPT to chat';
-    byId('model-settings-title').textContent = 'ChatGPT subscription';
-    byId('model-settings-description').textContent = value.chatgpt.browser
-      ? isNative
-        ? 'Your sign-in is protected on this device.'
-        : 'Your sign-in is saved on this device.'
-      : 'Your account connection is managed by this host’s credential helper. Your agent and tools run in this browser.';
   }
   if (!current()?.messages.length) lastMessages = '';
   render();
@@ -687,27 +658,44 @@ byId('install-open').onclick = () => {
   closeDrawer(false);
   connectionSetup.install();
 };
+function openSetup() {
+  for (const dialog of document.querySelectorAll<HTMLDialogElement>('dialog:modal')) dialog.close();
+  connectionSetup.open();
+}
 byId('connections-open').onclick = () => {
-  if (connectionState?.charms.available || connectionState?.chatgpt.available) {
+  const value = connectionState;
+  // Guided setup only while something is missing; a connection turned off on purpose is not.
+  if (
+    (value?.chatgpt.available && !value.chatgpt.connected) ||
+    (value?.charms.available && ['not-connected', 'reconnect'].includes(value.charms.status))
+  ) {
     closeDrawer(false);
     connectionSetup.open();
-  } else openDialog('plugins');
+    return;
+  }
+  showSettings('connections');
+  openDialog('settings');
 };
-for (const id of ['connection-status', 'connection-open', 'chatgpt-open'])
-  byId(id).onclick = () => {
-    for (const dialog of document.querySelectorAll<HTMLDialogElement>('dialog:modal'))
-      dialog.close();
-    connectionSetup.open();
-  };
-byId('connection-disconnect').onclick = () => {
-  void connectionSetup
-    .disconnectCharms()
-    .then(refresh)
-    .catch((e) => showError(e, 'error'));
-};
-byId('chatgpt-disconnect').onclick = () => {
-  void connectionSetup.disconnectChatGPT().catch((e) => showError(e, 'error'));
-};
+byId('connection-status').onclick = openSetup;
+setSettingsActions({
+  connect: openSetup,
+  async enable(id, enabled) {
+    await rpc('enable', { id, enabled });
+    await refresh();
+    if (id === 'charms') await connectionSetup.refresh();
+  },
+  async update(id) {
+    await rpc('update', { id });
+    await refresh();
+    if (id === 'charms') await connectionSetup.refresh();
+  },
+  async disconnect(kind) {
+    if (kind === 'charms') {
+      await connectionSetup.disconnectCharms();
+      await refresh();
+    } else await connectionSetup.disconnectChatGPT();
+  },
+});
 window.addEventListener('focus', () => {
   void connectionSetup.refresh().catch(() => {});
 });

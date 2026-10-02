@@ -246,42 +246,6 @@ p {
   width: 18px;
   height: 18px;
 }
-.nav-count {
-  margin-left: auto;
-  color: var(--muted);
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-}
-.appearance {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  border-top: 1px solid var(--line);
-  padding-top: 12px;
-}
-.appearance label {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  margin: 0;
-  padding-left: 12px;
-  font-size: 12px;
-  color: var(--muted);
-}
-.appearance .icon {
-  width: 16px;
-  height: 16px;
-}
-.appearance select {
-  min-width: 0;
-  flex: 1;
-  min-height: 44px;
-  border: 0;
-  background: transparent;
-  border-radius: var(--radius-control);
-  font-size: 12px;
-  padding: 4px;
-}
 select option {
   background: var(--ground);
   color: var(--ink);
@@ -734,19 +698,6 @@ summary .muted {
   flex: 1;
   font-size: 13px;
 }
-.plugins-empty {
-  display: flex;
-  gap: 12px;
-  padding: 8px 4px;
-  align-items: center;
-}
-.plugins-empty > .icon {
-  color: var(--accent-ink);
-}
-.plugins-empty strong {
-  font-size: 13px;
-  font-weight: 500;
-}
 .plugin-row {
   padding: 12px 4px;
 }
@@ -758,14 +709,6 @@ summary .muted {
 }
 .plugin-row p {
   margin: 4px 0;
-}
-.plugin-actions {
-  display: flex;
-  gap: 8px;
-  margin-top: 8px;
-}
-.plugin-actions button {
-  font-size: 12px;
 }
 .upload-zone {
   text-align: center;
@@ -1035,12 +978,6 @@ dialog:has(> .app-update:not([hidden])) {
   font-size: 12px;
   color: var(--muted);
   margin: 20px auto 0;
-}
-.settings-section {
-  padding: 16px;
-}
-.settings-section select {
-  width: 100%;
 }
 .tool-details {
   color: var(--muted);

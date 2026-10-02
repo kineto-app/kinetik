@@ -5,10 +5,14 @@ import AxeBuilder from '@axe-core/playwright';
 async function drawer(page: Page) {
   if (await page.locator('#menu').isVisible()) await page.locator('#menu').click();
 }
+const themeLabels: Record<string, string> = { light: 'Light', dark: 'Dark', system: 'Auto' };
 async function appearance(page: Page, value: string) {
   await drawer(page);
   await page.locator('#settings-open').click();
-  await page.getByRole('combobox', { name: 'Appearance' }).selectOption(value);
+  await page
+    .getByRole('radiogroup', { name: 'Appearance' })
+    .getByRole('radio', { name: themeLabels[value] })
+    .check();
   await page.getByRole('button', { name: 'Close settings' }).click();
 }
 async function accessible(page: Page) {
@@ -45,7 +49,8 @@ test('appearance follows system, persists offline, and synchronizes tabs', async
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
   await drawer(page);
   await page.locator('#settings-open').click();
-  await expect(page.getByRole('combobox', { name: 'Appearance' })).toHaveValue('dark');
+  await expect(page.getByRole('radio', { name: 'Dark', exact: true })).toBeChecked();
+  await expect(page.getByRole('radio', { name: 'Light', exact: true })).not.toBeChecked();
   await page.getByRole('button', { name: 'Close settings' }).click();
   await appearance(page, 'system');
   await page.emulateMedia({ colorScheme: 'light' });
@@ -63,11 +68,14 @@ test('light and dark workspace, dialogs and messages are accessible', async ({ p
     await page.locator('#settings-open').click();
     await accessible(page);
     await page.screenshot({ path: info.outputPath(`settings-${theme}.png`) });
-    await page.getByRole('button', { name: 'Manage connections' }).click();
+    await page
+      .locator('#settings-dialog')
+      .getByRole('button', { name: /^Connections/ })
+      .click();
     await expect(page.getByRole('dialog', { name: 'Connections', exact: true })).toBeVisible();
     await accessible(page);
     await page.screenshot({ path: info.outputPath(`plugins-${theme}.png`) });
-    await page.getByRole('button', { name: 'Close connections', exact: true }).click();
+    await page.getByRole('button', { name: 'Close settings', exact: true }).click();
     await drawer(page);
     await page.locator('#automations-open').click();
     await accessible(page);
@@ -123,13 +131,15 @@ test('connections and composer uploads complete their visible workflows', async 
   await expect(page.locator('#status')).toHaveText('Ready');
   await drawer(page);
   await page.locator('#connections-open').click();
-  await page.getByText('Add a custom connection', { exact: true }).click();
+  await expect(page.getByRole('dialog', { name: 'Connections', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Add a connection', exact: true }).click();
   await page.getByRole('button', { name: 'Use demo connection' }).click();
   await page.getByRole('button', { name: 'Add connection', exact: true }).click();
   await expect(page.locator('#plugin-error')).toContainText('Added.');
-  await page.getByRole('button', { name: 'Enable', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Disable', exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Close connections', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: 'Example workspace', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Turn on', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Turn off', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Close settings', exact: true }).click();
   await page.getByRole('textbox', { name: 'Message', exact: true }).fill('/exec from the UI');
   await page.getByRole('button', { name: 'Send', exact: true }).click();
   await expect(page.locator('[data-role="assistant"] .message-content')).toHaveText(

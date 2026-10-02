@@ -41,7 +41,7 @@ Serve deployment-owned `config.json` beside `index.html` with `Cache-Control: no
 
 The guided flow offers ChatGPT sign-in, prepares Charms, obtains authorization, verifies its tools, and loads native skills. Existing connections skip completed steps. Charms callbacks complete automatically when the browser can access the matching stored authorization request. If an installed app and its external browser use separate storage, the return page offers copy/paste as a fallback. The worker validates the full state and PKCE request in either case.
 
-If tool or skill loading fails after sign-in, the setup clears the consumed return link and offers Enable Charms to retry activation with the saved credential. A manually disabled connection requires an explicit Enable action. If the deployment configuration changes, existing settings are preserved rather than silently redirecting credentials to a new service.
+If tool or skill loading fails after sign-in, the setup clears the consumed return link and offers Enable Charms to retry activation with the saved credential. A manually disabled connection requires an explicit Turn on action in **Settings → Connections → Charms**. The sidebar **Connections** button reopens the guided flow only while ChatGPT or Charms is missing; once both are connected or Charms was turned off on purpose, it opens **Settings → Connections**. If the deployment configuration changes, existing settings are preserved rather than silently redirecting credentials to a new service.
 
 For experimental browser-owned sign-in, add:
 
