@@ -52,6 +52,7 @@ test('Claude and Gemini with your own API key', async ({ page, request }, info) 
   );
   await shot('2-picker');
   await page.getByRole('button', { name: 'Claude Sonnet 5.5', exact: true }).click();
+  await expect(page.locator('.preview-note')).toHaveText('');
 
   await send(page, 'Hello Claude');
   await expect(page.locator('.thinking-note')).toContainText('The user greets me.');

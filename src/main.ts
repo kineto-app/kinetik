@@ -66,6 +66,9 @@ async function refreshOtherModels() {
     connected: result.providers.some((provider) => provider.connected),
     choice: result.choice,
   });
+  // The empty chat's ChatGPT hint depends on the choice.
+  if (!current()?.messages.length) lastMessages = '';
+  render();
 }
 window.addEventListener('kinetik-providers', () => void refreshOtherModels().catch(showError));
 renderSolid(
@@ -241,9 +244,10 @@ function render() {
       empty.className = 'empty';
       empty.innerHTML = `<div class="welcome-mark" aria-hidden="true">${icon('spark')}</div><h2>What can we get done today?</h2><div class="starter"><div class="suggestions"></div></div><p class="preview-note">Preview uses sample replies. ChatGPT is not connected.</p>`;
       if (connectionState?.chatgpt.available) {
-        empty.querySelector('.preview-note')!.textContent = connectionState.chatgpt.connected
-          ? ''
-          : 'Connect ChatGPT to start a conversation.';
+        empty.querySelector('.preview-note')!.textContent =
+          connectionState.chatgpt.connected || otherModels().choice
+            ? ''
+            : 'Connect ChatGPT to start a conversation.';
       }
       const examples: [string, IconName, string][] = [
         ...demoTasks.map((task): [string, IconName, string] => [task.title, 'file', task.prompt]),
