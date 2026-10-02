@@ -1,6 +1,6 @@
 import { createSignal, Index, Show } from 'solid-js';
 import { rpc } from '../browser/client';
-import type { CustomModelState } from '../core/model-router';
+import type { CustomModelState } from '../connections/custom-model';
 import type { SetupState } from '../connections/manager';
 import type { InstalledPlugin } from '../core/types';
 import { isNative } from '../platform/environment';

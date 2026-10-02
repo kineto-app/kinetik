@@ -15,7 +15,7 @@ import { BackgroundProcesses, type BackgroundProcess } from './background';
 import { Store } from '../browser/store';
 import { createFilesystem } from '../browser/filesystem';
 import { Plugins, digest } from '../plugins/loader';
-import { MockModel } from './mock-model';
+import { MockModel } from '../models/mock';
 import { localTools } from './tools';
 import {
   errorText,

@@ -1,17 +1,17 @@
-import type { RuntimeEvent } from './types';
 import { exportArchive, parseArchive } from './archive';
-import { Runtime } from '../core/runtime';
-import { MockModel } from './mock-model';
-import { ModelRouter, customModelAction } from './model-router';
-import { CompatModel, customModelKey, type CustomModel } from './compat-model';
-import { errorText } from '../core/types';
+import type { BackgroundProcess } from './background';
+import { ConnectionError, SignInRequired } from './connection-error';
+import { Runtime } from './runtime';
+import { errorText, type RuntimeEvent } from './types';
 import { Store } from '../browser/store';
-import type { BackgroundProcess } from '../core/background';
-import { loadConfiguration, type Configuration } from '../connections/config';
 import { BrowserChatGPT } from '../connections/chatgpt';
+import { loadConfiguration, type Configuration } from '../connections/config';
+import { customModelAction, customModelKey, type CustomModel } from '../connections/custom-model';
 import { Connections } from '../connections/manager';
-import { OpenAIModel } from '../core/openai-model';
-import { ConnectionError, SignInRequired } from '../core/connection-error';
+import { CompatModel } from '../models/compat';
+import { MockModel } from '../models/mock';
+import { OpenAIModel } from '../models/openai';
+import { ModelRouter } from '../models/router';
 
 export interface HostReply {
   ok: boolean;

@@ -2,14 +2,14 @@ import { createServer, type Server } from 'node:http';
 import { afterAll, beforeAll, expect, test } from 'vitest';
 import { Runtime } from '../src/core/runtime';
 import { Store } from '../src/browser/store';
-import { MockModel } from '../src/core/mock-model';
-import { ModelRouter, customModelAction } from '../src/core/model-router';
+import { MockModel } from '../src/models/mock';
+import { ModelRouter } from '../src/models/router';
 import {
-  CompatModel,
+  customModelAction,
   customModelKey,
-  toChatMessages,
   type CustomModel,
-} from '../src/core/compat-model';
+} from '../src/connections/custom-model';
+import { CompatModel, toChatMessages } from '../src/models/compat';
 import { exportArchive } from '../src/core/archive';
 import { modelInput } from './model-input';
 // @ts-expect-error The fixture is plain JavaScript shared with the browser tests.

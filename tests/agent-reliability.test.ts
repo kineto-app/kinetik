@@ -4,7 +4,7 @@ import { Store } from '../src/browser/store';
 import { modelInput } from './model-input';
 import { ContextOverflow } from '../src/core/connection-error';
 import { compactPrompt, summaryPrefix } from '../src/core/compaction';
-import { latestImages, readResponse } from '../src/core/openai-model';
+import { latestImages, readResponse } from '../src/models/openai';
 import type { Conversation, Model, ModelRequest, ModelStep } from '../src/core/types';
 
 const read = async (store: Store, id: string) =>

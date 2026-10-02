@@ -1,6 +1,6 @@
-import { demoTasks } from './demo-tasks';
-import type { Model, ModelRequest, ModelStep } from './types';
-import { compactPrompt } from './compaction';
+import { demoTasks } from '../core/demo-tasks';
+import type { Model, ModelRequest, ModelStep } from '../core/types';
+import { compactPrompt } from '../core/compaction';
 export function delay(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
     signal.throwIfAborted();

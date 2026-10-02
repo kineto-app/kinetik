@@ -1,7 +1,7 @@
 import { expect, test, vi } from 'vitest';
 import { Store } from '../src/browser/store';
 import { Runtime } from '../src/core/runtime';
-import { MockModel } from '../src/core/mock-model';
+import { MockModel } from '../src/models/mock';
 import { BackgroundProcesses, type BackgroundProcess } from '../src/core/background';
 import type { Conversation, InstalledPlugin, ModelRequest } from '../src/core/types';
 
