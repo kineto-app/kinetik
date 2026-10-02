@@ -45,7 +45,7 @@ test('formats replies without active HTML and copies the original text', async (
 
 test('long replies keep the composer reachable and offer a jump back to latest', async ({
   page,
-}) => {
+}, info) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.goto('/');
   await expect(page.locator('#status')).toHaveText('Ready');
@@ -63,7 +63,11 @@ test('long replies keep the composer reachable and offer a jump back to latest',
   await timeline.evaluate((el) => {
     el.scrollTop = 0;
   });
-  await expect(page.getByRole('button', { name: 'Latest message' })).toBeVisible();
+  const jump = page.getByRole('button', { name: 'Latest message' });
+  await expect(jump).toBeVisible();
+  await expect(jump).toHaveText('');
+  expect(await jump.boundingBox()).toMatchObject({ width: 44, height: 44 });
+  await page.screenshot({ path: info.outputPath('jump-button.png') });
   await expect(page.locator('#send')).toBeInViewport();
   await page.getByRole('button', { name: 'Latest message' }).click();
   await expect(page.getByRole('button', { name: 'Latest message' })).toBeHidden();
@@ -264,4 +268,43 @@ test('narration persists and separates consecutive tools into distinct activity 
   await page.evaluate(() => (document.documentElement.dataset.theme = 'dark'));
   await page.locator('.tool-group > summary').first().click();
   await page.screenshot({ path: test.info().outputPath('narration-persisted.png') });
+});
+
+test('a streaming reply shows Markdown formatting before it completes', async ({
+  page,
+  request,
+}, info) => {
+  const base = 'http://127.0.0.1:4174/onboarding/';
+  await request.get(base + 'reset');
+  await request.post(base + 'connections/chatgpt/callback', { data: {} });
+  await request.get(base + 'stream-model');
+  const errors: Error[] = [];
+  page.on('pageerror', (error) => errors.push(error));
+  await page.goto(base);
+  await expect(page.locator('#status')).toHaveText('Ready');
+  await send(page, 'Plan my weekend');
+  const draft = page.locator('[data-draft]');
+  await expect(draft.locator('strong')).toHaveText('the plan');
+  await expect(draft.locator('li')).toHaveCount(2);
+  await expect(draft.locator('.code-block code')).toHaveText('const ready =');
+  await expect(draft).toContainText('Writing');
+  await expect(draft).toHaveAttribute('aria-busy', 'true');
+  await expect(page.locator('[data-role=assistant]')).toHaveCount(0);
+  await page.screenshot({ path: info.outputPath('streaming-markdown.png') });
+  const streamedTop = (await draft.locator('strong').boundingBox())!.y;
+  await request.get(base + 'finish-stream');
+  const message = page.locator('[data-role=assistant]');
+  await expect(message.locator('.code-block code')).toHaveText('const ready = true;');
+  // Only the "Worked for" line the final reply adds above its label moves the content.
+  const durationLine = await message
+    .locator('.work-duration')
+    .evaluate((el) => el.offsetHeight + parseFloat(getComputedStyle(el).marginBottom));
+  expect((await message.locator('strong').boundingBox())!.y - streamedTop).toBeCloseTo(
+    durationLine,
+    0,
+  );
+  await expect(draft).toHaveCount(0);
+  await expect(message.locator('strong')).toHaveText('the plan');
+  await expect(message).not.toHaveClass(/message-enter/);
+  expect(errors).toEqual([]);
 });

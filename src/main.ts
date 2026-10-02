@@ -9,6 +9,7 @@ import { setupViewport } from './browser/viewport';
 import { renderToolActivity } from './ui/tool-activity';
 import { isInternalActivity } from './ui/activity-data';
 import { elapsed } from './ui/time';
+import { renderMessageContent } from './ui/message-content';
 import './ui/styles.css';
 import './ui/chat.css';
 import './ui/islands.css';
@@ -65,6 +66,22 @@ let lastMessages = '';
 let followNextMessage = false;
 let disposeContent: (() => void)[] = [];
 let timelineConversation = '';
+let draftText = '';
+let draftFrame = 0;
+const shownDrafts = new WeakMap<Element, string>();
+function renderDraft() {
+  draftFrame = 0;
+  const timeline = byId('timeline');
+  const draft = timeline.querySelector('[data-draft]');
+  if (!draft || shownDrafts.get(draft) === draftText) return;
+  shownDrafts.set(draft, draftText);
+  const follow = timeline.scrollHeight - timeline.scrollTop - timeline.clientHeight < 80;
+  const content = renderMessageContent(draftText);
+  content.classList.add('streaming-content');
+  draft.querySelector('.message-content')!.replaceWith(content);
+  if (follow) timeline.scrollTop = timeline.scrollHeight;
+  updateJumpButton();
+}
 const renderedMessages = new Set<string>();
 const draftKey = 'kinetik-composer';
 byId<HTMLTextAreaElement>('prompt').value = uiStorage.getItem(draftKey) ?? '';
@@ -186,7 +203,12 @@ function render() {
       timelineConversation = selected;
     }
     if (c?.messages.length) timeline.querySelector('.empty')?.remove();
-    if (!c?.draft || isBackgroundTurn(c)) timeline.querySelector('[data-draft]')?.remove();
+    let replacesDraft = false;
+    if (!c?.draft || isBackgroundTurn(c)) {
+      const draft = timeline.querySelector('[data-draft]');
+      replacesDraft = Boolean(draft);
+      draft?.remove();
+    }
     if (!c?.messages.length) {
       const empty = document.createElement('div');
       empty.className = 'empty';
@@ -220,7 +242,10 @@ function render() {
       if ((hiddenActivity && !item.app && !item.file) || renderedMessages.has(item.id)) continue;
       renderedMessages.add(item.id);
       const article = document.createElement('article');
-      article.className = 'message message-enter';
+      // The reply that replaces a streamed draft must not slide in.
+      article.className =
+        replacesDraft && item.role === 'assistant' ? 'message' : 'message message-enter';
+      if (item.role === 'assistant') replacesDraft = false;
       article.dataset.role = item.role;
       article.dataset.messageId = item.id;
       timeline.insertBefore(article, timeline.querySelector('[data-draft]'));
@@ -237,14 +262,13 @@ function render() {
         draft = document.createElement('article');
         draft.className = 'message streaming-message';
         draft.dataset.draft = 'true';
+        // Re-rendered content would otherwise be re-announced in full on every frame.
+        draft.setAttribute('aria-busy', 'true');
         draft.innerHTML = `<div class="message-label"><img src="./icon.svg" width="24" height="24" alt="" />Kinetik<span class="streaming-label">Writing</span></div><div class="message-content streaming-content"></div>`;
         timeline.append(draft);
       }
-      const content = draft.querySelector('.message-content')!;
-      const text = content.firstChild;
-      if (text instanceof Text && c.draft.startsWith(text.data)) {
-        text.appendData(c.draft.slice(text.data.length));
-      } else content.textContent = c.draft;
+      draftText = c.draft;
+      draftFrame ||= requestAnimationFrame(renderDraft);
     }
     renderToolActivity(timeline, c);
     timeline.scrollTop = !c?.messages.length

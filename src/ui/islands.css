@@ -389,7 +389,8 @@ details[open] > summary > .activity-chevron {
   }
 }
 .jump-latest {
-  background: var(--glass-panel);
+  background: var(--glass);
+  -webkit-backdrop-filter: blur(var(--glass-blur));
   backdrop-filter: blur(var(--glass-blur));
 }
 .app-update {

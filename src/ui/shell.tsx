@@ -108,8 +108,15 @@ export function Shell() {
               aria-live="polite"
               aria-relevant="additions text"
             ></section>
-            <button id="jump-latest" class="jump-latest" type="button" hidden>
-              Latest message <Icon name="download" />
+            <button
+              id="jump-latest"
+              class="jump-latest"
+              type="button"
+              aria-label="Latest message"
+              title="Latest message"
+              hidden
+            >
+              <Icon name="arrowDown" />
             </button>
           </div>
           <section class="composer-area">
