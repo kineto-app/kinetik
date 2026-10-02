@@ -131,7 +131,10 @@ export class Store {
   async entries<T>(prefix: string): Promise<[string, T][]> {
     const db = await this.open();
     return new Promise((resolve, reject) => {
-      const request = db.transaction('records').objectStore('records').openCursor();
+      const request = db
+        .transaction('records')
+        .objectStore('records')
+        .openCursor(prefix ? IDBKeyRange.bound(prefix, prefix + '\uffff') : undefined);
       const result: [string, T][] = [];
       request.onsuccess = () => {
         const cursor = request.result;

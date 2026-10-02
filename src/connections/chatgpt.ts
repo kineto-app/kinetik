@@ -313,6 +313,11 @@ export class BrowserChatGPT {
       throw new Error('GPT-6.1 Sol is not available for this ChatGPT account.');
     return defaultModel;
   }
+  /** The model and reasoning level a new turn should keep, read without a network call. */
+  async turnSettings() {
+    const session = await this.storedSession();
+    return session ? { model: session.model, effort: this.effort(session) } : {};
+  }
   async models() {
     const status = await this.status();
     const session = await this.access(status.account, AbortSignal.timeout(30000), false);
@@ -486,11 +491,23 @@ export class BrowserChatGPT {
     });
   }
   async responses(
-    body: { account: string; request: Record<string, unknown> },
+    body: {
+      account: string;
+      request: Record<string, unknown>;
+      pin?: { model?: unknown; effort?: unknown };
+    },
     signal: AbortSignal,
   ) {
     const session = await this.access(body.account, signal);
-    const effort = this.effort(session);
+    // A turn pins its model and level when it starts; later requests send them back.
+    const model =
+      typeof body.pin?.model === 'string' && /^[\w.:-]{1,100}$/.test(body.pin.model)
+        ? body.pin.model
+        : session.model;
+    const effort =
+      typeof body.pin?.effort === 'string' && /^[a-z]{1,20}$/.test(body.pin.effort)
+        ? body.pin.effort
+        : this.effort(session);
     const send = (summary: boolean) =>
       this.request(this.modelRelay ? this.modelRelay + 'responses' : resource + '/responses', {
         method: 'POST',
@@ -500,13 +517,13 @@ export class BrowserChatGPT {
         headers: { Authorization: 'Bearer ' + session.access, 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...body.request,
-          model: session.model,
+          model,
           reasoning: effort ? { effort, ...(summary ? { summary: 'auto' } : {}) } : undefined,
           store: false,
           stream: true,
         }),
       });
-    const summaryOff = 'no-reasoning-summary:' + session.model;
+    const summaryOff = 'no-reasoning-summary:' + model;
     const summary = Boolean(effort) && !(await this.store.get<boolean>(summaryOff));
     const response = await send(summary);
     if (response.status !== 400 || !summary) return response;

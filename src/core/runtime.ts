@@ -34,6 +34,7 @@ import {
   type Message,
   type ModelStep,
   addUsage,
+  needsApproval,
   type Ask,
 } from './types';
 
@@ -753,8 +754,7 @@ export class Runtime {
       };
     if (binding.provider === 'local' && name === 'remember')
       return { kind: 'memory', question: 'Save this to your memory?', text: String(input.text) };
-    const approval = binding.tool.approval;
-    if (approval === true || (typeof approval === 'function' && approval(input)))
+    if (needsApproval(binding.tool, input))
       return {
         kind: 'approval',
         question: `Allow Kinetik to run “${name.split('__').at(-1)}”?`,
@@ -926,6 +926,7 @@ export class Runtime {
       ...c,
       status: c.status === 'needs_review' ? c.status : 'stopped',
       pending: [],
+      messages: c.messages.map((m) => (m.queue ? { ...m, queue: undefined } : m)),
       workStartedAt: undefined,
     }));
     await this.background.cancelConversation(id);
@@ -1146,8 +1147,8 @@ export class Runtime {
   readMonitor(path: string) {
     return this.workspaceFiles.readMonitor(path);
   }
-  appCall(id: string, name: string, input: Record<string, unknown>) {
-    return this.apps.call(id, name, input);
+  appCall(id: string, name: string, input: Record<string, unknown>, approved = false) {
+    return this.apps.call(id, name, input, approved);
   }
   importFile(name: string, bytes: Uint8Array) {
     return this.workspaceFiles.importFile(name, bytes);

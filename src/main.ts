@@ -68,6 +68,15 @@ async function refreshCustomModel() {
   if (!current()?.messages.length) lastMessages = '';
   render();
 }
+window.addEventListener('kinetik-compose', (event) => {
+  const { conversationId, text } = (event as CustomEvent<{ conversationId: string; text: string }>)
+    .detail;
+  if (conversationId !== selected) return;
+  const prompt = byId<HTMLTextAreaElement>('prompt');
+  prompt.value = text;
+  updateComposer();
+  prompt.focus();
+});
 window.addEventListener('kinetik-custom-model', () => {
   void refreshCustomModel().catch(showError);
   // A turn waiting for a key continues once one is saved.
@@ -75,7 +84,7 @@ window.addEventListener('kinetik-custom-model', () => {
 });
 /** The turn runs on the custom model, which uses an API key instead of a sign-in. */
 function apiKeyTurn(c: Conversation) {
-  return c.turnModel === 'custom';
+  return c.turnModel?.provider === 'custom';
 }
 renderSolid(
   () =>

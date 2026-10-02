@@ -109,7 +109,7 @@ const server = createServer(async (req, res) => {
             text: `<!doctype html><html><style>
         body { color:var(--color-text-primary); font-family:var(--font-sans); }
         #surface { background:var(--color-background-primary); border:1px solid var(--color-border-primary); border-radius:var(--border-radius-lg); }
-      </style><body><div id="surface">Host styles</div><p id="result">Loading</p><p id="isolation"></p><button id="inc">Increment</button><button id="denied">Forbidden tool</button><button id="expand">Full screen</button><button id="collapse">Back to chat</button><button id="pip">Picture in picture</button><p id="mode"></p><p id="mode-result"></p><input aria-label="Widget note" /><section id="detail" hidden>Full screen detail view</section><script>
+      </style><body><div id="surface">Host styles</div><p id="result">Loading</p><p id="isolation"></p><button id="inc">Increment</button><button id="denied">Forbidden tool</button><button id="expand">Full screen</button><button id="collapse">Back to chat</button><button id="pip">Picture in picture</button><button id="publish">Publish</button><button id="suggest">Suggest message</button><p id="mode"></p><p id="mode-result"></p><input aria-label="Widget note" /><section id="detail" hidden>Full screen detail view</section><script>
       try { top.localStorage.setItem('escaped','true'); document.getElementById('isolation').textContent='Unsafe'; } catch { document.getElementById('isolation').textContent='Isolated'; }
       const send = (method, params, id) => parent.postMessage({jsonrpc:'2.0',method,params,id}, '*');
       addEventListener('message', event => {
@@ -129,12 +129,16 @@ const server = createServer(async (req, res) => {
         if(data.id === 2) document.getElementById('result').textContent=data.result ? 'Incremented' : 'Failed';
         if(data.id === 3) document.getElementById('result').textContent=data.error ? 'Denied' : 'Unsafe';
         if(data.id === 4) document.getElementById('mode-result').textContent=data.result.mode;
+        if(data.id === 5) document.getElementById('result').textContent=data.result ? 'Published' : 'Declined';
+        if(data.id === 6) document.getElementById('result').textContent='Suggested';
       });
       document.getElementById('inc').onclick=()=>send('tools/call',{name:'increment',arguments:{}},2);
       document.getElementById('denied').onclick=()=>send('tools/call',{name:'secret',arguments:{}},3);
       document.getElementById('expand').onclick=()=>send('ui/request-display-mode',{mode:'fullscreen'},4);
       document.getElementById('collapse').onclick=()=>send('ui/request-display-mode',{mode:'inline'},4);
       document.getElementById('pip').onclick=()=>send('ui/request-display-mode',{mode:'pip'},4);
+      document.getElementById('publish').onclick=()=>send('tools/call',{name:'publish',arguments:{title:'Lisbon'}},5);
+      document.getElementById('suggest').onclick=()=>send('ui/message',{role:'user',content:[{type:'text',text:'Make it calmer'}]},6);
       send('ui/initialize',{protocolVersion:'2026-01-26',appInfo:{name:'fixture',version:'1'},appCapabilities:{}},1);
     <\/script></body></html>`,
           },
@@ -143,7 +147,15 @@ const server = createServer(async (req, res) => {
     if (rpc.method === 'tools/call')
       result = {
         content: [
-          { type: 'text', text: rpc.params.name === 'increment' ? 'Incremented' : 'App result' },
+          {
+            type: 'text',
+            text:
+              rpc.params.name === 'increment'
+                ? 'Incremented'
+                : rpc.params.name === 'publish'
+                  ? 'Published'
+                  : 'App result',
+          },
         ],
       };
     if (rpc.id === undefined) {

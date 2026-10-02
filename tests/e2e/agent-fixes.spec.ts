@@ -1,0 +1,67 @@
+import { test, expect, type Page } from '@playwright/test';
+import { rpc } from './rpc';
+import type { Conversation } from '../../src/core/types';
+
+test.use({ video: 'on' });
+
+async function send(page: Page, text: string) {
+  await page.getByRole('textbox', { name: 'Message', exact: true }).fill(text);
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+}
+async function settled(page: Page) {
+  await expect
+    .poll(async () => {
+      const state = await rpc<{ conversations: Conversation[] }>(page, 'state');
+      return state.conversations.every((c) => c.status === 'idle');
+    })
+    .toBe(true);
+}
+async function openWidget(page: Page) {
+  await rpc(page, 'install', {
+    source: 'http://127.0.0.1:4173/plugins/mcp/plugin.json',
+    settings: JSON.stringify({ url: 'http://127.0.0.1:4174/mcp' }),
+  });
+  await rpc(page, 'enable', { id: 'mcp', enabled: true });
+  await send(page, '/tool mcp__show {}');
+  await settled(page);
+  const app = page.frameLocator('iframe.mcp-app').frameLocator('iframe');
+  await expect(app.locator('#result')).toHaveText('Ready');
+  return app;
+}
+
+test.beforeEach(async ({ page, request }) => {
+  await request.post('http://127.0.0.1:4174/control', { data: { revision: 1, fail: false } });
+  await page.goto('/');
+  await expect(page.locator('#status')).toHaveText('Ready');
+});
+
+test('bug 1: a widget asks before running an action that needs approval', async ({
+  page,
+}, info) => {
+  const app = await openWidget(page);
+  const card = page.getByRole('group', { name: 'App action approval' });
+  await app.getByRole('button', { name: 'Publish' }).click();
+  await expect(card).toContainText('Allow this app to run “publish”?');
+  await expect(card).toContainText('Lisbon');
+  await page.screenshot({ path: info.outputPath('1-widget-approval.png') });
+  await card.getByRole('button', { name: 'Decline' }).click();
+  await expect(app.locator('#result')).toHaveText('Declined');
+  await expect(card).toHaveCount(0);
+  await app.getByRole('button', { name: 'Publish' }).click();
+  await card.getByRole('button', { name: 'Approve' }).click();
+  await expect(app.locator('#result')).toHaveText('Published');
+});
+
+test('bug 2: a widget message goes into the composer instead of being sent', async ({
+  page,
+}, info) => {
+  const app = await openWidget(page);
+  const sent = await page.locator('[data-role=user]').count();
+  await app.getByRole('button', { name: 'Suggest message' }).click();
+  await expect(app.locator('#result')).toHaveText('Suggested');
+  await expect(page.getByRole('textbox', { name: 'Message', exact: true })).toHaveValue(
+    'Make it calmer',
+  );
+  await expect(page.locator('[data-role=user]')).toHaveCount(sent);
+  await page.screenshot({ path: info.outputPath('2-widget-message.png') });
+});

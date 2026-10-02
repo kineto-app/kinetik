@@ -87,6 +87,8 @@ export class RuntimeHost {
         new CompatModel(
           async () => (await store.get<CustomModel | null>(customModelKey)) ?? undefined,
         ),
+        async () => (chatgpt ? chatgpt.turnSettings() : {}),
+        async () => ({ model: (await store.get<CustomModel | null>(customModelKey))?.model }),
       ),
     );
     runtime.notify = async (alert) => {
@@ -261,6 +263,7 @@ export class RuntimeHost {
             string(data.id),
             string(data.name),
             data.input as Record<string, unknown>,
+            data.approved === true,
           );
           break;
         case 'create':

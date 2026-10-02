@@ -310,7 +310,7 @@ test('a request rejected right after provider compaction restores the input and 
   const input = (await modelInput(store, c.id))!;
   expect(input.some((i) => i.type === 'compaction')).toBe(false);
   expect(input[0]).toEqual({ role: 'user', content: 'One' });
-  expect(await store.get('no-server-compact:chatgpt')).toBe(true);
+  expect(await store.get('no-server-compact:chatgpt:')).toBe(true);
 });
 
 /** Runs `work` as a new worker would after the old one was killed: the dead one's locks are gone. */
@@ -330,9 +330,13 @@ test('a turn killed mid-tool finishes on the model it started with, even after a
   await store.put('model-choice', 'custom');
   const router = (claude: Model, chatgpt: Model) => {
     const model: Model = {
-      pin: () => store.get<string>('model-choice'),
+      pin: async () => ({
+        provider: (await store.get('model-choice')) === 'custom' ? 'custom' : 'chatgpt',
+      }),
       next: (request, signal) =>
-        request.pin === 'custom' ? claude.next(request, signal) : chatgpt.next(request, signal),
+        request.pin?.provider === 'custom'
+          ? claude.next(request, signal)
+          : chatgpt.next(request, signal),
     };
     return model;
   };

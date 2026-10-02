@@ -73,6 +73,7 @@ export type RuntimeEvent =
   | ({ type: 'progress'; conversationId: string } & LiveProgress);
 /** Segment `i` of generation `g` lives at `model-input:<conversation>:<g>:<i>`. */
 export type InputSegments = { generation: string; segments: number };
+export type TurnPin = { provider: 'chatgpt' | 'custom'; model?: string; effort?: string };
 export type RunStatus =
   | 'idle'
   | 'running'
@@ -115,8 +116,8 @@ export interface Conversation {
   workStartedAt?: number;
   /** A provider-side compaction not yet accepted by a request; undone if the next one fails. */
   serverCompaction?: { n: number; head: number };
-  /** `provider:model` this turn uses; meaningful while `workStartedAt` is set. */
-  turnModel?: string;
+  /** The model this turn uses; meaningful while `workStartedAt` is set. */
+  turnModel?: TurnPin;
   /**
    * Model input as Runtime.update sees it. It is stored in append-only segments under
    * `input`, so a step writes only its new items; older builds stored it inline here.
@@ -219,8 +220,8 @@ export interface ModelRequest {
   onText?: (text: string) => void;
   /** The model's reasoning summary so far, when the provider streams one. */
   onReasoning?: (text: string) => void;
-  /** The provider and model this turn uses, fixed when the turn starts (`provider:model`). */
-  pin?: string;
+  /** The model this turn uses, fixed when the turn starts. */
+  pin?: TurnPin;
 }
 export interface Usage {
   input: number;
@@ -248,11 +249,11 @@ export type ModelStep = (
 export interface Model {
   next(request: ModelRequest, signal: AbortSignal): Promise<ModelStep>;
   /** The provider and model a new turn should use, when there is a choice. */
-  pin?(): Promise<string | undefined>;
+  pin?(): Promise<TurnPin | undefined>;
   /** Provider-side compaction of older input into opaque items, when the provider has it. */
   compact?(
     input: Record<string, unknown>[],
-    pin: string | undefined,
+    pin: TurnPin | undefined,
     signal: AbortSignal,
   ): Promise<Record<string, unknown>[] | undefined>;
 }
@@ -268,3 +269,6 @@ export const message = (role: Message['role'], text: string, tool?: string): Mes
 
 export const addUsage = (a: Usage | undefined, b: Usage | undefined): Usage | undefined =>
   !a ? b : !b ? a : { input: a.input + b.input, output: a.output + b.output };
+
+export const needsApproval = (tool: ToolDefinition, input: Record<string, unknown>) =>
+  tool.approval === true || (typeof tool.approval === 'function' && tool.approval(input));

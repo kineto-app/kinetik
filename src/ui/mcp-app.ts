@@ -2,6 +2,7 @@ import { isNative } from '../platform/environment';
 import type { AppView } from '../core/types';
 import { rpc } from '../browser/client';
 import { icon } from './icons';
+import { jsonView } from './json-view';
 import './mcp-app.css';
 
 // MCP Apps standard style names, mapped to the same tokens as the chat.
@@ -105,6 +106,36 @@ export function mountApp(
   const notify = (method: string, params: unknown) => send({ jsonrpc: '2.0', method, params });
   let ready = false;
   let busy = false;
+  const approve = (name: string, input: unknown) =>
+    new Promise<boolean>((resolve) => {
+      const card = document.createElement('div');
+      card.className = 'ask-card app-approval';
+      card.setAttribute('role', 'group');
+      card.setAttribute('aria-label', 'App action approval');
+      const question = document.createElement('p');
+      question.className = 'ask-question';
+      question.textContent = `Allow this app to run “${name}”?`;
+      const details = document.createElement('div');
+      details.className = 'ask-details';
+      details.append(jsonView(input));
+      const actions = document.createElement('div');
+      actions.className = 'ask-actions';
+      const choice = (label: string, value: boolean) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = value ? 'primary' : 'secondary';
+        button.textContent = label;
+        button.onclick = () => {
+          card.remove();
+          resolve(value);
+        };
+        return button;
+      };
+      actions.append(choice('Decline', false), choice('Approve', true));
+      card.append(question, details, actions);
+      panel.append(card);
+      actions.querySelector<HTMLButtonElement>('.primary')?.focus({ preventScroll: true });
+    });
   const context = () => ({
     ...hostStyles(),
     displayMode: mode,
@@ -203,14 +234,16 @@ export function mountApp(
       if (data.method === 'tools/call') {
         if (busy) throw new Error('Wait for the active app request.');
         busy = true;
+        const call = { id: view.id, name: data.params?.name, input: data.params?.arguments ?? {} };
         try {
-          reply(
-            await rpc('appCall', {
-              id: view.id,
-              name: data.params?.name,
-              input: data.params?.arguments ?? {},
-            }),
-          );
+          try {
+            reply(await rpc('appCall', call));
+          } catch (error) {
+            if (!String((error as Error).message).startsWith('Approval required')) throw error;
+            if (!(await approve(String(call.name), call.input)))
+              throw new Error('The user declined this action.');
+            reply(await rpc('appCall', { ...call, approved: true }));
+          }
         } finally {
           busy = false;
         }
@@ -223,7 +256,10 @@ export function mountApp(
           .filter((item: { type: string }) => item.type === 'text')
           .map((item: { text: string }) => item.text)
           .join('\n');
-        await rpc('submit', { id: conversationId, text });
+        // A widget suggests; the user decides whether to send.
+        window.dispatchEvent(
+          new CustomEvent('kinetik-compose', { detail: { conversationId, text } }),
+        );
         reply({});
         return;
       }

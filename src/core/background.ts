@@ -1,7 +1,13 @@
 import Ajv from 'ajv';
 import { isConnectionError, SignInRequired } from './connection-error';
 import { Store } from '../browser/store';
-import { errorText, type Binding, type Conversation, type InstalledPlugin } from './types';
+import {
+  errorText,
+  needsApproval,
+  type Binding,
+  type Conversation,
+  type InstalledPlugin,
+} from './types';
 
 export interface BackgroundProcess {
   id: string;
@@ -104,9 +110,14 @@ export class BackgroundProcesses {
               error: 'Tool is unavailable for background execution.',
               availableTools,
             };
-          const args = input.input ?? {};
+          const args = (input.input ?? {}) as Record<string, unknown>;
           if (!new Ajv({ strict: false }).compile(binding.tool.inputSchema)(args))
             return { started: false, error: 'Invalid background tool arguments.' };
+          if (needsApproval(binding.tool, args))
+            return {
+              started: false,
+              error: 'This tool needs your approval. Call it directly, not in the background.',
+            };
           if (
             (await this.list(conversationId)).filter((job) =>
               ['running', 'waiting'].includes(job.state),

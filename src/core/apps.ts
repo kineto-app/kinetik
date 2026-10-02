@@ -3,7 +3,7 @@ import type { Plugins } from '../plugins/loader';
 import type { ConversationStore } from './conversation-store';
 import { printable } from './model-input';
 import { toolOutcome } from './tool-outcome';
-import { message, type InstalledPlugin } from './types';
+import { message, needsApproval, type InstalledPlugin } from './types';
 
 /** Tool calls made by MCP App widgets, journaled like the agent's own calls. */
 export class AppCalls {
@@ -16,7 +16,12 @@ export class AppCalls {
   running(key: string) {
     return this.active.has(key);
   }
-  async call(id: string, name: string, input: Record<string, unknown>): Promise<unknown> {
+  async call(
+    id: string,
+    name: string,
+    input: Record<string, unknown>,
+    approved = false,
+  ): Promise<unknown> {
     const record = await this.store.get<{
       plugins: InstalledPlugin[];
       tool: string;
@@ -40,6 +45,9 @@ export class AppCalls {
     );
     const tool = snapshot.bindings[record.tool]?.tool;
     if (!tool?.app) throw new Error('App tool unavailable.');
+    const target = snapshot.bindings[`${record.provider}__${name}`]?.tool;
+    if (target && needsApproval(target, input) && !approved)
+      throw new Error('Approval required: ' + name);
     const callId = crypto.randomUUID();
     this.active.add('app-call:' + callId);
     try {

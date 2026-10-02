@@ -1,4 +1,4 @@
-import type { Model, ModelRequest, ModelStep, Usage } from '../core/types';
+import type { Model, ModelRequest, ModelStep, TurnPin, Usage } from '../core/types';
 import { ConnectionError, ContextOverflow, SignInRequired } from '../core/connection-error';
 
 export async function toolName(name: string): Promise<string> {
@@ -188,7 +188,7 @@ export class OpenAIModel implements Model {
       signal: AbortSignal,
     ) => Promise<Record<string, unknown>[]>,
   ) {}
-  async compact(input: Record<string, unknown>[], _pin: string | undefined, signal: AbortSignal) {
+  async compact(input: Record<string, unknown>[], _pin: TurnPin | undefined, signal: AbortSignal) {
     if (!this.compactor) return undefined;
     const config = await this.configuration();
     return this.compactor(config.account, input, signal);
@@ -218,6 +218,7 @@ export class OpenAIModel implements Model {
       headers: { 'Content-Type': 'application/json', 'X-Kinetik-Request': '1' },
       body: JSON.stringify({
         account: config.account,
+        pin: request.pin && { model: request.pin.model, effort: request.pin.effort },
         request: {
           model: config.model,
           instructions: request.instructions,
