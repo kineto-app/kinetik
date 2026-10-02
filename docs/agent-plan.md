@@ -1,6 +1,6 @@
 # Agent runtime plan
 
-Status: **built, not merged** (2026-10-02). Every item below is implemented and tested against the mock model and fixtures in #28 (Phase 1), #29 (Phase 2), #30 (Phase 3) and #31 (the "Later" items and server-side compaction), stacked in that order. Real ChatGPT, Claude and Gemini behaviour is not yet checked by hand. The relay change it relies on is kineto-app/kineto#5128.
+Status: **built, not merged** (2026-10-02). Every item below is implemented and tested against the mock model and fixtures in #28 (Phase 1), #29 (Phase 2), #30 (Phase 3) and #31 (the "Later" items and server-side compaction), stacked in that order. Real ChatGPT behaviour, and a real OpenAI-compatible server, are not yet checked by hand. The relay change it relies on is kineto-app/kineto#5128.
 
 ## Goal
 
@@ -19,23 +19,23 @@ What we take from others: pi's compaction algorithm, follow-up queue semantics, 
 
 ## What we have and what is missing
 
-| Area                                                                     | Status                                                                  |
-| ------------------------------------------------------------------------ | ----------------------------------------------------------------------- |
-| Agent loop, tool calls, schema validation (Ajv), abort                   | have                                                                    |
-| Steering mid-turn, persisted; stale responses dropped                    | have, stronger than pi                                                  |
-| Crash-safe resume mid-tool, no blind replay, review of uncertain effects | have, beyond pi                                                         |
-| Background jobs that wake the conversation, routines                     | have                                                                    |
-| Plugins, MCP over HTTP, MCP Apps widgets, native skills                  | have                                                                    |
-| Transport retry with backoff                                             | have                                                                    |
-| Token usage and context-window awareness                                 | built (1.1, #28)                                                        |
-| Compaction                                                               | built: ChatGPT compaction first, local summary fallback (1.2, #28, #31) |
-| Overflow recovery                                                        | built (1.3, #28)                                                        |
-| Recoverable errors returned to the model                                 | built (1.4, #28)                                                        |
-| Follow-up queue (run after the turn ends)                                | built (2.2, #29)                                                        |
-| Image input to the model                                                 | built, newest 8 photos within 4 MB per request (2.1, #29, #30)          |
-| Structured progress events                                               | built: text, reasoning, step, tool, summarising (3.1, #30)              |
-| Memory across chats, approvals before risky actions, choice questions    | built (2.4–2.6, #29)                                                    |
-| Multiple providers, parallel tools, sub-agents                           | built: Claude and Gemini via pi-ai, parallel reads, `delegate` (#31)    |
+| Area                                                                     | Status                                                                      |
+| ------------------------------------------------------------------------ | --------------------------------------------------------------------------- |
+| Agent loop, tool calls, schema validation (Ajv), abort                   | have                                                                        |
+| Steering mid-turn, persisted; stale responses dropped                    | have, stronger than pi                                                      |
+| Crash-safe resume mid-tool, no blind replay, review of uncertain effects | have, beyond pi                                                             |
+| Background jobs that wake the conversation, routines                     | have                                                                        |
+| Plugins, MCP over HTTP, MCP Apps widgets, native skills                  | have                                                                        |
+| Transport retry with backoff                                             | have                                                                        |
+| Token usage and context-window awareness                                 | built (1.1, #28)                                                            |
+| Compaction                                                               | built: ChatGPT compaction first, local summary fallback (1.2, #28, #31)     |
+| Overflow recovery                                                        | built (1.3, #28)                                                            |
+| Recoverable errors returned to the model                                 | built (1.4, #28)                                                            |
+| Follow-up queue (run after the turn ends)                                | built (2.2, #29)                                                            |
+| Image input to the model                                                 | built, newest 8 photos within 4 MB per request (2.1, #29, #30)              |
+| Structured progress events                                               | built: text, reasoning, step, tool, summarising (3.1, #30)                  |
+| Memory across chats, approvals before risky actions, choice questions    | built (2.4–2.6, #29)                                                        |
+| Multiple providers, parallel tools, sub-agents                           | built: one hidden OpenAI-compatible model, parallel reads, `delegate` (#31) |
 
 ## Plan
 
@@ -95,7 +95,7 @@ Each item ships as its own PR with tests. Sizes are rough working days.
 
 ### Later, only if needed
 
-All built in #31 except pi-durable, which was re-evaluated and not adopted (see below).
+All built in #31 except pi-durable, which was re-evaluated and not adopted (see below). More providers were narrowed by decision on 2026-10-02: ChatGPT sign-in stays the main path, and Claude and Gemini through pi-ai (built, then removed) gave way to one OpenAI-compatible model under Settings → ChatGPT → Advanced, through Kinetik's own small Chat Completions adapter rather than pi-ai.
 
 - More providers (Claude, Gemini) through pi-ai behind our `Model` interface. Needs provider-neutral stored history; only local-summary compaction works across providers.
 - Running several read-only tools at once.
@@ -119,4 +119,4 @@ Not adopted. `@earendil-works/pi-durable` 1.0.0 (2026-10-01) still opens its REA
 - Can older reasoning items be dropped safely when replaying the tail? Not needed so far: summaries keep the tail verbatim, and only other providers skip OpenAI's encrypted reasoning.
 - Which Charms tools should be marked as needing approval (2.5), and who maintains that list? Open. Approval follows the MCP `destructiveHint` annotation; whether Charms sets it on `files_delete` and publishing tools is unchecked.
 - New: the Kineto relay hid every upstream error body, so overflow reported as an HTTP 400 was not recognised. kineto-app/kineto#5128 passes back an allowlisted `error.code` and relays `/responses/compact`.
-- New: pi-ai adds about 670 KB to the web worker bundle (`sw.js` 1.53 → 2.19 MB); the apps load provider code only when used.
+- New: pi-ai would have added about 670 KB to the web worker bundle and 1.29 MB to the web precache; that is one reason the custom model uses a small adapter of our own instead.
