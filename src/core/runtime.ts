@@ -40,6 +40,7 @@ import {
   needsApproval,
   type Ask,
   type ToolCall,
+  type RunStatus,
 } from './types';
 
 const maxSteps = 60;
@@ -47,6 +48,20 @@ const maxSteps = 60;
 const steering = (c: Conversation | undefined) =>
   (c?.pending ?? []).filter((id) => c!.messages.find((m) => m.id === id)?.queue !== 'after');
 const repeatLimit = 3;
+/** Clears what belongs to one turn. Pinned plugins stay until the chat goes idle. */
+const endTurn = (c: Conversation, status: RunStatus): Conversation => ({
+  ...c,
+  status,
+  turn: undefined,
+  activeMessage: undefined,
+  call: undefined,
+  workStartedAt: undefined,
+  turnModel: undefined,
+  turnUsage: undefined,
+  retryAt: undefined,
+  retryAttempts: undefined,
+  waitingFor: undefined,
+});
 type ToolStep = Extract<ModelStep, { type: 'tool' }>;
 type ToolTurn = {
   id: string;
@@ -269,7 +284,6 @@ export class Runtime {
         ...value,
         plugins: pinned,
         status: value.status === 'stopped' ? value.status : 'running',
-        // A turn keeps the provider and model it started with, even if the user switches.
         turnModel: value.workStartedAt === undefined ? choice : value.turnModel,
         workStartedAt: value.workStartedAt ?? Date.now(),
         waitingFor: undefined,
@@ -298,14 +312,13 @@ export class Runtime {
         if (!c.activeMessage || c.pending.length) {
           if (!c.pending.length) {
             await this.chats.update(id, (value) => ({
-              ...value,
-              status: 'idle',
+              ...endTurn(value, 'idle'),
               plugins: undefined,
-              workStartedAt: undefined,
             }));
             break;
           }
           const images = await this.attachments.images(c);
+          const current = await this.model.pin?.();
           c = await this.chats.update(id, (value) => {
             // Steering joins now; a queued follow-up waits until no steering is left, one at a time.
             const steer = steering(value);
@@ -332,6 +345,8 @@ export class Runtime {
               ...value,
               activeMessage: taken.at(-1),
               workStartedAt: value.workStartedAt ?? Date.now(),
+              // A turn keeps the provider and model it started with, even if the user switches.
+              turnModel: value.turnModel ?? current,
               turn:
                 value.turn === 'foreground' ||
                 taken.some((id) => value.messages.find((m) => m.id === id)?.role === 'user')
@@ -465,7 +480,7 @@ export class Runtime {
           }
           if (output.type === 'text') {
             await this.chats.update(id, (value) => ({
-              ...value,
+              ...endTurn(value, value.status),
               messages: [
                 ...value.messages,
                 {
@@ -477,14 +492,7 @@ export class Runtime {
                   usage: value.turnUsage,
                 },
               ],
-              workStartedAt: undefined,
-              turnUsage: undefined,
-              retryAt: undefined,
-              retryAttempts: undefined,
-              turn: undefined,
               modelInput: [...(value.modelInput ?? []), ...(output.items ?? [])],
-              activeMessage: undefined,
-              call: undefined,
               updatedAt: Date.now(),
             }));
             if (!backgroundTurn || output.text)
@@ -564,12 +572,7 @@ export class Runtime {
         return;
       }
       await this.chats.update(id, (c) => ({
-        ...c,
-        status: 'stopped',
-        workStartedAt: undefined,
-        turn: undefined,
-        activeMessage: undefined,
-        call: undefined,
+        ...endTurn(c, 'stopped'),
         plugins: undefined,
         messages: [
           ...c.messages,
