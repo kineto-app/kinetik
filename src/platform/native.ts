@@ -52,9 +52,10 @@ async function boot() {
     });
   };
   await host.initialize();
+  // Opening the tapped chat is a convenience; the app works without it.
   await addPluginListener('native', 'open-chat', ({ id }: { id: string }) =>
     window.dispatchEvent(new CustomEvent('kinetik-open-chat', { detail: id })),
-  );
+  ).catch(() => {});
   if (/Android/i.test(navigator.userAgent))
     await addPluginListener('native', 'background-stop', async () => {
       const jobs = await host.store.entries<{ conversationId: string; state: string }>(

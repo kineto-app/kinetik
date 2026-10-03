@@ -116,11 +116,13 @@ While the agent works, the clock button next to Stop sends your message **after*
 
 Kinetik acts without asking: tools, widget actions and memory saves run straight away, including an MCP tool a server marks `destructiveHint: true`. The agent can still stop and ask for information. The local `ask` tool shows a question with two to six answer buttons. The chat status reads "Waiting for your answer", a restart keeps the question, and sending a new message instead tells the agent the question went unanswered.
 
-**Settings → Memory** holds short notes about you — at most 4000 characters — that every chat reads first. The agent saves a new version with the `remember` tool, and the chat shows "Saved to memory"; you can change or clear it there at any time.
+**Settings → Memory** holds short notes about you — at most 4000 characters — that every chat reads first. The agent saves a new version with the `remember` tool, and a toast says "Saved to your memory · Undo". The page shows who changed it last and where, and can undo that change; you can edit or clear it at any time.
 
-On Android the window ends at the keyboard, so the composer stays visible while you type. After **Later**, or once a custom model is set up, setup no longer opens by itself on each launch; the connection button still opens it.
+Deleting a chat does not ask: it disappears with "Deleted · Undo" for 8 seconds, then is removed. Failed work reads in plain words with **Try again**; the original error waits under **Details**.
 
-**Settings → Notify me when work finishes** asks for notification permission and then shows a system notification when a reply is ready or the agent asks a question, but only when no Kinetik window is in front. The web app shows it from the service worker; the Android app uses a native notification. iOS and desktop do not notify yet.
+On Android the window ends at the keyboard and follows its animation, so the composer stays visible while you type. After **Later**, or once a custom model is set up, setup no longer opens by itself on each launch; the connection button still opens it.
+
+**Notifications.** When a chat you are not looking at finishes, asks a question or needs a look, a toast says so with **Open**, and the chat gets a dot in the list until you open it. **Settings → Notify me when work finishes** adds system notifications when no Kinetik window is in front; Kinetik also offers this once, after the first task that took over 15 seconds. Tapping a notification opens its chat. The web app shows them from the service worker; the Android app uses a native notification. iOS and desktop do not notify yet.
 
 ## Plugins and skills
 

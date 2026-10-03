@@ -70,6 +70,7 @@ const [customModel, setCustomModel] = createSignal<{ configured: boolean; chosen
 async function refreshCustomModel() {
   const result = await rpc<CustomModelState>('customModel', { action: 'state' });
   setCustomModel({ configured: result.configured, chosen: result.chosen });
+  updateConnectionStatus();
   // The empty chat's ChatGPT hint depends on the choice.
   if (!current()?.messages.length) lastMessages = '';
   render();
@@ -167,7 +168,7 @@ function button(
   });
   return result;
 }
-function choose(id: string) {
+function choose(id: string, focus = true) {
   markRead(id);
   selected = id;
   uiStorage.setItem('kinetik-conversation', id);
@@ -175,7 +176,8 @@ function choose(id: string) {
   // Only the open chat carries its messages, so a newly opened one is fetched before it shows.
   void refresh().catch(showError);
   closeDrawer(false);
-  byId('prompt').focus();
+  // Opened from a notification, the chat is for reading; the keyboard would hide it.
+  if (focus) byId('prompt').focus();
 }
 const [view, setView] = createSignal({ state, selected });
 /** Chats that finished or asked something while another chat was open. */
@@ -219,7 +221,7 @@ function noticeFinished(before: Conversation[], after: Conversation[]) {
         key: 'chat:' + c.id,
         text: `“${c.title}” ${verb}`,
         ms: 8000,
-        action: { label: 'Open', run: () => choose(c.id) },
+        action: { label: 'Open', run: () => choose(c.id, false) },
       });
     } else if (c.status === 'idle' && since !== undefined && Date.now() - since > 15000)
       void offerNotifications();
@@ -244,7 +246,10 @@ async function offerNotifications() {
 }
 window.addEventListener('kinetik-open-chat', (event) => {
   const id = (event as CustomEvent<string>).detail;
-  if (state.conversations.some((c) => c.id === id)) choose(id);
+  if (!state.conversations.some((c) => c.id === id)) return;
+  // The composer may still hold focus from before the app was left; the keyboard would cover the reply.
+  (document.activeElement as HTMLElement | null)?.blur();
+  choose(id, false);
 });
 renderSolid(
   () =>
@@ -904,19 +909,7 @@ const connectionSetup = setupConnections((value) => {
     model: value.chatgpt.model ?? '',
   });
   if (becameConnected) void resumeWork();
-  const configured = value.charms.available || value.chatgpt.available;
-  const attention =
-    (value.chatgpt.available && !value.chatgpt.connected) || value.charms.status === 'reconnect';
-  byId('connection-status').hidden = !attention;
-  byId('connections-dot').dataset.attention = String(attention);
-  const connected = [
-    value.chatgpt.connected ? 'ChatGPT' : '',
-    value.charms.status === 'connected' ? 'Charms' : '',
-  ].filter(Boolean);
-  byId('connections-dot').hidden = !attention && !connected.length;
-  byId('connections-summary').textContent = attention
-    ? 'Needs attention'
-    : connected.join(' · ') || (configured ? 'Not connected' : 'Manage services');
+  updateConnectionStatus();
   byId('connection-status').innerHTML =
     icon('plug') +
     `<span>${value.chatgpt.available && !value.chatgpt.connected ? 'Connect' : 'Reconnect'}</span>`;
@@ -935,6 +928,25 @@ byId('install-open').onclick = () => {
   closeDrawer(false);
   connectionSetup.install();
 };
+/** What needs connecting, in the header and the drawer; a chosen custom model needs no ChatGPT. */
+function updateConnectionStatus() {
+  const value = connectionState;
+  if (!value) return;
+  const attention =
+    (value.chatgpt.available && !value.chatgpt.connected && !customModel().chosen) ||
+    value.charms.status === 'reconnect';
+  byId('connection-status').hidden = !attention;
+  byId('connections-dot').dataset.attention = String(attention);
+  const connected = [
+    value.chatgpt.connected ? 'ChatGPT' : customModel().chosen ? 'Custom model' : '',
+    value.charms.status === 'connected' ? 'Charms' : '',
+  ].filter(Boolean);
+  byId('connections-dot').hidden = !attention && !connected.length;
+  byId('connections-summary').textContent = attention
+    ? 'Needs attention'
+    : connected.join(' · ') ||
+      (value.charms.available || value.chatgpt.available ? 'Not connected' : 'Manage services');
+}
 function openSetup() {
   for (const dialog of document.querySelectorAll<HTMLDialogElement>('dialog:modal')) dialog.close();
   connectionSetup.open();

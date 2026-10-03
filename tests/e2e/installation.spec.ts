@@ -94,6 +94,8 @@ test('with a custom model set up, setup does not open by itself on the next laun
   await page.reload();
   await expect(page.locator('#composer')).toBeVisible();
   await expect(page.locator('#connection-setup')).toBeHidden();
+  // Chatting needs no ChatGPT now, so nothing asks to connect it.
+  await expect(page.locator('#connection-status')).toBeHidden();
   await page.screenshot({ path: info.outputPath('custom-model-reload.png') });
 });
 
