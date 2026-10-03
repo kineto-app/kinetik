@@ -120,7 +120,10 @@ for (const relay of [false, true]) {
         expect(body.store).toBe(false);
         expect(body.stream).toBe(true);
         expect(body.model).toBe(requests === 1 ? 'gpt-6.1-sol' : 'test-model');
-        expect(body.reasoning).toEqual({ effort: requests === 1 ? 'medium' : 'high' });
+        expect(body.reasoning).toEqual({
+          effort: requests === 1 ? 'medium' : 'high',
+          summary: 'auto',
+        });
         await route.fulfill({
           contentType: 'text/event-stream',
           body:

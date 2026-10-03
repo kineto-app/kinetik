@@ -393,7 +393,7 @@ details[open] > summary > .activity-chevron {
 .tool-group-steps {
   margin: 2px 0 0 13px;
   padding-left: var(--space-inline);
-  border-left: 2px solid var(--line);
+  border-left: 2px solid var(--control-line);
 }
 .tool-group .tool-details {
   border: 0;
@@ -681,4 +681,32 @@ dialog::backdrop,
 .ask-actions button {
   min-height: var(--target);
   padding-inline: var(--space-section);
+}
+
+.thinking-note {
+  margin: 4px 0 12px;
+  padding: 2px 0 2px 14px;
+  border-left: 2px solid var(--control-line);
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.45;
+}
+.thinking-heading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink);
+  font-weight: 600;
+}
+.thinking-heading svg {
+  width: 14px;
+  height: 14px;
+  color: var(--accent);
+}
+.thinking-note p {
+  margin: 4px 0 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }

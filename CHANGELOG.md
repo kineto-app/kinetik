@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Show a live reasoning summary while the model thinks and the step number in the activity line. Push streamed text, reasoning and progress to the open window as events instead of reloading all state per word. Store model input in append-only segments so a step saves only what it added.
+
 - Send attached photos to the model as images. Queue a message to run after the current work. Let the agent ask a question with answer buttons, ask for approval before an MCP action marked destructive, and propose memory you confirm; memory is editable in Settings and read by every chat. Notify on finished work or a question while the app is in the background (web and Android).
 
 - Show token usage per reply; summarise earlier messages automatically near the context limit, on `/compact`, and once after a context overflow. Return errors from calls that changed nothing to the agent instead of stopping. Raise the step limit to 60 with a guard against repeated identical calls.

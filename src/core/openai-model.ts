@@ -17,6 +17,7 @@ export async function readResponse(
   response: Response,
   onText?: (text: string) => void,
   meta: { usage?: Usage } = {},
+  onReasoning?: (text: string) => void,
 ): Promise<Record<string, unknown>[]> {
   if (!response.ok) {
     if ([401, 403].includes(response.status))
@@ -37,6 +38,7 @@ export async function readResponse(
   const finished = new Map<number, Record<string, unknown>>();
   let buffer = '',
     text = '',
+    reasoning = '',
     size = 0;
   try {
     while (true) {
@@ -70,6 +72,12 @@ export async function readResponse(
           started.add(event.output_index);
           if (event.type === 'response.output_item.done')
             finished.set(event.output_index, event.item);
+        }
+        if (event.type === 'response.reasoning_summary_part.added' && reasoning)
+          reasoning += '\n\n';
+        if (event.type === 'response.reasoning_summary_text.delta') {
+          reasoning += event.delta;
+          onReasoning?.(reasoning);
         }
         if (event.type === 'response.output_text.delta') {
           text += event.delta;
@@ -129,6 +137,41 @@ function withoutImages(history: Record<string, unknown>[] | undefined) {
   );
 }
 
+/**
+ * Every request resends the whole history, and the relay caps a body at 8 MB. Only the newest
+ * photos within this budget go as images; older ones become a note, and the model keeps their paths.
+ */
+const imageBudget = { count: 8, bytes: 4 * 1024 * 1024 };
+export function latestImages(history: Record<string, unknown>[] | undefined) {
+  let count = 0;
+  let bytes = 0;
+  const keep = new Set<unknown>();
+  for (const item of [...(history ?? [])].reverse())
+    for (const part of [...(Array.isArray(item.content) ? item.content : [])].reverse()) {
+      if (part?.type !== 'input_image') continue;
+      const size = String(part.image_url ?? '').length;
+      if (count < imageBudget.count && bytes + size <= imageBudget.bytes) keep.add(part);
+      count++;
+      bytes += size;
+    }
+  if (keep.size === count) return history;
+  return history?.map((item) =>
+    Array.isArray(item.content)
+      ? {
+          ...item,
+          content: item.content.map((part: { type?: string }) =>
+            part.type === 'input_image' && !keep.has(part)
+              ? {
+                  type: 'input_text',
+                  text: '[An earlier photo is no longer shown to keep the request small. Its file path is listed in this message.]',
+                }
+              : part,
+          ),
+        }
+      : item,
+  );
+}
+
 export class OpenAIModel implements Model {
   constructor(
     private endpoint: string,
@@ -171,7 +214,7 @@ export class OpenAIModel implements Model {
           input:
             config.images === false
               ? withoutImages(request.history)
-              : (request.history ?? [{ role: 'user', content: request.message }]),
+              : (latestImages(request.history) ?? [{ role: 'user', content: request.message }]),
           tools: tools.length
             ? [{ type: 'namespace', name: 'kinetik', description: 'Kinetik agent tools', tools }]
             : [],
@@ -183,7 +226,7 @@ export class OpenAIModel implements Model {
       }),
     });
     const meta: { usage?: Usage } = {};
-    const items = await readResponse(response, request.onText, meta);
+    const items = await readResponse(response, request.onText, meta, request.onReasoning);
     const extra = { usage: meta.usage, contextWindow: config.contextWindow };
     const text = items
       .filter((item) => item.type === 'message')

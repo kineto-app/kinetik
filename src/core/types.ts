@@ -55,6 +55,22 @@ export type Ask =
   | { kind: 'approval'; question: string }
   | { kind: 'choice'; question: string; options: string[] }
   | { kind: 'memory'; question: string; text: string };
+export type LiveProgress = {
+  step: number;
+  tool?: string;
+  reasoning?: string;
+  activity?: 'summarising';
+};
+/**
+ * Pushed to open windows as hints. A window applies text and progress itself and reloads
+ * state for anything else; persisted changes always arrive as a plain change.
+ */
+export type RuntimeEvent =
+  | { type: 'text'; conversationId: string; text: string }
+  | { type: 'reasoning'; conversationId: string; text: string }
+  | ({ type: 'progress'; conversationId: string } & LiveProgress);
+/** Segment `i` of generation `g` lives at `model-input:<conversation>:<g>:<i>`. */
+export type InputSegments = { generation: string; segments: number };
 export type RunStatus =
   | 'idle'
   | 'running'
@@ -95,7 +111,12 @@ export interface Conversation {
   updatedAt: number;
   /** Persisted across steering and recovery; cleared when this turn ends. */
   workStartedAt?: number;
+  /**
+   * Model input as Runtime.update sees it. It is stored in append-only segments under
+   * `input`, so a step writes only its new items; older builds stored it inline here.
+   */
   modelInput?: Record<string, unknown>[];
+  input?: InputSegments;
   /** Input tokens of the latest model request and the model's usable context. */
   context?: { tokens: number; window: number };
   /** Number of earlier model-input segments archived by compaction. */
@@ -103,6 +124,8 @@ export interface Conversation {
   /** Tokens used so far by the running turn. */
   turnUsage?: Usage;
   draft?: string;
+  /** In-memory progress of the running turn, served with state so a reload shows it. */
+  live?: LiveProgress;
 }
 export interface Skill {
   name: string;
@@ -188,6 +211,8 @@ export interface ModelRequest {
   history?: Record<string, unknown>[];
   definitions?: Record<string, Pick<ToolDefinition, 'description' | 'inputSchema'>>;
   onText?: (text: string) => void;
+  /** The model's reasoning summary so far, when the provider streams one. */
+  onReasoning?: (text: string) => void;
 }
 export interface Usage {
   input: number;

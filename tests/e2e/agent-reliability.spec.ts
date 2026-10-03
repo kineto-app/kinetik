@@ -45,6 +45,8 @@ test('usage, self-correction, automatic summaries and overflow recovery', async 
   await send(page, 'Fill the context');
   await expect(replies(page).last()).toContainText('long document');
   await send(page, 'What did we plan?');
+  await expect(page.locator('#activity-label')).toHaveText('Summarising earlier messages…');
+  await shot('3a-summarising');
   await expect(page.locator('.compaction-note')).toHaveCount(1);
   await expect(page.locator('.compaction-note')).toContainText('Earlier messages summarised');
   await expect(replies(page).last()).toContainText('I still remember');
