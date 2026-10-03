@@ -1,7 +1,7 @@
 import type { Model, ModelRequest, ModelStep, Usage } from './types';
 import { ConnectionError, ContextOverflow, SignInRequired } from './connection-error';
 
-async function toolName(name: string): Promise<string> {
+export async function toolName(name: string): Promise<string> {
   const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(name));
   const suffix = [...new Uint8Array(bytes)]
     .slice(0, 10)
@@ -10,7 +10,7 @@ async function toolName(name: string): Promise<string> {
   return name.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 30) + '_' + suffix;
 }
 /** OpenAI-compatible streaming response parser. Success requires the terminal event. */
-const overflow = (code: unknown, text: unknown) =>
+export const overflow = (code: unknown, text: unknown) =>
   code === 'context_length_exceeded' ||
   /context (window|length)|maximum context|too many (input )?tokens/i.test(String(text ?? ''));
 export async function readResponse(
@@ -119,7 +119,7 @@ export async function readResponse(
 }
 
 /** Models without image input get a note in place of each photo instead of a rejected request. */
-function withoutImages(history: Record<string, unknown>[] | undefined) {
+export function withoutImages(history: Record<string, unknown>[] | undefined) {
   return history?.map((item) =>
     Array.isArray(item.content)
       ? {
@@ -182,7 +182,17 @@ export class OpenAIModel implements Model {
       images?: boolean;
     }>,
     private request: typeof fetch = fetch.bind(globalThis),
+    private compactor?: (
+      account: string,
+      input: Record<string, unknown>[],
+      signal: AbortSignal,
+    ) => Promise<Record<string, unknown>[]>,
   ) {}
+  async compact(input: Record<string, unknown>[], _pin: string | undefined, signal: AbortSignal) {
+    if (!this.compactor) return undefined;
+    const config = await this.configuration();
+    return this.compactor(config.account, input, signal);
+  }
   async next(request: ModelRequest, signal: AbortSignal): Promise<ModelStep> {
     const config = await this.configuration();
     if (!config.account || !config.model)
@@ -218,7 +228,7 @@ export class OpenAIModel implements Model {
           tools: tools.length
             ? [{ type: 'namespace', name: 'kinetik', description: 'Kinetik agent tools', tools }]
             : [],
-          parallel_tool_calls: false,
+          parallel_tool_calls: true,
           include: ['reasoning.encrypted_content'],
           store: false,
           stream: true,
@@ -234,10 +244,23 @@ export class OpenAIModel implements Model {
       .map((part) => part.text ?? '')
       .join('');
     const calls = items.filter((item) => item.type === 'function_call');
+    const decode = (call: Record<string, unknown>) => {
+      const name = names.get(String(call.name));
+      if (!name || typeof call.call_id !== 'string' || typeof call.arguments !== 'string')
+        throw new Error('Model returned an unknown tool call.');
+      const input = JSON.parse(call.arguments);
+      if (!input || typeof input !== 'object' || Array.isArray(input))
+        throw new Error('Invalid tool arguments.');
+      return { name, input, callId: call.call_id };
+    };
     if (calls.length > 1)
-      throw new Error(
-        'Model returned parallel calls despite parallel_tool_calls=false. No tool was executed.',
-      );
+      return {
+        type: 'tools',
+        calls: calls.map(decode),
+        narration: text || undefined,
+        items,
+        ...extra,
+      };
     if (calls.length) {
       const call = calls[0];
       const name = names.get(String(call.name));

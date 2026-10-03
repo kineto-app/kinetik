@@ -517,6 +517,28 @@ export class BrowserChatGPT {
     if (retried.ok) await this.store.put(summaryOff, true);
     return retried;
   }
+  /** Provider-side compaction of older input; returns the compacted items. */
+  async compact(body: { account: string; input: Record<string, unknown>[] }, signal: AbortSignal) {
+    const session = await this.access(body.account, signal);
+    const response = await this.request(
+      this.modelRelay ? this.modelRelay + 'compact' : resource + '/responses/compact',
+      {
+        method: 'POST',
+        credentials: 'omit',
+        redirect: 'error',
+        signal,
+        headers: { Authorization: 'Bearer ' + session.access, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: session.model, input: body.input }),
+      },
+    );
+    if (!response.ok) {
+      await response.body?.cancel();
+      throw new Error(`Compaction failed: HTTP ${response.status}`);
+    }
+    const result = (await response.json()) as { output?: unknown };
+    if (!Array.isArray(result.output)) throw new Error('Compaction returned no output.');
+    return result.output as Record<string, unknown>[];
+  }
   async logout() {
     return navigator.locks.request('kinetik-chatgpt', async () => {
       const session = await this.storedSession();

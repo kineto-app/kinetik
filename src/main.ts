@@ -25,6 +25,7 @@ import { setupFiles } from './ui/files';
 import { setupUpdates } from './browser/updates';
 import { connect, rpc } from './browser/client';
 import type { Conversation, InstalledPlugin, RuntimeEvent } from './core/types';
+import type { CustomModelState } from './core/model-router';
 import { setupConnections } from './ui/onboarding';
 import {
   setSettingsActions,
@@ -54,17 +55,47 @@ setupViewport();
 const byId = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 let state: State = { conversations: [], plugins: [], automations: [], background: [] };
 let connectionState: SetupState | undefined;
-const [modelState, setModelState] = createSignal({ enabled: false, model: '' });
+const [modelState, setModelState] = createSignal({ chatgpt: false, hostChatgpt: false, model: '' });
+/** The hidden OpenAI-compatible model from Settings → ChatGPT → Advanced. */
+const [customModel, setCustomModel] = createSignal<{ configured: boolean; chosen: boolean }>({
+  configured: false,
+  chosen: false,
+});
+async function refreshCustomModel() {
+  const result = await rpc<CustomModelState>('customModel', { action: 'state' });
+  setCustomModel({ configured: result.configured, chosen: result.chosen });
+  // The empty chat's ChatGPT hint depends on the choice.
+  if (!current()?.messages.length) lastMessages = '';
+  render();
+}
+window.addEventListener('kinetik-custom-model', () => {
+  void refreshCustomModel().catch(showError);
+  // A turn waiting for a key continues once one is saved.
+  void resumeWork();
+});
+/** The turn runs on the custom model, which uses an API key instead of a sign-in. */
+function apiKeyTurn(c: Conversation) {
+  return c.turnModel === 'custom';
+}
 renderSolid(
   () =>
     ModelPicker({
       get enabled() {
-        return modelState().enabled;
+        return modelState().chatgpt || customModel().configured;
+      },
+      get chatgpt() {
+        return modelState().chatgpt;
+      },
+      get hostChatgpt() {
+        return modelState().hostChatgpt;
       },
       get model() {
         return modelState().model;
       },
-      onSelected: () => connectionSetup.refresh(),
+      onSelected: async () => {
+        await refreshCustomModel();
+        await connectionSetup.refresh();
+      },
     }),
   byId('model-picker'),
 );
@@ -167,12 +198,15 @@ function render() {
   byId('connection-wait').hidden = c?.status !== 'waiting';
   byId('connection-wait-label').textContent =
     c?.waitingFor === 'signin'
-      ? 'Sign in to continue'
+      ? apiKeyTurn(c)
+        ? 'Check your API key to continue'
+        : 'Sign in to continue'
       : navigator.onLine
         ? 'Reconnecting…'
         : 'Waiting for connection…';
   scheduleReconnect();
-  byId('resume-work').textContent = c?.waitingFor === 'signin' ? 'Sign in' : 'Retry now';
+  byId('resume-work').textContent =
+    c?.waitingFor === 'signin' ? (apiKeyTurn(c) ? 'Check API key' : 'Sign in') : 'Retry now';
   updateComposer();
   byId('status').dataset.state = c?.status ?? 'idle';
   byId('activity').hidden = !foreground;
@@ -186,7 +220,8 @@ function render() {
       : c?.live?.activity === 'summarising'
         ? 'Summarising earlier messages…'
         : (thought?.heading ?? 'Working')) +
-    (c?.live && c.live.step > 1 ? ` · step ${c.live.step}` : '');
+    (c?.live && c.live.step > 1 ? ` · step ${c.live.step}` : '') +
+    (c?.live?.helperStep ? ` · helper step ${c.live.helperStep}` : '');
   renderThought(thought);
   updateElapsed();
   byId('recovery').hidden = c?.status !== 'needs_review';
@@ -218,9 +253,10 @@ function render() {
       empty.className = 'empty';
       empty.innerHTML = `<div class="welcome-mark" aria-hidden="true">${icon('spark')}</div><h2>What can we get done today?</h2><div class="starter"><div class="suggestions"></div></div><p class="preview-note">Preview uses sample replies. ChatGPT is not connected.</p>`;
       if (connectionState?.chatgpt.available) {
-        empty.querySelector('.preview-note')!.textContent = connectionState.chatgpt.connected
-          ? ''
-          : 'Connect ChatGPT to start a conversation.';
+        empty.querySelector('.preview-note')!.textContent =
+          connectionState.chatgpt.connected || customModel().chosen
+            ? ''
+            : 'Connect ChatGPT to start a conversation.';
       }
       const examples: [string, IconName, string][] = [
         ...demoTasks.map((task): [string, IconName, string] => [task.title, 'file', task.prompt]),
@@ -506,7 +542,8 @@ byId('composer').onsubmit = (event) => {
     renderAttachments();
     updateComposer();
     try {
-      if (connectionState?.chatgpt.available) {
+      // A chosen custom model needs no ChatGPT sign-in.
+      if (connectionState?.chatgpt.available && !customModel().chosen) {
         await connectionSetup.refresh();
         if (!connectionState.chatgpt.connected) {
           connectionSetup.open();
@@ -678,7 +715,12 @@ function changed(event: RuntimeEvent | undefined) {
     return;
   }
   if (c && event?.type === 'progress' && c.status === 'running') {
-    c.live = { step: event.step, tool: event.tool, activity: event.activity };
+    c.live = {
+      step: event.step,
+      tool: event.tool,
+      activity: event.activity,
+      helperStep: event.helperStep,
+    };
     render();
     return;
   }
@@ -696,6 +738,7 @@ async function start() {
     ? setupUpdates(registration)
     : import('./platform/updates').then(({ setupNativeUpdates }) => setupNativeUpdates());
   await refresh();
+  await refreshCustomModel().catch(() => {});
   await connectionSetup.initialize();
   await rpc('resume');
   await rpc('tick');
@@ -747,7 +790,8 @@ const connectionSetup = setupConnections((value) => {
   connectionState = value;
   setSettingsSetup(value);
   setModelState({
-    enabled: Boolean(value.chatgpt.connected && value.chatgpt.browser),
+    chatgpt: Boolean(value.chatgpt.connected && value.chatgpt.browser),
+    hostChatgpt: Boolean(value.chatgpt.connected && !value.chatgpt.browser),
     model: value.chatgpt.model ?? '',
   });
   if (becameConnected) void resumeWork();
@@ -861,7 +905,13 @@ function resumeWork() {
     }));
 }
 byId('resume-work').onclick = () => {
-  if (current()?.waitingFor === 'signin') connectionSetup.open();
+  const c = current();
+  if (c?.waitingFor === 'signin' && apiKeyTurn(c)) {
+    // A custom-model turn waits for its API key, not for ChatGPT.
+    showSettings('custom');
+    void refreshSettingsData().catch(showError);
+    openDialog('settings');
+  } else if (c?.waitingFor === 'signin') connectionSetup.open();
   else void resumeWork();
 };
 window.addEventListener('online', () => {

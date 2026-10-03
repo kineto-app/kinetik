@@ -473,6 +473,46 @@ function agentReply(res, request) {
     );
     return true;
   };
+  const callMany = (list) =>
+    send(
+      list.map(([name, args, id]) => ({
+        type: 'function_call',
+        call_id: id,
+        name: tool(name),
+        arguments: JSON.stringify(args),
+      })),
+    );
+  const later = (work) => new Promise((resolve) => setTimeout(() => resolve(work()), 900));
+  if (request.instructions?.startsWith('You are a helper')) {
+    if (output('h-list') === undefined)
+      return later(() => call('list', { path: '/workspace' }, 'h-list'));
+    if (output('h-read') === undefined)
+      return later(() => call('read', { path: '/workspace/slide-1.md' }, 'h-read'));
+    return later(() =>
+      say('There are two slides: slide-1.md (the Lisbon cover) and slide-2.md (day two).'),
+    );
+  }
+  if (last === 'Compare my folders')
+    return output('p-1') !== undefined
+      ? say('Checked both folders at once: your workspace holds your slides.')
+      : callMany([
+          ['list', { path: '/workspace' }, 'p-1'],
+          ['list', { path: '/' }, 'p-2'],
+        ]);
+  if (last === 'Save two notes') {
+    if (!output('s-1') && !output('s-a'))
+      return callMany([
+        ['write', { path: '/workspace/a.md', content: 'A' }, 's-1'],
+        ['write', { path: '/workspace/b.md', content: 'B' }, 's-2'],
+      ]);
+    if (!output('s-a')) return call('write', { path: '/workspace/a.md', content: 'A' }, 's-a');
+    if (!output('s-b')) return call('write', { path: '/workspace/b.md', content: 'B' }, 's-b');
+    return say('Saved both notes, one at a time.');
+  }
+  if (last === 'Ask a helper about my slides')
+    return output('d-1')
+      ? say('The helper reports: ' + output('d-1'))
+      : call('delegate', { task: 'List the slides in /workspace and describe each.' }, 'd-1');
   if (last === 'Plan the carousel')
     return streamSay(
       'Here is the plan: a calm Lisbon cover, then one slide per day, ending with a packing tip.',
