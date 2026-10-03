@@ -1,3 +1,4 @@
+import { protocolVersion } from '../../src/core/protocol';
 import { test, expect, type Page } from '@playwright/test';
 import { createServer, type Server } from 'node:http';
 import { readFile, readdir } from 'node:fs/promises';
@@ -69,7 +70,7 @@ test.afterEach(async () => {
 });
 async function rpc<T>(page: Page, op: string, data = {}): Promise<T> {
   return page.evaluate(
-    async ({ op, data }) => {
+    async ({ op, data, protocol }) => {
       const registration = await navigator.serviceWorker.ready;
       return new Promise((resolve, reject) => {
         const channel = new MessageChannel();
@@ -77,10 +78,10 @@ async function rpc<T>(page: Page, op: string, data = {}): Promise<T> {
           channel.port1.close();
           data.ok ? resolve(data.result) : reject(new Error(data.error));
         };
-        registration.active!.postMessage({ op, ...data }, [channel.port2]);
+        registration.active!.postMessage({ op, ...data, protocol }, [channel.port2]);
       });
     },
-    { op, data },
+    { op, data, protocol: protocolVersion },
   ) as Promise<T>;
 }
 async function checkUpdate(page: Page) {

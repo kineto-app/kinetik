@@ -1,4 +1,6 @@
 import { exportArchive, parseArchive } from './archive';
+import { protocolVersion, reloadHint } from './protocol';
+import { recentTrace } from './trace';
 import type { BackgroundProcess } from './background';
 import { ConnectionError, SignInRequired } from './connection-error';
 import { Runtime } from './runtime';
@@ -115,6 +117,7 @@ export class RuntimeHost {
     );
   }
   private async handleRequest(data: Record<string, unknown>, reply: (message: HostReply) => void) {
+    if (data.protocol !== protocolVersion) return reply({ ok: false, error: reloadHint });
     await this.initialize();
     const { runtime, connections, chatgpt, store } = this;
     let followup: string | undefined;
@@ -220,9 +223,13 @@ export class RuntimeHost {
                 state,
                 startedAt,
               })),
+            // A window names the chat it shows; the others come without their messages.
             conversations: (await runtime.conversations()).map((c) => ({
               ...c,
               plugins: undefined,
+              ...(data.conversation === undefined || c.id === data.conversation
+                ? {}
+                : { messages: [], attachments: undefined, draft: undefined }),
             })),
             plugins: (await runtime.plugins.list()).map((p) => ({
               manifest: p.manifest,
@@ -231,6 +238,9 @@ export class RuntimeHost {
               digest: p.digest,
             })),
           };
+          break;
+        case 'trace':
+          result = await recentTrace(store);
           break;
         case 'tick':
         case 'resume':
@@ -284,7 +294,9 @@ export class RuntimeHost {
           await runtime.submit(
             followup,
             string(data.text),
-            undefined,
+            typeof data.messageId === 'string' && /^[\w-]{8,64}$/.test(data.messageId)
+              ? data.messageId
+              : undefined,
             data.attachments as string[] | undefined,
             data.queue === 'after' ? 'after' : undefined,
           );

@@ -41,7 +41,7 @@ Each was traced in the code. All seven are fixed in step 1 (#33), each with a re
 
 Smaller findings:
 
-- A missing model-input segment makes `ConversationStore.load` retry with no bound.
+- A missing model-input segment makes `ConversationStore.load` retry with no bound. (Fixed in step 5.)
 - `OpenAIModel` does not wrap its own `fetch` failures, unlike `CompatModel`. (Step 4 wraps them as `ConnectionError`; the runtime already treated them as one.)
 - Any plain `Error` undoes a ChatGPT compaction and switches it off for good, including a malformed tool argument. (Fixed in step 4.)
 - `selectModel` fails sign-in when the catalog lacks `gpt-6.1-sol`. (Fixed in step 4.)
@@ -116,6 +116,8 @@ src/
     turn.ts                  the Turn record: endTurn, withTurn, withCall, openCall
     recovery.ts              what a restart does with work a dead worker left behind
     migrations.ts, cleanup.ts  schema versions; the startup sweep and chat deletion
+    trace.ts                 the local activity log of model requests and tool calls
+    protocol.ts              RPC op names and the window–worker protocol version
     conversation-store.ts    conversation records; model input in append-only segments
     attachments.ts           staged files, uploads, photo previews for the model
     compaction.ts            context limits, local summaries, ChatGPT compaction and its undo
@@ -209,4 +211,11 @@ Each step is small enough for one PR. The order puts risk first.
     - `ModelRejected` marks a request the provider refused; only it undoes a ChatGPT compaction. A malformed tool call or an unfinished answer no longer turns server compaction off, and a busy provider (`server_error`, rate limits) is a connection wait;
     - a network failure reaching ChatGPT is a `ConnectionError`;
     - a first sign-in whose catalog lacks GPT-6.1 Sol starts on the first listed model. An existing login still never switches silently.
-- **Open:** steps 5 and 6.
+  - Step 5, production readiness (#37):
+    - every model request and tool call is recorded per chat (`trace:<id>`, last 200): kind, name, ok, time, error. Settings → Advanced → Activity log shows the newest and copies them; Export includes them, Import ignores them;
+    - `state` takes the open chat's id and sends the other chats without their messages;
+    - RPC ops are one shared union, and every request carries a protocol version; a window from another build is told to reload;
+    - the composer sends one message id per draft, so a send retried after a failure is saved once;
+    - a missing history part in an unchanged chat is reported instead of retried forever.
+  - Left on purpose by step 5: change events still do not name the conversation. A refresh is now cheap, and no window would use the name; a second refresh path is not worth it.
+- **Open:** step 6.

@@ -1,3 +1,4 @@
+import { protocolVersion } from '../../src/core/protocol';
 import { test, expect, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 import type { Conversation, Message } from '../../src/core/types';
@@ -21,38 +22,41 @@ const action = (
 async function seed(page: Page, messages: Message[]) {
   await page.goto('/');
   await expect(page.locator('#status')).toHaveText('Ready');
-  await page.evaluate(async (messages) => {
-    // Wait for the worker to create the store before opening it from the page.
-    const registration = await navigator.serviceWorker.ready;
-    await new Promise<void>((resolve, reject) => {
-      const channel = new MessageChannel();
-      channel.port1.onmessage = (event) => {
-        channel.port1.close();
-        event.data.ok ? resolve() : reject(new Error(event.data.error));
+  await page.evaluate(
+    async ({ messages, protocol }) => {
+      // Wait for the worker to create the store before opening it from the page.
+      const registration = await navigator.serviceWorker.ready;
+      await new Promise<void>((resolve, reject) => {
+        const channel = new MessageChannel();
+        channel.port1.onmessage = (event) => {
+          channel.port1.close();
+          event.data.ok ? resolve() : reject(new Error(event.data.error));
+        };
+        registration.active!.postMessage({ op: 'state', protocol }, [channel.port2]);
+      });
+      const db = await new Promise<IDBDatabase>((resolve) => {
+        const open = indexedDB.open('kinetik-oss-v1', 1);
+        open.onsuccess = () => resolve(open.result);
+      });
+      const conversation: Conversation = {
+        id: 'activity-test',
+        title: 'Weekend packing list',
+        messages,
+        pending: [],
+        status: 'idle',
+        updatedAt: Date.now(),
       };
-      registration.active!.postMessage({ op: 'state' }, [channel.port2]);
-    });
-    const db = await new Promise<IDBDatabase>((resolve) => {
-      const open = indexedDB.open('kinetik-oss-v1', 1);
-      open.onsuccess = () => resolve(open.result);
-    });
-    const conversation: Conversation = {
-      id: 'activity-test',
-      title: 'Weekend packing list',
-      messages,
-      pending: [],
-      status: 'idle',
-      updatedAt: Date.now(),
-    };
-    await new Promise<void>((resolve, reject) => {
-      const tx = db.transaction('records', 'readwrite');
-      tx.objectStore('records').put(conversation, 'conversation:activity-test');
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
-    });
-    db.close();
-    sessionStorage.setItem('kinetik-conversation', conversation.id);
-  }, messages);
+      await new Promise<void>((resolve, reject) => {
+        const tx = db.transaction('records', 'readwrite');
+        tx.objectStore('records').put(conversation, 'conversation:activity-test');
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      });
+      db.close();
+      sessionStorage.setItem('kinetik-conversation', conversation.id);
+    },
+    { messages, protocol: protocolVersion },
+  );
   await page.reload();
   await expect(page.locator('#title')).toHaveText('Weekend packing list');
 }

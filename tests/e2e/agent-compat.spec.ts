@@ -22,7 +22,10 @@ async function setUp(page: Page, mobile: boolean, key: string) {
   if (mobile) await page.getByRole('button', { name: 'Toggle chats' }).click();
   await page.locator('#settings-open').click();
   await page.locator('.settings-account').click();
-  await page.getByText('Advanced', { exact: true }).click();
+  await page
+    .locator('#settings-dialog .settings-page:not([hidden])')
+    .getByText('Advanced', { exact: true })
+    .click();
   const form = page.getByRole('form', { name: 'Custom model' });
   await form.getByLabel('Endpoint', { exact: true }).fill(endpoint);
   await form.getByLabel('Model', { exact: true }).fill('fixture-model');

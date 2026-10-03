@@ -1,4 +1,5 @@
 import { addPluginListener, invoke } from '@tauri-apps/api/core';
+import { protocolVersion, type Op } from '../core/protocol';
 import { platformFetch } from './native-fetch';
 import { RuntimeHost } from '../core/host';
 import { BrowserChatGPT } from '../connections/chatgpt';
@@ -101,11 +102,11 @@ async function synchronizeBackground(heartbeat = false) {
     });
   return syncing;
 }
-export async function nativeRPC<T>(op: string, data: Record<string, unknown> = {}): Promise<T> {
+export async function nativeRPC<T>(op: Op, data: Record<string, unknown> = {}): Promise<T> {
   await connectNative();
   return new Promise<T>((resolve, reject) => {
     void host
-      .handle({ op, ...data }, (reply) => {
+      .handle({ op, ...data, protocol: protocolVersion }, (reply) => {
         if (reply.ok) resolve(reply.result as T);
         else reject(new Error(reply.error));
       })

@@ -22,6 +22,7 @@ import { migrate } from './migrations';
 import { conversationKeys, sweepDaily } from './cleanup';
 import { recoverWork, waitForConnection } from './recovery';
 import { endTurn, withCall, withTurn } from './turn';
+import { traced } from './trace';
 import { buildInstructions, builtinSkill, modelVisible, toolDefinitions } from './prompt';
 import { createFilesystem } from '../browser/filesystem';
 import { Plugins } from '../plugins/loader';
@@ -174,6 +175,7 @@ export class Runtime {
     messageId?: string,
     attachmentIds: string[] = [],
     queue?: 'after',
+    automated = false,
   ): Promise<void> {
     if (
       !Array.isArray(attachmentIds) ||
@@ -185,14 +187,20 @@ export class Runtime {
     if (
       typeof text !== 'string' ||
       (!text.trim() && !attachmentIds.length) ||
-      text.length > (messageId ? 32768 : 16384)
+      text.length > (automated ? 32768 : 16384)
     )
       throw new Error('Enter a message up to 16,384 characters.');
-    if (text.trim() === '/compact' && !attachmentIds.length && !messageId) {
+    if (text.trim() === '/compact' && !attachmentIds.length && !automated) {
       await this.compact(id);
       return;
     }
     await attachmentLock(id, async () => {
+      // A retried send arrives with the same id; it was saved already, attachments included.
+      if (
+        messageId &&
+        (await this.store.get<Conversation>(key(id)))?.messages.some((m) => m.id === messageId)
+      )
+        return;
       const entry = message('user', text);
       if (messageId) entry.id = messageId;
       // Queuing only matters while work is in progress.
@@ -609,7 +617,13 @@ export class Runtime {
     await this.chats.update(id, (value) => withCall(value, { state: 'started' }));
     this.progress(id, { step: step + 1, tool: output.name });
     try {
-      return { result: await this.execute(turn, output, binding) };
+      return {
+        result: await traced(
+          this.store,
+          { conversationId: id, kind: 'tool', name: output.name },
+          () => this.execute(turn, output, binding),
+        ),
+      };
     } catch (error) {
       return this.toolFailed(turn, output, binding, error);
     }
@@ -835,7 +849,12 @@ export class Runtime {
   }
   /** A model request with the provider and model pinned for this conversation's turn. */
   private async modelNext(id: string, request: ModelRequest, signal: AbortSignal) {
-    return this.model.next({ ...request, pin: await this.pinFor(id) }, signal);
+    const pin = await this.pinFor(id);
+    return traced(
+      this.store,
+      { conversationId: id, kind: 'model', name: pin?.model ?? pin?.provider ?? 'model' },
+      () => this.model.next({ ...request, pin }, signal),
+    );
   }
   /** Runs one model request and records its token usage on the conversation. */
   private async requestStep(

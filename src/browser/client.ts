@@ -1,4 +1,5 @@
 import { isNative } from '../platform/environment';
+import { protocolVersion, type Op } from '../core/protocol';
 let ready: Promise<ServiceWorkerRegistration>;
 export async function connect(): Promise<ServiceWorkerRegistration | undefined> {
   if (isNative) {
@@ -11,14 +12,14 @@ export async function connect(): Promise<ServiceWorkerRegistration | undefined> 
     .register(new URL('sw.js', document.baseURI), { scope: './', updateViaCache: 'none' })
     .then(() => navigator.serviceWorker.ready));
 }
-export async function rpc<T = void>(op: string, data: Record<string, unknown> = {}): Promise<T> {
+export async function rpc<T = void>(op: Op, data: Record<string, unknown> = {}): Promise<T> {
   if (isNative) return (await import('../platform/native')).nativeRPC<T>(op, data);
   const registration = await connect();
   return workerRPC<T>(registration!.active!, op, data);
 }
 export function workerRPC<T = void>(
   worker: ServiceWorker,
-  op: string,
+  op: Op | 'version' | 'activateUpdate',
   data: Record<string, unknown> = {},
 ): Promise<T> {
   return new Promise((resolve, reject) => {
@@ -38,6 +39,6 @@ export function workerRPC<T = void>(
       if (event.data.ok) resolve(event.data.result as T);
       else reject(new Error(event.data.error));
     };
-    worker.postMessage({ op, ...data }, [channel.port2]);
+    worker.postMessage({ op, ...data, protocol: protocolVersion }, [channel.port2]);
   });
 }
