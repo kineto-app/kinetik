@@ -1,3 +1,4 @@
+import { loadChat } from './chat';
 import { createServer, type Server } from 'node:http';
 import { afterAll, beforeAll, expect, test } from 'vitest';
 import { Runtime } from '../src/core/runtime';
@@ -14,7 +15,6 @@ import { exportArchive } from '../src/core/archive';
 import { modelInput } from './model-input';
 // @ts-expect-error The fixture is plain JavaScript shared with the browser tests.
 import { compatFixture, compatRequests } from './compat-fixture.mjs';
-import type { Conversation } from '../src/core/types';
 
 let server: Server;
 let base = '';
@@ -51,8 +51,7 @@ async function setup(apiKey: string) {
   );
   return { store, runtime, events };
 }
-const read = async (store: Store, id: string) =>
-  (await store.get<Conversation>('conversation:' + id))!;
+const read = async (store: Store, id: string) => (await loadChat(store, id))!;
 
 test('a custom-model turn streams reasoning and text and records usage', async () => {
   const { store, runtime, events } = await setup('compat-test-key');

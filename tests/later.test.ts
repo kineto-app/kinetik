@@ -1,12 +1,12 @@
+import { loadChat, updateChat } from './chat';
 import { expect, test } from 'vitest';
 import { Runtime } from '../src/core/runtime';
 import { Store } from '../src/browser/store';
 import { ConnectionError } from '../src/core/connection-error';
 import { modelInput } from './model-input';
-import type { Conversation, Model } from '../src/core/types';
+import type { Model } from '../src/core/types';
 
-const read = async (store: Store, id: string) =>
-  (await store.get<Conversation>('conversation:' + id))!;
+const read = async (store: Store, id: string) => (await loadChat(store, id))!;
 /** Streams `words` then waits for `finish`; rejects when the signal aborts. */
 function streaming(words: string[], finish: () => Promise<void>, fail?: Error): Model {
   return {
@@ -50,7 +50,7 @@ test('a worker killed mid-answer shows what was written, once, after the restart
   );
   const c = await runtime.create();
   await runtime.submit(c.id, 'Tell me about Lisbon');
-  await store.update<Conversation>('conversation:' + c.id, (value) => ({
+  await updateChat(store, c.id, (value) => ({
     ...value!,
     status: 'running',
     pending: [],

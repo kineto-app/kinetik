@@ -1,6 +1,7 @@
 import type { Store } from './ports';
 import type { BackgroundProcess } from './background';
 import { traceKey } from './trace';
+import { ConversationStore } from './conversation-store';
 import type { Conversation, InstalledPlugin } from './types';
 
 const day = 24 * 3600 * 1000;
@@ -36,7 +37,9 @@ export async function sweep(store: Store, now = Date.now()) {
   const helpers = new Set<string>();
   const usePlugins = (plugins?: InstalledPlugin[]) =>
     plugins?.forEach((plugin) => used.add('plugin-code:' + plugin.digest));
-  for (const [, c] of await store.entries<Conversation>('conversation:')) {
+  const reader = new ConversationStore(store, () => {});
+  for (const [, record] of await store.entries<Conversation>('conversation:')) {
+    const c = (await reader.load(record.id)) ?? record;
     chats.add(c.id);
     if (c.turn?.call) helpers.add(`helper:${c.id}:${c.turn.call.id}`);
     used.add(`model-archive:${c.id}:${c.compactions ?? 0}`);
@@ -85,9 +88,10 @@ export async function conversationKeys(store: Store, id: string) {
     partialKey(id),
     ...(await store.keys(`helper:${id}:`)),
     ...(await store.keys(`model-input:${id}:`)),
+    ...(await store.keys(`messages:${id}:`)),
     ...(await store.keys(`model-archive:${id}:`)),
   ];
-  const c = await store.get<Conversation>('conversation:' + id);
+  const c = await new ConversationStore(store, () => {}).load(id);
   if (c) keys.push(...fileKeys(c));
   const apps = new Set<string>();
   for (const [key, app] of await store.entries<{ conversationId?: string }>('app:'))

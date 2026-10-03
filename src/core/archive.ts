@@ -1,4 +1,5 @@
 import Ajv from 'ajv';
+import { ConversationStore } from './conversation-store';
 import { recentTrace, type TraceEntry } from './trace';
 import type { Store } from './ports';
 import { createFilesystem } from '../browser/filesystem';
@@ -279,6 +280,7 @@ function automation(value: Automation): Automation {
   };
 }
 export async function exportArchive(store: Store): Promise<string> {
+  const reader = new ConversationStore(store, () => {});
   const filesystem = await store.get<{ entries: FileEntry[] }>('filesystem');
   const sharedFiles = Object.fromEntries(
     (await store.entries<Uint8Array>('shared-file:')).map(([key, bytes]) => [
@@ -290,8 +292,10 @@ export async function exportArchive(store: Store): Promise<string> {
     sharedFiles,
     format: 'kinetik-workspace',
     version: 1,
-    conversations: (await store.entries<Conversation>('conversation:')).map(([, c]) =>
-      conversation(c),
+    conversations: await Promise.all(
+      (await store.entries<Conversation>('conversation:')).map(async ([, c]) =>
+        conversation((await reader.load(c.id)) ?? c),
+      ),
     ),
     filesystem: {
       entries: (

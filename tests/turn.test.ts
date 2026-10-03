@@ -1,3 +1,4 @@
+import { loadChat, updateChat } from './chat';
 import { expect, test } from 'vitest';
 import { Runtime } from '../src/core/runtime';
 import { Store } from '../src/browser/store';
@@ -39,8 +40,7 @@ test('a message queued during a turn uses the model chosen when it starts, not t
   expect(seen).toEqual(['chatgpt:Start', 'custom:Then summarise']);
 });
 
-const read = async (store: Store, id: string) =>
-  (await store.get<Conversation>('conversation:' + id))!;
+const read = async (store: Store, id: string) => (await loadChat(store, id))!;
 function scripted(steps: ((request: ModelRequest) => ModelStep)[]): Model {
   return {
     async next(request) {
@@ -129,7 +129,7 @@ test('a recorded call that needs approval still asks when recovery resumes it', 
   withTool(runtime, ran, { approval: true });
   const c = await runtime.create();
   await runtime.submit(c.id, 'Post it');
-  await store.update<Conversation>('conversation:' + c.id, (value) => ({
+  await updateChat(store, c.id, (value) => ({
     ...value!,
     status: 'running',
     pending: [],
@@ -260,7 +260,7 @@ test.each(['proposed', 'approved', 'started'] as const)(
       },
     });
     const c = await runtime.create();
-    await store.update<Conversation>('conversation:' + c.id, (value) => ({
+    await updateChat(store, c.id, (value) => ({
       ...value!,
       status: 'stopped',
       modelInput: [

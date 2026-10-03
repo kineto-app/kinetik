@@ -1,7 +1,8 @@
+import { loadChat, updateChat } from './chat';
 import { expect, test, vi } from 'vitest';
 import { Store } from '../src/browser/store';
 import { Runtime } from '../src/core/runtime';
-import type { Conversation, InstalledPlugin } from '../src/core/types';
+import type { InstalledPlugin } from '../src/core/types';
 const waitFor = async (condition: () => Promise<boolean>) => {
   for (let i = 0; i < 100; i++) {
     if (await condition()) return;
@@ -9,8 +10,7 @@ const waitFor = async (condition: () => Promise<boolean>) => {
   }
   throw new Error('Condition timed out');
 };
-const read = async (store: Store, id: string) =>
-  (await store.get<Conversation>('conversation:' + id))!;
+const read = async (store: Store, id: string) => (await loadChat(store, id))!;
 const plugin = (id: string, enabledAt: number, code: string): InstalledPlugin => ({
   manifest: { id, name: id, version: '1', apiVersion: 1, entry: 'plugin.js' },
   source: 'https://example.com/plugin.json',
@@ -108,7 +108,7 @@ test('worker recovery never reissues an uncertain tool', async () => {
   const runtime = new Runtime(store);
   const c = await runtime.create();
   await runtime.submit(c.id, '/write /workspace/double\ndanger');
-  await store.update<Conversation>('conversation:' + c.id, (value) => ({
+  await updateChat(store, c.id, (value) => ({
     ...value!,
     pending: [],
     turn: {
@@ -178,7 +178,7 @@ test('an unavailable plugin during recovery does not block the workspace or repe
   const runtime = new Runtime(store);
   const c = await runtime.create();
   await runtime.submit(c.id, '/exec remote operation');
-  await store.update<Conversation>('conversation:' + c.id, (value) => ({
+  await updateChat(store, c.id, (value) => ({
     ...value!,
     pending: [],
     plugins: [plugin('offline', 1, "throw new Error('provider offline')")],
@@ -204,7 +204,7 @@ test('a crash immediately after Stop still exposes the pending tool for review',
   const store = new Store(crypto.randomUUID());
   const runtime = new Runtime(store);
   const c = await runtime.create();
-  await store.update<Conversation>('conversation:' + c.id, (value) => ({
+  await updateChat(store, c.id, (value) => ({
     ...value!,
     status: 'stopped',
     turn: {
@@ -484,7 +484,7 @@ test('Stop during a remote recovery check does not restart the conversation', as
   const store = new Store(crypto.randomUUID());
   const runtime = new Runtime(store);
   const c = await runtime.create();
-  await store.update<Conversation>('conversation:' + c.id, (value) => ({
+  await updateChat(store, c.id, (value) => ({
     ...value!,
     status: 'waiting',
     waitingFor: 'connection',

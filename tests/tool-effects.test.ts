@@ -1,20 +1,13 @@
+import { loadChat, updateChat } from './chat';
 import { expect, test, vi } from 'vitest';
 import { Runtime } from '../src/core/runtime';
 import { Store } from '../src/browser/store';
 import { ConnectionError } from '../src/core/connection-error';
 import { McpClient } from '../src/plugins/mcp';
 import { modelInput } from './model-input';
-import type {
-  Binding,
-  Conversation,
-  Model,
-  ModelRequest,
-  ModelStep,
-  ToolDefinition,
-} from '../src/core/types';
+import type { Binding, Model, ModelRequest, ModelStep, ToolDefinition } from '../src/core/types';
 
-const read = async (store: Store, id: string) =>
-  (await store.get<Conversation>('conversation:' + id))!;
+const read = async (store: Store, id: string) => (await loadChat(store, id))!;
 function scripted(steps: ((request: ModelRequest) => ModelStep)[]) {
   const seen: ModelRequest[] = [];
   const model: Model = {
@@ -223,7 +216,7 @@ test('after a restart a pending local read runs again, but a remote read is neve
   const runtime = new Runtime(store, undefined, scripted([]).model);
   const pending = async (provider: string, name: string) => {
     const c = await runtime.create();
-    await store.update<Conversation>('conversation:' + c.id, (value) => ({
+    await updateChat(store, c.id, (value) => ({
       ...value!,
       status: 'running',
       turn: { call: { id: 'x', callId: 'c', name, input: {}, provider, state: 'started' } },

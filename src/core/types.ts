@@ -140,6 +140,8 @@ export interface Conversation {
    */
   modelInput?: Record<string, unknown>[];
   input?: InputSegments;
+  /** Where `messages` are stored, like `input` for model input. */
+  log?: InputSegments;
   /** Input tokens of the latest model request and the model's usable context. */
   context?: { tokens: number; window: number };
   /** Number of earlier model-input segments archived by compaction. */

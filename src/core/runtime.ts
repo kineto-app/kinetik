@@ -140,10 +140,19 @@ export class Runtime {
     });
   }
   /** Conversations without their model input, which only the runtime reads. */
-  async conversations(): Promise<Conversation[]> {
-    return (await this.store.entries<Conversation>('conversation:'))
-      .map(([, c]) => ({
+  async conversations(withMessages: (id: string) => boolean = () => true): Promise<Conversation[]> {
+    const records = await this.store.entries<Conversation>('conversation:');
+    const chats = await Promise.all(
+      records.map(async ([, c]) =>
+        withMessages(c.id) ? ((await this.chats.load(c.id)) ?? c) : { ...c, messages: [] },
+      ),
+    );
+    return chats
+      .map((c) => ({
         ...c,
+        // Where the lists are stored stays inside the core.
+        input: undefined,
+        log: undefined,
         modelInput: undefined,
         draft: this.drafts.get(c.id),
         live: this.live.get(c.id),
@@ -200,15 +209,12 @@ export class Runtime {
     }
     await attachmentLock(id, async () => {
       // A retried send arrives with the same id; it was saved already, attachments included.
-      if (
-        messageId &&
-        (await this.store.get<Conversation>(key(id)))?.messages.some((m) => m.id === messageId)
-      )
+      if (messageId && (await this.chats.load(id))?.messages.some((m) => m.id === messageId))
         return;
       const entry = message('user', text);
       if (messageId) entry.id = messageId;
       // Queuing only matters while work is in progress.
-      const current = await this.store.get<Conversation>(key(id));
+      const current = await this.chats.load(id);
       if (queue === 'after' && ['running', 'queued', 'waiting'].includes(current?.status ?? ''))
         entry.queue = 'after';
       const prepared = attachmentIds.length
@@ -289,7 +295,7 @@ export class Runtime {
     this.active.set(id, controller);
     let acquired = true;
     const work = async () => {
-      let c = await this.store.get<Conversation>(key(id));
+      let c = await this.chats.load(id);
       if (!c || c.status === 'needs_review' || c.status === 'stopped') return;
       const pinned = c.plugins ?? (await this.plugins.pin(await this.plugins.list()));
       const choice = await this.model.pin?.();
@@ -317,7 +323,7 @@ export class Runtime {
           tool: {
             ...bindings.delegate.tool,
             execute: async (input, context) => {
-              const call = (await this.store.get<Conversation>(key(id)))?.turn?.call;
+              const call = (await this.chats.load(id))?.turn?.call;
               return this.readOnly.helper(
                 id,
                 String(input.task),
@@ -329,7 +335,7 @@ export class Runtime {
           },
         };
       while (!controller.signal.aborted) {
-        c = await this.store.get<Conversation>(key(id));
+        c = await this.chats.load(id);
         if (!c || c.status === 'needs_review') break;
         if (!c.turn?.message || c.pending.length) {
           if (!c.pending.length) {
@@ -415,7 +421,7 @@ export class Runtime {
         for (let step = 0; step < maxSteps; step++) {
           this.progress(id, { step: step + 1 });
           // A call recorded but never run continues as proposed, without asking the model again.
-          const call = (await this.store.get<Conversation>(key(id)))?.turn?.call;
+          const call = (await this.chats.load(id))?.turn?.call;
           const resumed =
             call?.state === 'proposed' || call?.state === 'approved' ? call : undefined;
           let output: ModelStep;
@@ -479,7 +485,7 @@ export class Runtime {
             await this.dropPartial(id);
             // Steering received during inference takes precedence over an unexecuted tool
             // or stale answer. The old request remains in model history.
-            if (steering(await this.store.get<Conversation>(key(id))).length) {
+            if (steering(await this.chats.load(id)).length) {
               await this.chats.update(id, (value) =>
                 withTurn(value, { message: undefined, call: undefined }),
               );
@@ -541,7 +547,7 @@ export class Runtime {
           result = called.result;
           if (called.retry) continue;
           // Steering joins at a tool boundary, before any further model/tool calls.
-          const latest = await this.store.get<Conversation>(key(id));
+          const latest = await this.chats.load(id);
           if (steering(latest).length) {
             await this.chats.update(id, (value) =>
               withTurn(value, { message: undefined, call: undefined }),
@@ -596,7 +602,7 @@ export class Runtime {
       this.active.delete(id);
     }
     if (!acquired) return;
-    const next = await this.store.get<Conversation>(key(id));
+    const next = await this.chats.load(id);
     if (
       next &&
       ['running', 'queued', 'idle'].includes(next.status) &&
@@ -758,7 +764,7 @@ export class Runtime {
     binding: Binding,
     error: unknown,
   ): Promise<'paused' | { result: string; retry: true }> {
-    const call = (await this.store.get<Conversation>(key(id)))?.turn?.call;
+    const call = (await this.chats.load(id))?.turn?.call;
     const rerunnable = localReadOnly(binding, output.input);
     const offline = isConnectionError(error) || error instanceof SignInRequired;
     if (!controller.signal.aborted && rerunnable && !offline) {
@@ -807,7 +813,7 @@ export class Runtime {
     await this.store.delete(partialKey(id));
   }
   private async alert(id: string, body: string) {
-    const c = await this.store.get<Conversation>(key(id));
+    const c = await this.chats.load(id);
     try {
       await this.notify({ conversationId: id, title: c?.title || 'Kinetik', body });
     } catch {
@@ -837,7 +843,7 @@ export class Runtime {
   async answer(id: string, value: string): Promise<void> {
     if (typeof value !== 'string' || !value || value.length > 500)
       throw new Error('Invalid answer.');
-    const c = await this.store.get<Conversation>(key(id));
+    const c = await this.chats.load(id);
     const call = c?.turn?.call;
     const ask = call?.state === 'awaiting' ? call.ask : undefined;
     if (!c || c.status !== 'asking' || !ask) throw new Error('There is no question to answer.');
@@ -875,7 +881,7 @@ export class Runtime {
     }
   }
   private async pinFor(id: string) {
-    const c = await this.store.get<Conversation>(key(id));
+    const c = await this.chats.load(id);
     return c?.turn?.startedAt !== undefined ? c.turn.model : await this.model.pin?.();
   }
   /** A model request with the provider and model pinned for this conversation's turn. */
@@ -966,7 +972,7 @@ export class Runtime {
     }
   }
   private async requestCancellation(binding: Binding, id: string): Promise<void> {
-    const c = await this.store.get<Conversation>(key(id));
+    const c = await this.chats.load(id);
     const operationId = c?.turn?.call?.operationId;
     if (operationId && binding.tool.cancel) {
       try {

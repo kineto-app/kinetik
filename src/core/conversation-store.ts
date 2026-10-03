@@ -1,87 +1,123 @@
 import type { Store } from './ports';
 import type { Conversation, InputSegments } from './types';
 
-type Item = Record<string, unknown>;
+type Item = unknown;
 export const conversationKey = (id: string) => `conversation:${id}`;
 const key = conversationKey;
-const segmentKey = (id: string, s: InputSegments, i: number) =>
-  `model-input:${id}:${s.generation}:${i}`;
+
+/** The two lists stored in append-only segments next to the conversation record. */
+const lists = [
+  { list: 'modelInput', meta: 'input', prefix: 'model-input' },
+  { list: 'messages', meta: 'log', prefix: 'messages' },
+] as const;
+type List = (typeof lists)[number];
+const segmentKey = (l: List, id: string, s: InputSegments, i: number) =>
+  `${l.prefix}:${id}:${s.generation}:${i}`;
 const sameSegments = (a?: InputSegments, b?: InputSegments) =>
   a?.generation === b?.generation && a?.segments === b?.segments;
-const staleInput = new Error('Model input changed during the update.');
+const staleInput = new Error('Stored lists changed during the update.');
+type Record_ = Conversation & Partial<Record<List['meta'], InputSegments>>;
 
-/** Conversation records with their model input kept in append-only segments. */
+/**
+ * Conversation records whose model input and messages live in append-only segments, so a step
+ * writes only what it added instead of the whole chat.
+ */
 export class ConversationStore {
-  /** Model input already read, valid while the stored segment count and generation match. */
-  private inputs = new Map<string, { segments: InputSegments; items: Item[] }>();
+  /** Lists already read, valid while the stored segment count and generation match. */
+  private cache = new Map<string, { segments: InputSegments; items: Item[] }>();
   constructor(
     private store: Store,
     private changed: (conversationId: string) => void,
   ) {}
-  /** The conversation with its model input joined in. */
+  /** The conversation with its model input and messages joined in. */
   async load(id: string): Promise<Conversation | undefined> {
-    for (;;) {
-      const c = await this.store.get<Conversation>(key(id));
-      if (!c?.input) return c;
-      const cached = this.inputs.get(id);
-      if (cached && sameSegments(cached.segments, c.input))
-        return { ...c, modelInput: cached.items };
-      const segments = c.input;
-      const parts = await this.store.getMany<Item[]>(
-        Array.from({ length: segments.segments }, (_, i) => segmentKey(id, segments, i)),
-      );
-      if (parts.some((part) => !part)) {
-        // Replaced meanwhile: read again. Missing from a record that did not change: it is lost.
-        const now = await this.store.get<Conversation>(key(id));
-        if (now?.input && sameSegments(now.input, segments))
-          throw new Error('Part of this chat’s history is missing. Start a new chat to continue.');
-        continue;
+    read: for (;;) {
+      const c = await this.store.get<Record_>(key(id));
+      if (!c) return undefined;
+      const view: Record<string, unknown> = { ...c };
+      for (const l of lists) {
+        const segments = c[l.meta];
+        // Older records kept the list inline; the first write moves it into segments.
+        if (!segments) continue;
+        const cached = this.cache.get(l.list + ':' + id);
+        if (cached && sameSegments(cached.segments, segments)) {
+          view[l.list] = cached.items;
+          continue;
+        }
+        const parts = await this.store.getMany<Item[]>(
+          Array.from({ length: segments.segments }, (_, i) => segmentKey(l, id, segments, i)),
+        );
+        if (parts.some((part) => !part)) {
+          // Replaced meanwhile: read again. Missing from a record that did not change: it is lost.
+          const now = await this.store.get<Record_>(key(id));
+          if (now?.[l.meta] && sameSegments(now[l.meta], segments))
+            throw new Error(
+              'Part of this chat’s history is missing. Start a new chat to continue.',
+            );
+          continue read;
+        }
+        const items = (parts as Item[][]).flat();
+        this.cache.set(l.list + ':' + id, { segments, items });
+        view[l.list] = items;
       }
-      const items = (parts as Item[][]).flat();
-      this.inputs.set(id, { segments, items });
-      return { ...c, modelInput: items };
+      view.messages ??= [];
+      return view as unknown as Conversation;
     }
   }
   /**
-   * Updates a conversation and its model input in one transaction. Growth of the input is
-   * written as one new segment holding only the added items; any other change starts a new
-   * generation. Updaters see and return the joined `modelInput`.
+   * Updates a conversation and its lists in one transaction. Growth of a list is written as one
+   * new segment holding only the added items; any other change starts a new generation.
+   * Updaters see and return the joined lists.
    */
   async update(id: string, update: (c: Conversation) => Conversation): Promise<Conversation> {
     for (;;) {
-      const view = await this.load(id);
+      const view = (await this.load(id)) as Record_ | undefined;
       if (!view) throw new Error('Conversation not found.');
-      let result!: Conversation;
-      let items: Item[] | undefined;
+      let result!: Record<string, unknown>;
+      const joined = new Map<List, Item[] | undefined>();
       try {
         await this.store.updateMany([key(id)], ([stored]) => {
-          const c = stored as Conversation | undefined;
+          const c = stored as Record_ | undefined;
           if (!c) throw new Error('Conversation not found.');
-          if (!sameSegments(c.input, view.input)) throw staleInput;
-          // Older builds kept the input inline; the first write moves it into segments.
-          const base = c.input ? view.modelInput : c.modelInput;
-          const { modelInput: next, ...rest } = update({ ...c, modelInput: base });
+          if (lists.some((l) => !sameSegments(c[l.meta], view[l.meta]))) throw staleInput;
+          const bases = new Map(
+            lists.map((l) => [l, (c[l.meta] ? view[l.list] : c[l.list]) as Item[] | undefined]),
+          );
+          const next = update({
+            ...c,
+            modelInput: bases.get(lists[0]),
+            messages: bases.get(lists[1]) ?? [],
+          } as Conversation) as unknown as Record<string, unknown>;
           const writes: [string, unknown][] = [];
-          let segments = c.input;
-          const appended =
-            c.input &&
-            base &&
-            next &&
-            next.length >= base.length &&
-            base.every((item, i) => next[i] === item);
-          if (appended) {
-            if (next.length > base.length) {
-              writes.push([segmentKey(id, segments!, segments!.segments), next.slice(base.length)]);
-              segments = { ...segments!, segments: segments!.segments + 1 };
+          result = { ...next };
+          for (const l of lists) {
+            const base = bases.get(l);
+            const items = next[l.list] as Item[] | undefined;
+            delete result[l.list];
+            let segments = c[l.meta];
+            const appended =
+              segments &&
+              base &&
+              items &&
+              items.length >= base.length &&
+              base.every((item, i) => items[i] === item);
+            if (appended) {
+              if (items.length > base.length) {
+                writes.push([
+                  segmentKey(l, id, segments!, segments!.segments),
+                  items.slice(base.length),
+                ]);
+                segments = { ...segments!, segments: segments!.segments + 1 };
+              }
+            } else if (items !== base || (!segments && items)) {
+              for (let i = 0; i < (segments?.segments ?? 0); i++)
+                writes.push([segmentKey(l, id, segments!, i), undefined]);
+              segments = items ? { generation: crypto.randomUUID(), segments: 1 } : undefined;
+              if (items) writes.push([segmentKey(l, id, segments!, 0), items]);
             }
-          } else if (next !== base || (!c.input && next)) {
-            for (let i = 0; i < (c.input?.segments ?? 0); i++)
-              writes.push([segmentKey(id, c.input!, i), undefined]);
-            segments = next ? { generation: crypto.randomUUID(), segments: 1 } : undefined;
-            if (next) writes.push([segmentKey(id, segments!, 0), next]);
+            result[l.meta] = segments;
+            joined.set(l, segments ? (appended ? items : (items ?? base)) : undefined);
           }
-          result = { ...rest, input: segments };
-          items = segments ? (appended ? next : (next ?? base)) : undefined;
           writes.push([key(id), result]);
           return writes;
         });
@@ -89,10 +125,18 @@ export class ConversationStore {
         if (error === staleInput) continue;
         throw error;
       }
-      if (result.input && items) this.inputs.set(id, { segments: result.input, items });
-      else this.inputs.delete(id);
+      for (const l of lists) {
+        const segments = result[l.meta] as InputSegments | undefined;
+        const items = joined.get(l);
+        if (segments && items) this.cache.set(l.list + ':' + id, { segments, items });
+        else this.cache.delete(l.list + ':' + id);
+      }
       this.changed(id);
-      return { ...result, modelInput: items };
+      return {
+        ...result,
+        modelInput: joined.get(lists[0]),
+        messages: joined.get(lists[1]) ?? [],
+      } as unknown as Conversation;
     }
   }
 }

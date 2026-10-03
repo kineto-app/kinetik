@@ -1,7 +1,8 @@
+import { loadChat } from '../chat';
 import { expect, test } from 'vitest';
 import { Runtime } from '../../src/core/runtime';
 import { MemoryStore } from '../../src/core/memory-store';
-import type { Conversation, Model, ModelStep } from '../../src/core/types';
+import type { Model, ModelStep } from '../../src/core/types';
 
 const say = (text: string): ModelStep => ({ type: 'text', text });
 
@@ -12,7 +13,7 @@ test('the core runs a turn in plain Node, with no IndexedDB', async () => {
   const c = await runtime.create();
   await runtime.submit(c.id, '/exec printf "hello" > note.txt && cat note.txt');
   await runtime.run(c.id);
-  const saved = (await store.get<Conversation>('conversation:' + c.id))!;
+  const saved = await loadChat(store, c.id);
   expect(saved.status).toBe('idle');
   expect(saved.messages.some((m) => m.role === 'tool' && m.text.includes('hello'))).toBe(true);
   expect(new TextDecoder().decode(await runtime.exportFile('/workspace/note.txt'))).toBe('hello');
@@ -33,7 +34,7 @@ test('an eval can script the model and resume after a restart on the same store'
   await second.recover();
   await second.submit(c.id, 'Anything else?');
   await second.run(c.id);
-  const saved = (await store.get<Conversation>('conversation:' + c.id))!;
+  const saved = await loadChat(store, c.id);
   expect(saved.messages.filter((m) => m.role === 'assistant').map((m) => m.text)).toEqual([
     'Saved.',
     'Still here.',

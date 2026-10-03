@@ -1,4 +1,5 @@
 import type { Store } from './ports';
+import { ConversationStore } from './conversation-store';
 import { openCall } from './turn';
 import { errorText, type Binding, type Conversation } from './types';
 
@@ -49,11 +50,14 @@ export interface AutomationHost {
 
 /** Durable scheduling. Browser wakeups drive tick; a timer is never the record of a job. */
 export class Automations {
+  private chats: ConversationStore;
   constructor(
     private store: Store,
     private host: AutomationHost,
     private changed: () => void,
-  ) {}
+  ) {
+    this.chats = new ConversationStore(store, () => {});
+  }
   async list() {
     return ((await this.store.get<State>('automations')) ?? empty()).items;
   }
@@ -184,9 +188,7 @@ export class Automations {
       for (const item of state.items.filter(
         (item) => item.status === 'active' && item.conversationId,
       )) {
-        const conversation = await this.store.get<Conversation>(
-          'conversation:' + item.conversationId,
-        );
+        const conversation = await this.chats.load(item.conversationId!);
         if (conversation?.status === 'stopped' || conversation?.status === 'needs_review') {
           await this.store.update<State>('automations', (previous) => ({
             ...previous!,
