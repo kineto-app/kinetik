@@ -136,3 +136,21 @@ test('with approvals turned on, a destructive action waits for Approve', async (
   await ask.getByRole('button', { name: 'Approve' }).click();
   await expect(replies(page).last()).toContainText('Published your post');
 });
+
+test('a message sent while picked photos load waits for all of them', async ({ page, request }) => {
+  // Slow file reads, as on a busy phone, so Send is pressed while the second photo loads.
+  await page.addInitScript(() => {
+    const read = File.prototype.arrayBuffer;
+    File.prototype.arrayBuffer = async function (this: File) {
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      return read.call(this);
+    };
+  });
+  await open(page, request);
+  await page.locator('#upload').setInputFiles([
+    { name: 'one.png', mimeType: 'image/png', buffer: await photo(page, 20) },
+    { name: 'two.png', mimeType: 'image/png', buffer: await photo(page, 200) },
+  ]);
+  await send(page, 'Use these photos');
+  await expect(replies(page).last()).toContainText('I can see 2 photos');
+});
