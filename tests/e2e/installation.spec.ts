@@ -56,7 +56,7 @@ test('hosted setup works without installing and offers installation separately',
   await expect(page.getByRole('heading', { name: 'Connect ChatGPT' })).toBeVisible();
 });
 
-test('after "Later", setup does not open by itself again; the status button still opens it', async ({
+test('after "Later", setup does not open by itself again; the connect button still opens it', async ({
   page,
 }, info) => {
   await page.goto(base);
@@ -66,7 +66,9 @@ test('after "Later", setup does not open by itself again; the status button stil
   await expect(page.locator('#composer')).toBeVisible();
   await expect(page.locator('#connection-setup')).toBeHidden();
   await page.screenshot({ path: info.outputPath('after-later-reload.png') });
-  await page.locator('#connection-status').click();
+  // An empty chat offers the connection itself, so the header leaves it out.
+  await expect(page.locator('#connection-status')).toBeHidden();
+  await page.getByRole('button', { name: 'Connect ChatGPT to start' }).click();
   await expect(page.getByRole('heading', { name: 'Connect ChatGPT' })).toBeVisible();
 });
 
@@ -92,6 +94,8 @@ test('with a custom model set up, setup does not open by itself on the next laun
   await page.reload();
   await expect(page.locator('#composer')).toBeVisible();
   await expect(page.locator('#connection-setup')).toBeHidden();
+  // Chatting needs no ChatGPT now, so nothing asks to connect it.
+  await expect(page.locator('#connection-status')).toBeHidden();
   await page.screenshot({ path: info.outputPath('custom-model-reload.png') });
 });
 
@@ -181,14 +185,15 @@ test('installed launch resumes setup and completes a shared-storage Charms redir
   await page.getByRole('button', { name: 'Close settings' }).click();
   await request.post(base + 'connections/chatgpt/logout');
   await focusApp(page);
-  await expect(page.locator('#connection-status')).toBeVisible();
+  const connect = page.getByRole('button', { name: 'Connect ChatGPT to start' });
+  await expect(connect).toBeVisible();
   if (await page.locator('#menu').isVisible()) await page.locator('#menu').click();
   await page.locator('#connections-open').click();
   await expect(page.getByRole('heading', { name: 'Connect ChatGPT' })).toBeVisible();
   await page.getByRole('button', { name: 'Set up later' }).click();
-  await expect(page.locator('#connection-status')).toBeVisible();
+  await expect(connect).toBeVisible();
   await expect(page.locator('#connection-status')).toHaveAttribute('title', 'Connect ChatGPT');
-  await page.locator('#connection-status').click();
+  await connect.click();
   await expect(page.getByRole('heading', { name: 'Connect ChatGPT' })).toBeVisible();
   await page.getByRole('button', { name: 'Set up later' }).click();
   const shown = settings.locator('.settings-page:not([hidden])');

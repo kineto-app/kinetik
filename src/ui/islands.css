@@ -136,7 +136,6 @@ dialog:not(.connection-setup) {
   flex: none;
   min-width: var(--target);
 }
-#connection-status,
 #connections-dot[data-attention='true'] {
   color: var(--bad);
 }
@@ -727,4 +726,210 @@ dialog::backdrop,
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+
+/* A notice is one quiet line between rules, like "Stopped"; its original text opens under it. */
+.message[data-role='notice'] {
+  margin-block: var(--space-content);
+  padding: 0;
+  background: transparent;
+  font-size: 12px;
+  color: var(--muted);
+}
+.notice-line {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  text-align: center;
+}
+.notice-line::before,
+.notice-line::after {
+  content: '';
+  flex: 1;
+  min-width: 16px;
+  height: 1px;
+  background: var(--line);
+}
+.notice-mark .icon,
+.notice-chevron .icon {
+  width: 13px;
+  height: 13px;
+}
+[data-failed] .notice-mark {
+  color: var(--bad);
+}
+.notice-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: var(--target);
+  padding: 0 4px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+}
+.notice-title:is(:hover, :active),
+.notice-retry:is(:hover, :active) {
+  background: transparent;
+}
+.notice-title:hover {
+  color: var(--ink);
+}
+.notice-chevron {
+  display: flex;
+  transition: transform var(--duration) var(--ease-out);
+}
+.notice-title[aria-expanded='true'] .notice-chevron {
+  transform: rotate(90deg);
+}
+.notice-retry {
+  min-height: var(--target);
+  padding: 0 6px;
+  background: transparent;
+  color: var(--accent-ink);
+  font-size: 12px;
+  font-weight: 600;
+}
+/* The step inset: narrower than the line, same box the steps open into. */
+.notice-detail {
+  margin: 2px auto 0;
+  max-width: 520px;
+  padding: var(--space-inline) var(--space-content);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-inner);
+  background: var(--hover);
+  font:
+    12px/1.5 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
+  overflow-wrap: anywhere;
+}
+#timeline[data-busy] .notice-retry,
+.message[data-role='notice']:not(:last-of-type) .notice-retry {
+  display: none;
+}
+
+/* Only the newest reply keeps its copy button and time; others show them on hover, focus or a tap. */
+@media (prefers-reduced-motion: no-preference) {
+  .message-actions,
+  .message[data-role='user'] > .message-time {
+    transition: opacity var(--duration);
+  }
+}
+.message[data-role='assistant']:not([data-latest]) > .message-actions,
+.message[data-role='user'] > .message-time {
+  opacity: 0;
+}
+.message:hover > .message-actions,
+.message:hover > .message-time,
+.message:focus-within > .message-actions,
+.message[data-show-actions] > .message-actions,
+.message[data-show-actions] > .message-time {
+  opacity: 1;
+}
+/* A connection that needs attention says so in a word, not only a red plug. */
+.topbar #connection-status {
+  gap: 6px;
+  padding: 0 12px;
+  font-size: 13px;
+  font-weight: 600;
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  border: 0;
+}
+.topbar #connection-status .icon {
+  width: 15px;
+  height: 15px;
+}
+.connect-start {
+  min-height: var(--target);
+  padding-inline: var(--space-section);
+}
+.empty > .preview-note:has(.connect-start) {
+  font-size: 15px !important;
+}
+#install-open {
+  justify-content: flex-start;
+  background: transparent;
+  color: var(--muted);
+  font-weight: 400;
+}
+/* The empty chat's own button already offers the connection. */
+.main:has(.connect-start) #connection-status {
+  display: none;
+}
+
+/* Toasts: one line, an action, a close; they float over the top of the chat. */
+.toasts {
+  position: absolute;
+  top: var(--space-inline);
+  left: 50%;
+  transform: translateX(-50%);
+  /* Above the chat, below the phone drawer and its scrim. */
+  z-index: 4;
+  display: grid;
+  gap: var(--space-inline);
+  width: min(440px, calc(100% - 2 * var(--space-content)));
+  pointer-events: none;
+}
+.toast {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--space-inline);
+  padding: 4px 4px 4px var(--space-section);
+  min-height: calc(var(--target) + 8px);
+  font-size: 14px;
+  color: var(--ink);
+  background: var(--glass);
+  border: 1px solid var(--control-line);
+  border-radius: var(--radius-pill);
+  box-shadow: var(--chat-shadow);
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  backdrop-filter: blur(var(--glass-blur));
+}
+.toast > span {
+  flex: 1;
+  min-width: 0;
+  padding-block: 6px;
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+}
+.toast-action {
+  min-height: var(--target);
+  padding-inline: var(--space-content);
+  font-weight: 600;
+  color: var(--accent-ink);
+  background: transparent;
+}
+.toast-close .icon {
+  width: 16px;
+  height: 16px;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .toast {
+    animation: toast-in var(--duration-enter, 200ms) var(--ease-out, ease-out);
+  }
+}
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+}
+
+/* A chat that finished or asked something while you were elsewhere. */
+.conversation-dot.unread {
+  background: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.conversation-title.unread {
+  color: var(--ink);
+  font-weight: 600;
 }

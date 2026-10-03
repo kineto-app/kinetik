@@ -9,6 +9,7 @@ export function ConversationList(props: {
   conversations: Conversation[];
   selected: string;
   background: (conversation: Conversation) => boolean;
+  unread: Set<string>;
   choose: (id: string) => void;
 }) {
   return (
@@ -23,11 +24,18 @@ export function ConversationList(props: {
             class="conversation-dot"
             classList={{
               working: conversation.status === 'running' && !props.background(conversation),
+              unread: props.unread.has(conversation.id),
             }}
             style={{ '--hue': hue(conversation.id) }}
             aria-hidden="true"
           />
-          <span class="conversation-title">{conversation.title}</span>
+          <span
+            class="conversation-title"
+            classList={{ unread: props.unread.has(conversation.id) }}
+          >
+            {conversation.title}
+          </span>
+          <span class="sr-only">{props.unread.has(conversation.id) ? ', new' : ''}</span>
           <time
             class="conversation-time"
             dateTime={new Date(conversation.updatedAt).toISOString()}

@@ -44,7 +44,7 @@ pub(crate) async fn register_listener<R: Runtime>(
     event: String,
     handler: tauri::ipc::Channel<serde_json::Value>,
 ) -> Result<()> {
-    if event != "background-stop" {
+    if event != "background-stop" && event != "open-chat" {
         return Err(std::io::Error::other("Unknown event").into());
     }
     #[cfg(mobile)]

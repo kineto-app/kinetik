@@ -1,4 +1,5 @@
 import { exportArchive, parseArchive } from './archive';
+import { memoryChangeKey, memoryKey, saveMemory, undoMemory, type MemoryChange } from './memory';
 import { protocolVersion, reloadHint } from './protocol';
 import { recentTrace } from './trace';
 import type { BackgroundProcess } from './background';
@@ -320,9 +321,13 @@ export class RuntimeHost {
           if (data.text !== undefined) {
             if (typeof data.text !== 'string' || data.text.length > 4000)
               throw new Error('Memory must be text up to 4,000 characters.');
-            await runtime.store.put('memory', data.text);
+            await saveMemory(runtime.store, data.text, 'you');
           }
-          result = (await runtime.store.get<string>('memory')) ?? '';
+          if (data.undo === true) await undoMemory(runtime.store);
+          result = (await runtime.store.get<string>(memoryKey)) ?? '';
+          break;
+        case 'memoryChange':
+          result = (await runtime.store.get<MemoryChange>(memoryChangeKey)) ?? null;
           break;
         case 'attachmentStage':
           if (!(data.bytes instanceof Uint8Array)) throw new Error('Invalid file bytes.');

@@ -534,6 +534,20 @@ function agentReply(res, request) {
     );
   if (last === 'Fill the context')
     return say('Noted. That was a long document.', { input_tokens: 170000, output_tokens: 80 });
+  // A request the provider refuses once with a technical message; "Try again." then works.
+  if (last === 'Break once') {
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(
+      JSON.stringify({
+        error: {
+          code: 'invalid_request_error',
+          message: "Invalid 'input[3].content': empty array.",
+        },
+      }),
+    );
+    return true;
+  }
+  if (last === 'Try again.') return say('Done this time.');
   if (last === 'Overflow now' && !overflowOnce) {
     overflowOnce = true;
     res.writeHead(400, { 'Content-Type': 'application/json' });

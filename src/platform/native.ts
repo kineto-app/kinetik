@@ -44,11 +44,18 @@ async function boot() {
     config,
     chatgpt,
   );
-  host.notify = async ({ title, body }) => {
+  host.notify = async ({ conversationId, title, body }) => {
     if (document.visibilityState === 'visible') return;
-    await invoke('plugin:native|notify', { payload: { key: title, value: body } });
+    // The chat id rides in `url` so a tap on the notification opens that chat.
+    await invoke('plugin:native|notify', {
+      payload: { key: title, value: body, url: conversationId },
+    });
   };
   await host.initialize();
+  // Opening the tapped chat is a convenience; the app works without it.
+  await addPluginListener('native', 'open-chat', ({ id }: { id: string }) =>
+    window.dispatchEvent(new CustomEvent('kinetik-open-chat', { detail: id })),
+  ).catch(() => {});
   if (/Android/i.test(navigator.userAgent))
     await addPluginListener('native', 'background-stop', async () => {
       const jobs = await host.store.entries<{ conversationId: string; state: string }>(

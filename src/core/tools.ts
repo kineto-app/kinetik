@@ -2,6 +2,7 @@ import { Bash, type CommandName } from 'just-bash/browser';
 import type { createFilesystem } from '../browser/filesystem';
 import type { Binding, Skill } from './types';
 import type { Store } from './ports';
+import { saveMemory } from './memory';
 const text = { type: 'string' };
 const schema = (properties: Record<string, unknown>, required: string[]) => ({
   type: 'object',
@@ -159,8 +160,8 @@ export function localTools(
         required: ['text'],
         additionalProperties: false,
       },
-      async (input) => {
-        await store.put('memory', String(input.text));
+      async (input, context) => {
+        await saveMemory(store, String(input.text), 'kinetik', context.conversationId);
         return 'Saved to memory.';
       },
     ),
