@@ -17,8 +17,8 @@ export function plainNotice(text: string): { title: string; detail?: string; fai
   ];
   const known = rules.find(([pattern]) => pattern.test(text));
   if (known) return { title: known[1], detail: text, failed: true };
-  // Plain sentences from Kinetik itself read fine as they are.
-  if (/^[A-Z][^{}<>`\n]{0,160}[.!?]$/.test(text.trim()) && !/^(Error|TypeError)\b/.test(text))
+  // Plain sentences read fine as they are; quotes, brackets or codes mean a raw provider message.
+  if (/^[A-Z][\p{L}\d ,;.!?’—-]{0,160}[.!?]$/u.test(text.trim()))
     return { title: text.trim(), failed: false };
   return { title: 'Something went wrong.', detail: text, failed: true };
 }

@@ -75,3 +75,24 @@ test('usage, self-correction, automatic summaries and overflow recovery', async 
   await expect(page.locator('.compaction-note')).toHaveCount(3);
   await shot('5-after-reload');
 });
+
+test('a failed turn reads in plain words, keeps the details, and can be tried again', async ({
+  page,
+  request,
+}, info) => {
+  await request.get(base + 'reset');
+  await request.post(base + 'connections/chatgpt/callback', { data: {} });
+  await request.get(base + 'agent-model');
+  await page.goto(base);
+  await expect(page.locator('#status')).toHaveText('Ready');
+  await send(page, 'Break once');
+  const notice = page.locator('[data-role=notice]').last();
+  await expect(notice.locator('.notice-title')).toHaveText('Something went wrong.');
+  await expect(notice.locator('.notice-detail p')).toBeHidden();
+  await notice.getByText('Details').click();
+  await expect(notice.locator('.notice-detail p')).toContainText('empty array');
+  await page.screenshot({ path: info.outputPath('4-plain-error.png') });
+  await notice.getByRole('button', { name: 'Try again' }).click();
+  await expect(replies(page).last()).toContainText('Done this time.');
+  await expect(page.getByRole('button', { name: 'Try again' })).toBeHidden();
+});

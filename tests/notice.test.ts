@@ -17,6 +17,10 @@ test('a technical notice reads in plain words and keeps the original as detail',
   expect(plainNotice('Rate limit reached for requests').title).toBe(
     'ChatGPT is busy right now. Try again in a minute.',
   );
+  expect(plainNotice("Invalid 'input[3].content': empty array.")).toMatchObject({
+    title: 'Something went wrong.',
+    failed: true,
+  });
   expect(plainNotice('Nothing to summarise yet.')).toEqual({
     title: 'Nothing to summarise yet.',
     failed: false,
