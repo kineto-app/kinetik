@@ -60,6 +60,8 @@ export type LiveProgress = {
   tool?: string;
   reasoning?: string;
   activity?: 'summarising';
+  /** Step of a helper agent started by `delegate`. */
+  helperStep?: number;
 };
 /**
  * Pushed to open windows as hints. A window applies text and progress itself and reloads
@@ -111,6 +113,10 @@ export interface Conversation {
   updatedAt: number;
   /** Persisted across steering and recovery; cleared when this turn ends. */
   workStartedAt?: number;
+  /** A provider-side compaction not yet accepted by a request; undone if the next one fails. */
+  serverCompaction?: { n: number; head: number };
+  /** `provider:model` this turn uses; meaningful while `workStartedAt` is set. */
+  turnModel?: string;
   /**
    * Model input as Runtime.update sees it. It is stored in append-only segments under
    * `input`, so a step writes only its new items; older builds stored it inline here.
@@ -213,6 +219,8 @@ export interface ModelRequest {
   onText?: (text: string) => void;
   /** The model's reasoning summary so far, when the provider streams one. */
   onReasoning?: (text: string) => void;
+  /** The provider and model this turn uses, fixed when the turn starts (`provider:model`). */
+  pin?: string;
 }
 export interface Usage {
   input: number;
@@ -229,9 +237,24 @@ export type ModelStep = (
       narration?: string;
       items?: Record<string, unknown>[];
     }
+  | {
+      /** Several calls in one response; only read-only tools may run this way. */
+      type: 'tools';
+      calls: { name: string; input: Record<string, unknown>; callId: string }[];
+      narration?: string;
+      items?: Record<string, unknown>[];
+    }
 ) & { usage?: Usage; contextWindow?: number };
 export interface Model {
   next(request: ModelRequest, signal: AbortSignal): Promise<ModelStep>;
+  /** The provider and model a new turn should use, when there is a choice. */
+  pin?(): Promise<string | undefined>;
+  /** Provider-side compaction of older input into opaque items, when the provider has it. */
+  compact?(
+    input: Record<string, unknown>[],
+    pin: string | undefined,
+    signal: AbortSignal,
+  ): Promise<Record<string, unknown>[] | undefined>;
 }
 export const errorText = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);

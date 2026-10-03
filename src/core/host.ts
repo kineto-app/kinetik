@@ -1,6 +1,9 @@
 import type { RuntimeEvent } from './types';
 import { exportArchive, parseArchive } from './archive';
 import { Runtime } from '../core/runtime';
+import { MockModel } from './mock-model';
+import { ModelRouter, customModelAction } from './model-router';
+import { CompatModel, customModelKey, type CustomModel } from './compat-model';
 import { errorText } from '../core/types';
 import { Store } from '../browser/store';
 import type { BackgroundProcess } from '../core/background';
@@ -48,35 +51,43 @@ export class RuntimeHost {
         undefined,
         config.chatgpt.modelRelay,
       );
+    const chatgptModel = chatgpt
+      ? new OpenAIModel(
+          'browser:',
+          () => chatgpt!.status(),
+          async (_url, init) =>
+            chatgpt!.responses(
+              JSON.parse(String(init?.body)),
+              init?.signal ?? new AbortController().signal,
+            ),
+          (account, input, signal) => chatgpt!.compact({ account, input }, signal),
+        )
+      : helper
+        ? new OpenAIModel(new URL('responses', helper).href, async () => {
+            const response = await fetch(new URL('status', helper), {
+              cache: 'no-store',
+              signal: AbortSignal.timeout(5000),
+            });
+            if (response.status >= 500 || [408, 429].includes(response.status))
+              throw new ConnectionError('The model connection is unavailable.');
+            if (!response.ok)
+              throw new SignInRequired('Connect ChatGPT in Connections to continue.');
+            const status = await response.json();
+            if (!status.connected)
+              throw new SignInRequired('Connect ChatGPT in Connections to continue.');
+            return { account: status.account ?? 'default', model: status.model };
+          })
+        : undefined;
     const runtime = new Runtime(
       store,
       this.changed,
-      chatgpt
-        ? new OpenAIModel(
-            'browser:',
-            () => chatgpt!.status(),
-            async (_url, init) =>
-              chatgpt!.responses(
-                JSON.parse(String(init?.body)),
-                init?.signal ?? new AbortController().signal,
-              ),
-          )
-        : helper
-          ? new OpenAIModel(new URL('responses', helper).href, async () => {
-              const response = await fetch(new URL('status', helper), {
-                cache: 'no-store',
-                signal: AbortSignal.timeout(5000),
-              });
-              if (response.status >= 500 || [408, 429].includes(response.status))
-                throw new ConnectionError('The model connection is unavailable.');
-              if (!response.ok)
-                throw new SignInRequired('Connect ChatGPT in Connections to continue.');
-              const status = await response.json();
-              if (!status.connected)
-                throw new SignInRequired('Connect ChatGPT in Connections to continue.');
-              return { account: status.account ?? 'default', model: status.model };
-            })
-          : undefined,
+      new ModelRouter(
+        store,
+        chatgptModel ?? new MockModel(),
+        new CompatModel(
+          async () => (await store.get<CustomModel | null>(customModelKey)) ?? undefined,
+        ),
+      ),
     );
     runtime.notify = async (alert) => {
       if (await store.get<boolean>('notify')) await this.notify(alert);
@@ -272,6 +283,9 @@ export class RuntimeHost {
         case 'notifications':
           if (data.enabled !== undefined) await runtime.store.put('notify', data.enabled === true);
           result = (await runtime.store.get<boolean>('notify')) === true;
+          break;
+        case 'customModel':
+          result = await customModelAction(store, data);
           break;
         case 'memory':
           if (data.text !== undefined) {

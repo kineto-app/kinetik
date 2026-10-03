@@ -1,5 +1,6 @@
 import { createSignal, Index, Show } from 'solid-js';
 import { rpc } from '../browser/client';
+import type { CustomModelState } from '../core/model-router';
 import type { SetupState } from '../connections/manager';
 import type { InstalledPlugin } from '../core/types';
 import { isNative } from '../platform/environment';
@@ -144,8 +145,15 @@ function back() {
   else heading?.focus();
 }
 /** Resets the dialog to a page; the caller opens the dialog. */
-export function showSettings(page: 'root' | 'connections' = 'root') {
-  setStack(page === 'root' ? [{ page: 'root' }] : [{ page: 'root' }, { page: 'connections' }]);
+export function showSettings(page: 'root' | 'connections' | 'custom' = 'root') {
+  setAdvancedOpen(page === 'custom');
+  setStack(
+    page === 'root'
+      ? [{ page: 'root' }]
+      : page === 'custom'
+        ? [{ page: 'root' }, { page: 'service', service: 'chatgpt' }]
+        : [{ page: 'root' }, { page }],
+  );
   clearFeedback();
 }
 /** Replaces the add page with the page of the plugin that was just added. */
@@ -277,6 +285,16 @@ function ServicePage(props: { service: Service }) {
           and ChatGPT sign-in aren’t connected yet.
         </p>
       </Show>
+      <Show when={s().kind === 'chatgpt'}>
+        <details
+          class="settings-advanced"
+          open={advancedOpen()}
+          onToggle={(event) => setAdvancedOpen(event.currentTarget.open)}
+        >
+          <summary>Advanced</summary>
+          <CustomModelForm />
+        </details>
+      </Show>
       <Show when={s().plugin}>
         {(plugin) => (
           <details class="settings-advanced">
@@ -294,11 +312,14 @@ function ServicePage(props: { service: Service }) {
   );
 }
 
+const [custom, setCustom] = createSignal<CustomModelState>({ configured: false, chosen: false });
+const [advancedOpen, setAdvancedOpen] = createSignal(false);
 const [memory, setMemory] = createSignal('');
 const [memorySaved, setMemorySaved] = createSignal(false);
 const [notifying, setNotifying] = createSignal(false);
 /** Loads the values Settings shows that live in the agent store. */
 export async function refreshSettingsData() {
+  setCustom(await rpc<CustomModelState>('customModel', { action: 'state' }));
   setMemory(await rpc<string>('memory'));
   setNotifying(await rpc<boolean>('notifications'));
 }
@@ -318,6 +339,97 @@ async function toggleNotifications(enabled: boolean) {
     }
   }
   setNotifying(await rpc<boolean>('notifications', { enabled }));
+}
+
+/** An OpenAI-compatible server, kept out of the way under ChatGPT's Advanced section. */
+function CustomModelForm() {
+  let endpoint!: HTMLInputElement;
+  let key!: HTMLInputElement;
+  let model!: HTMLInputElement;
+  let window!: HTMLInputElement;
+  let images!: HTMLInputElement;
+  const send = (action: 'save' | 'remove') =>
+    void run(async () => {
+      setCustom(
+        await rpc<CustomModelState>('customModel', {
+          action,
+          baseUrl: endpoint.value,
+          apiKey: key.value,
+          model: model.value,
+          contextWindow: window.value,
+          images: images.checked,
+        }),
+      );
+      key.value = '';
+      globalThis.dispatchEvent(new Event('kinetik-custom-model'));
+    });
+  return (
+    <form
+      class="custom-model"
+      aria-label="Custom model"
+      onSubmit={(event) => {
+        event.preventDefault();
+        send('save');
+      }}
+    >
+      <p class="settings-note">
+        Use another model through an OpenAI-compatible endpoint (Chat Completions), such as
+        OpenRouter, Ollama, LM Studio or vLLM. Choose it in the composer’s model menu. The key stays
+        on this device and is never exported; in a browser, installed connections can read it.
+      </p>
+      <label for="custom-endpoint">Endpoint</label>
+      <input
+        id="custom-endpoint"
+        ref={endpoint}
+        type="url"
+        required
+        value={custom().baseUrl ?? ''}
+        placeholder="https://openrouter.ai/api/v1"
+      />
+      <label for="custom-model-name">Model</label>
+      <input
+        id="custom-model-name"
+        ref={model}
+        required
+        spellcheck={false}
+        value={custom().model ?? ''}
+        placeholder="provider/model-name"
+      />
+      <label for="custom-key">API key</label>
+      <input
+        id="custom-key"
+        ref={key}
+        type="password"
+        autocomplete="off"
+        spellcheck={false}
+        placeholder={
+          custom().hasKey ? 'Saved · type to replace' : 'Optional for servers on this device'
+        }
+      />
+      <label for="custom-window">Context window (tokens)</label>
+      <input
+        id="custom-window"
+        ref={window}
+        inputmode="numeric"
+        value={custom().contextWindow ?? ''}
+        placeholder="128000"
+      />
+      <label class="custom-check">
+        <input ref={images} type="checkbox" checked={custom().images === true} />
+        The model can read photos
+      </label>
+      <div class="form-actions">
+        <Show when={custom().configured}>
+          <button type="button" class="secondary" onClick={() => send('remove')}>
+            Remove
+          </button>
+        </Show>
+        <button class="primary" type="submit">
+          Save
+        </button>
+      </div>
+    </form>
+  );
 }
 
 export function SettingsDialog() {

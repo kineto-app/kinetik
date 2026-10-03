@@ -14,6 +14,9 @@ for (const relay of [false, true]) {
     let flow: URL;
     let requests = 0;
     let modelListUnavailable = false;
+    let fullContext = false;
+    const compactions: unknown[] = [];
+    let lastInput: { type?: string }[] = [];
     await context.route(base + 'connections/chatgpt/keys', (route) =>
       route.fulfill({
         json: { keys: [{ ...publicKey.export({ format: 'jwk' }), kid: 'test', use: 'sig' }] },
@@ -115,13 +118,23 @@ for (const relay of [false, true]) {
           });
           return;
         }
+        if (route.request().url().endsWith('compact')) {
+          const body = route.request().postDataJSON();
+          expect(body.model).toBe('gpt-6.1-sol');
+          compactions.push(body.input);
+          await route.fulfill({
+            json: { output: [{ type: 'compaction', encrypted_content: 'opaque-summary' }] },
+          });
+          return;
+        }
         requests++;
         const body = route.request().postDataJSON();
+        lastInput = body.input;
         expect(body.store).toBe(false);
         expect(body.stream).toBe(true);
-        expect(body.model).toBe(requests === 1 ? 'gpt-6.1-sol' : 'test-model');
+        expect(body.model).toBe(requests === 2 ? 'test-model' : 'gpt-6.1-sol');
         expect(body.reasoning).toEqual({
-          effort: requests === 1 ? 'medium' : 'high',
+          effort: requests === 2 ? 'high' : 'medium',
           summary: 'auto',
         });
         await route.fulfill({
@@ -140,6 +153,7 @@ for (const relay of [false, true]) {
                     ],
                   },
                 ],
+                ...(fullContext ? { usage: { input_tokens: 190000, output_tokens: 20 } } : {}),
               },
             }) +
             '\n\n',
@@ -319,6 +333,24 @@ for (const relay of [false, true]) {
     await reopened.screenshot({ path: test.info().outputPath('reasoning-five-levels.png') });
     await reopened.evaluate(() => (document.documentElement.dataset.theme = 'dark'));
     await reopened.screenshot({ path: test.info().outputPath('reasoning-five-levels-dark.png') });
+    await reopened.keyboard.press('Escape');
+    // 1.2: a nearly full context is compacted by ChatGPT itself, through the same path.
+    fullContext = true;
+    await reopened.getByRole('textbox', { name: 'Message', exact: true }).fill('A long document');
+    await reopened.getByRole('button', { name: 'Send', exact: true }).click();
+    await expect(reopened.locator('[data-role=assistant]')).toHaveCount(3);
+    fullContext = false;
+    await reopened.getByRole('textbox', { name: 'Message', exact: true }).fill('What next?');
+    await reopened.getByRole('button', { name: 'Send', exact: true }).click();
+    await expect(reopened.locator('[data-role=assistant]')).toHaveCount(4);
+    await expect(reopened.locator('.compaction-note')).toHaveText(
+      'Earlier messages summarised by ChatGPT',
+    );
+    expect(compactions).toHaveLength(1);
+    expect(lastInput[0]).toEqual({ type: 'compaction', encrypted_content: 'opaque-summary' });
+    expect(lastInput.at(-1)).toMatchObject({ role: 'user' });
+    await reopened.locator('.compaction-note').scrollIntoViewIfNeeded();
+    await reopened.screenshot({ path: test.info().outputPath('server-compaction.png') });
   });
 }
 

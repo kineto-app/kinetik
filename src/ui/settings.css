@@ -275,3 +275,21 @@ label.settings-row {
   font-size: 15px;
   line-height: 1.45;
 }
+
+.custom-model {
+  padding: 0 var(--space-content) var(--space-content);
+}
+label.custom-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0 0;
+  font-weight: inherit;
+}
+label.custom-check input {
+  width: auto;
+  min-height: 0;
+}
+.custom-model .settings-note {
+  padding-inline: 0;
+}

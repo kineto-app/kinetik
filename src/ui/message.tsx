@@ -43,7 +43,11 @@ export function MessageBubble(props: {
         title={`${item.text} ${item.compaction.items} earlier items, about ${tokenCount(item.compaction.tokens)} tokens.`}
       >
         <span class="icon-slot" innerHTML={icon('refresh')} />
-        <span>Earlier messages summarised</span>
+        <span>
+          {item.text.startsWith('ChatGPT summarised')
+            ? 'Earlier messages summarised by ChatGPT'
+            : 'Earlier messages summarised'}
+        </span>
       </p>
     );
   }
