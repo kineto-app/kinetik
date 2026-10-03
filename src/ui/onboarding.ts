@@ -2,6 +2,7 @@ import { isNative } from '../platform/environment';
 import { setupInstallation } from '../browser/installation';
 import { rpc } from '../browser/client';
 import type { SetupState } from '../connections/manager';
+import type { CustomModelState } from '../connections/custom-model';
 import { icon } from './icons';
 import './onboarding.css';
 
@@ -331,7 +332,6 @@ export function setupConnections(changed: (state: SetupState) => void) {
   $('cancel-signin').onclick = () =>
     void import('../platform/native').then((native) => native.cancelNativeAuthentication());
   $('later').onclick = () => {
-    // Setup does not open by itself on every launch after "Later"; Connections still opens it.
     try {
       localStorage.setItem(laterKey, '1');
     } catch {
@@ -535,9 +535,13 @@ export function setupConnections(changed: (state: SetupState) => void) {
         await rpc('connectionPrepare');
         await refresh();
       }
+      // Someone who already chats through a custom model, or chose "Later", is not sent back here.
+      const settled =
+        laterChosen() ||
+        (await rpc<CustomModelState>('customModel', { action: 'state' })).configured;
       if (
         (state.installation.required &&
-          !laterChosen() &&
+          !settled &&
           !(state.charms.status === 'connected' && state.chatgpt.connected)) ||
         callback ||
         sessionStorage.getItem('kinetik-setup') ||

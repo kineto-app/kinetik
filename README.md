@@ -118,7 +118,7 @@ Kinetik acts without asking: tools, widget actions and memory saves run straight
 
 **Settings → Memory** holds short notes about you — at most 4000 characters — that every chat reads first. The agent saves a new version with the `remember` tool, and the chat shows "Saved to memory"; you can change or clear it there at any time.
 
-On Android the window ends at the keyboard, so the composer stays visible while you type. After **Later**, setup no longer opens by itself on each launch; the connection button still opens it.
+On Android the window ends at the keyboard, so the composer stays visible while you type. After **Later**, or once a custom model is set up, setup no longer opens by itself on each launch; the connection button still opens it.
 
 **Settings → Notify me when work finishes** asks for notification permission and then shows a system notification when a reply is ready or the agent asks a question, but only when no Kinetik window is in front. The web app shows it from the service worker; the Android app uses a native notification. iOS and desktop do not notify yet.
 

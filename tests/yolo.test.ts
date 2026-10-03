@@ -1,7 +1,7 @@
 import { expect, test, vi } from 'vitest';
 import { Runtime } from '../src/core/runtime';
 import { Store } from '../src/browser/store';
-import { loadChat } from './chat';
+import { loadChat, updateChat } from './chat';
 import type { Model, ModelStep, ToolDefinition } from '../src/core/types';
 
 const say = (text: string): ModelStep => ({ type: 'text', text });
@@ -109,4 +109,87 @@ test('by default a widget may call any tool its server exposes, without a card',
   expect(await runtime.appNeedsApproval('widget', 'publish', {})).toBe(false);
   await runtime.appCall('widget', 'publish', {});
   expect(called).toEqual(['publish']);
+});
+
+test('by default a tool marked for approval can be started as a background job', async () => {
+  const store = new Store(crypto.randomUUID());
+  const ran: unknown[] = [];
+  const runtime = new Runtime(
+    store,
+    undefined,
+    scripted([
+      {
+        type: 'tool',
+        name: 'background',
+        input: { action: 'start', tool: 'publish', input: { title: 'Launch' } },
+        callId: 'b1',
+      },
+      say('Started.'),
+      say('Published.'),
+    ]),
+  );
+  withPublish(runtime, ran);
+  const c = await runtime.create();
+  await runtime.submit(c.id, 'Publish it in the background');
+  await runtime.run(c.id);
+  await runtime.background.drain();
+  expect(ran).toEqual([{ title: 'Launch' }]);
+});
+
+test('a chat saved waiting to propose an approval-marked call runs it after the upgrade', async () => {
+  const store = new Store(crypto.randomUUID());
+  const ran: unknown[] = [];
+  const runtime = new Runtime(store, undefined, scripted([say('Posted.')]));
+  withPublish(runtime, ran);
+  const c = await runtime.create();
+  await runtime.submit(c.id, 'Publish it');
+  await updateChat(store, c.id, (value) => ({
+    ...value,
+    status: 'running',
+    pending: [],
+    turn: {
+      message: value.pending[0],
+      call: {
+        id: 'x',
+        callId: 'p',
+        name: 'publish',
+        input: { title: 'Hi' },
+        provider: 'social',
+        state: 'proposed',
+      },
+    },
+  }));
+  await runtime.recover();
+  await runtime.run(c.id);
+  expect(ran).toEqual([{ title: 'Hi' }]);
+  expect((await loadChat(store, c.id)).status).toBe('idle');
+});
+
+test('a worker killed while saving memory saves it again after the restart, with no review', async () => {
+  const store = new Store(crypto.randomUUID());
+  const runtime = new Runtime(store, undefined, scripted([say('Noted.')]));
+  const c = await runtime.create();
+  await runtime.submit(c.id, 'Remember that I like coral');
+  await updateChat(store, c.id, (value) => ({
+    ...value,
+    status: 'running',
+    pending: [],
+    turn: {
+      message: value.pending[0],
+      call: {
+        id: 'x',
+        callId: 'r',
+        name: 'remember',
+        input: { text: 'Likes coral.' },
+        provider: 'local',
+        state: 'started',
+      },
+    },
+  }));
+  await runtime.recover();
+  await runtime.run(c.id);
+  expect(await store.get('memory')).toBe('Likes coral.');
+  const saved = await loadChat(store, c.id);
+  expect(saved.status).toBe('idle');
+  expect(saved.messages.at(-1)?.text).toBe('Noted.');
 });

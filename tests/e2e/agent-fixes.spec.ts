@@ -62,9 +62,11 @@ test('bug 1: with approvals turned on, a widget asks before an action that needs
   const card = page.getByRole('group', { name: 'App action approval' });
   await app.getByRole('button', { name: 'Publish' }).click();
   await expect(card).toContainText('Allow this app to run “publish”?');
+  await expect(card).toContainText('Lisbon');
   await expect(card.getByRole('button', { name: 'Approve' })).toBeInViewport();
   await card.getByRole('button', { name: 'Decline' }).click();
   await expect(app.locator('#result')).toHaveText('Declined');
+  await expect(card).toHaveCount(0);
   await app.getByRole('button', { name: 'Publish' }).click();
   await card.getByRole('button', { name: 'Approve' }).click();
   await expect(app.locator('#result')).toHaveText('Published');
