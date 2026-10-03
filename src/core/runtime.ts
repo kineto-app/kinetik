@@ -1,6 +1,11 @@
 import Ajv from 'ajv';
 import { toolOutcome } from './tool-outcome';
-import { ContextOverflow, isConnectionError, SignInRequired } from './connection-error';
+import {
+  ContextOverflow,
+  isConnectionError,
+  ModelRejected,
+  SignInRequired,
+} from './connection-error';
 import { Compactor, defaultContextWindow, estimateTokens } from './compaction';
 import { localSkills } from './skills';
 import { Automations } from './automation';
@@ -429,11 +434,10 @@ export class Runtime {
               );
             } catch (error) {
               this.drafts.delete(id);
+              // Only a request the provider rejected can blame the compaction before it.
               if (
                 !controller.signal.aborted &&
-                !isConnectionError(error) &&
-                !(error instanceof SignInRequired) &&
-                !(error instanceof ContextOverflow) &&
+                error instanceof ModelRejected &&
                 (await this.compactor.undoServerCompaction(id))
               ) {
                 step--;

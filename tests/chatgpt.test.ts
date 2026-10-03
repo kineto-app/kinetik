@@ -376,6 +376,31 @@ test('existing logins migrate to GPT-6.1 Sol without reauthorization', async () 
   expect(fetcher.mock.calls.filter(([url]) => String(url).endsWith('/models'))).toHaveLength(1);
 });
 
+test('a first sign-in without the preferred model starts on the first listed model', async () => {
+  const request = fetcher.getMockImplementation()!;
+  const sent: string[] = [];
+  fetcher.mockImplementation(async (input, init) => {
+    if (String(input).endsWith('/models'))
+      return Response.json({
+        models: [
+          { slug: 'hidden-model', visibility: 'hide' },
+          { slug: 'another-model', visibility: 'list' },
+        ],
+      });
+    if (String(input).endsWith('/responses')) {
+      sent.push(JSON.parse(String(init?.body)).model);
+      return new Response('data: test\n\n');
+    }
+    return request(input, init);
+  });
+  await begin();
+  await client.callback(callback());
+  expect(await store.get('session')).toMatchObject({ model: 'another-model' });
+  await client.responses({ account: 'person', request: {} }, new AbortController().signal);
+  await client.responses({ account: 'person', request: {} }, new AbortController().signal);
+  expect(sent).toEqual(['another-model', 'another-model']);
+});
+
 test('unavailable preferred model does not silently fall back or discard an existing login', async () => {
   await begin();
   await client.callback(callback());

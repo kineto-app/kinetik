@@ -1,5 +1,14 @@
 import { ConnectionError, ContextOverflow, SignInRequired } from '../core/connection-error';
-import { latestImages, overflow, toolName, withoutImages } from './openai';
+import {
+  encodeTools,
+  httpFailure,
+  latestImages,
+  providerError,
+  sseEvents,
+  streamDone,
+  toStep,
+  withoutImages,
+} from './model-http';
 import type { Model, ModelRequest, ModelStep, Usage } from '../core/types';
 import type { CustomModel } from '../connections/custom-model';
 
@@ -66,21 +75,10 @@ export class CompatModel implements Model {
     const config = await this.configuration();
     if (!config)
       throw new SignInRequired('Set up the custom model in Settings → ChatGPT → Advanced.');
-    const names = new Map<string, string>();
-    const tools = await Promise.all(
-      Object.entries(request.definitions ?? {}).map(async ([name, definition]) => {
-        const encoded = await toolName(name);
-        names.set(encoded, name);
-        return {
-          type: 'function',
-          function: {
-            name: encoded,
-            description: definition.description,
-            parameters: definition.inputSchema,
-          },
-        };
-      }),
-    );
+    const { tools, names } = await encodeTools(request.definitions, (name, definition) => ({
+      type: 'function',
+      function: { name, description: definition.description, parameters: definition.inputSchema },
+    }));
     const history = request.history ?? [{ role: 'user', content: request.message }];
     let response: Response;
     try {
@@ -109,25 +107,13 @@ export class CompatModel implements Model {
       signal.throwIfAborted();
       throw new ConnectionError('The custom model is unreachable: ' + String(error));
     }
-    if (!response.ok) throw await failure(response);
+    if (!response.ok)
+      throw await httpFailure(response, {
+        signIn: keyProblem,
+        interrupted: 'The custom model connection was interrupted.',
+        failed: 'Custom model request failed',
+      });
     const reply = await readChat(response, request);
-    const extra = {
-      usage: reply.usage,
-      contextWindow: config.contextWindow ?? 128_000,
-    };
-    const calls = reply.calls.map((call) => {
-      const name = names.get(call.name);
-      if (!name) throw new Error('Model returned an unknown tool call.');
-      let input: unknown;
-      try {
-        input = JSON.parse(call.arguments || '{}');
-      } catch {
-        throw new Error('Invalid tool arguments.');
-      }
-      if (!input || typeof input !== 'object' || Array.isArray(input))
-        throw new Error('Invalid tool arguments.');
-      return { name, input: input as Record<string, unknown>, callId: call.id };
-    });
     const items: Item[] = [
       ...(reply.text
         ? [
@@ -140,107 +126,67 @@ export class CompatModel implements Model {
         : []),
       ...reply.calls.map((call) => ({
         type: 'function_call',
-        call_id: call.id,
+        call_id: call.callId,
         name: call.name,
         arguments: call.arguments || '{}',
       })),
     ];
-    const narration = reply.text || undefined;
-    if (calls.length > 1) return { type: 'tools', calls, narration, items, ...extra };
-    if (calls.length) return { type: 'tool', ...calls[0], narration, items, ...extra };
-    if (!reply.text) throw new Error('Model completed without a message or tool call.');
-    return { type: 'text', text: reply.text, items, ...extra };
+    return toStep(reply.text, reply.calls, names, items, {
+      usage: reply.usage,
+      contextWindow: config.contextWindow ?? 128_000,
+    });
   }
-}
-
-async function failure(response: Response): Promise<Error> {
-  if ([401, 403].includes(response.status)) return new SignInRequired(keyProblem);
-  if ([408, 429, 500, 502, 503, 504].includes(response.status))
-    return new ConnectionError('The custom model connection was interrupted.');
-  const body = (await response.json().catch(() => ({}))) as {
-    error?: { message?: string; code?: string } | string;
-  };
-  const error = typeof body.error === 'string' ? { message: body.error } : body.error;
-  const text = error?.message ?? `Custom model request failed: HTTP ${response.status}`;
-  return overflow(error?.code, error?.message) ? new ContextOverflow(text) : new Error(text);
 }
 
 /** Reads a Chat Completions stream: text, reasoning, tool calls built from their fragments, usage. */
 async function readChat(response: Response, request: ModelRequest) {
-  if (!response.body) throw new Error('Model returned no response stream.');
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
   const calls: { id: string; name: string; arguments: string }[] = [];
-  let buffer = '',
-    text = '',
+  let text = '',
     reasoning = '',
-    size = 0,
     finished = false;
   let usage: Usage | undefined;
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      buffer += decoder.decode(value, { stream: !done });
-      size += value?.length ?? 0;
-      if (size > 16 * 1024 * 1024) throw new Error('Model response exceeded 16 MiB.');
-      buffer = buffer.replace(/\r\n/g, '\n');
-      let end: number;
-      while ((end = buffer.indexOf('\n\n')) >= 0) {
-        const data = buffer
-          .slice(0, end)
-          .split('\n')
-          .filter((line) => line.startsWith('data:'))
-          .map((line) => line.slice(5).trimStart())
-          .join('\n');
-        buffer = buffer.slice(end + 2);
-        if (!data) continue;
-        if (data === '[DONE]') return { text, calls: fill(calls), usage };
-        const chunk = JSON.parse(data);
-        if (chunk.error) {
-          const message = chunk.error.message ?? 'Model response failed.';
-          throw overflow(chunk.error.code, message)
-            ? new ContextOverflow(message)
-            : new Error(message);
-        }
-        if (chunk.usage && Number.isFinite(chunk.usage.prompt_tokens))
-          usage = {
-            input: chunk.usage.prompt_tokens,
-            output: Number(chunk.usage.completion_tokens) || 0,
-            cached: Number(chunk.usage.prompt_tokens_details?.cached_tokens) || undefined,
-          };
-        for (const choice of chunk.choices ?? []) {
-          const delta = choice.delta ?? {};
-          const thought = delta.reasoning_content ?? delta.reasoning;
-          if (typeof thought === 'string' && thought) {
-            reasoning += thought;
-            request.onReasoning?.(reasoning);
-          }
-          if (typeof delta.content === 'string' && delta.content) {
-            text += delta.content;
-            request.onText?.(text);
-          }
-          for (const part of delta.tool_calls ?? []) {
-            const index = Number.isSafeInteger(part.index) ? part.index : calls.length;
-            const call = (calls[index] ??= { id: '', name: '', arguments: '' });
-            if (part.id) call.id = part.id;
-            if (part.function?.name) call.name += part.function.name;
-            if (part.function?.arguments) call.arguments += part.function.arguments;
-          }
-          if (choice.finish_reason === 'length' && !calls.length && !text)
-            throw new ContextOverflow('The custom model ran out of room for its answer.');
-          if (choice.finish_reason) finished = true;
-        }
+  const reply = () => ({ text, calls: fill(calls), usage });
+  for await (const chunk of sseEvents(response)) {
+    if (chunk === streamDone) return reply();
+    if (chunk.error)
+      throw providerError(chunk.error.code, chunk.error.message ?? 'Model response failed.');
+    if (chunk.usage && Number.isFinite(chunk.usage.prompt_tokens))
+      usage = {
+        input: chunk.usage.prompt_tokens,
+        output: Number(chunk.usage.completion_tokens) || 0,
+        cached: Number(chunk.usage.prompt_tokens_details?.cached_tokens) || undefined,
+      };
+    for (const choice of chunk.choices ?? []) {
+      const delta = choice.delta ?? {};
+      const thought = delta.reasoning_content ?? delta.reasoning;
+      if (typeof thought === 'string' && thought) {
+        reasoning += thought;
+        request.onReasoning?.(reasoning);
       }
-      if (done) {
-        // Some servers end the stream without [DONE] after the final chunk.
-        if (finished) return { text, calls: fill(calls), usage };
-        throw new ConnectionError('Model stream interrupted before completion.');
+      if (typeof delta.content === 'string' && delta.content) {
+        text += delta.content;
+        request.onText?.(text);
       }
+      for (const part of delta.tool_calls ?? []) {
+        const index = Number.isSafeInteger(part.index) ? part.index : calls.length;
+        const call = (calls[index] ??= { id: '', name: '', arguments: '' });
+        if (part.id) call.id = part.id;
+        if (part.function?.name) call.name += part.function.name;
+        if (part.function?.arguments) call.arguments += part.function.arguments;
+      }
+      if (choice.finish_reason === 'length' && !calls.length && !text)
+        throw new ContextOverflow('The custom model ran out of room for its answer.');
+      if (choice.finish_reason) finished = true;
     }
-  } finally {
-    await reader.cancel().catch(() => {});
   }
+  // Some servers end the stream without [DONE] after the final chunk.
+  if (finished) return reply();
+  throw new ConnectionError('Model stream interrupted before completion.');
 }
 /** Servers that omit call ids still need one per call to pair calls with their results. */
 const fill = (calls: { id: string; name: string; arguments: string }[]) =>
-  calls.filter(Boolean).map((call) => ({ ...call, id: call.id || 'call_' + crypto.randomUUID() }));
+  calls.filter(Boolean).map(({ id, name, arguments: args }) => ({
+    name,
+    arguments: args,
+    callId: id || 'call_' + crypto.randomUUID(),
+  }));

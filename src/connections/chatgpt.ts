@@ -232,7 +232,9 @@ export class BrowserChatGPT {
       )
         throw new Error('ChatGPT plan access was not granted.');
       const session = this.session(tokens, String(claims.sub));
-      session.model = await this.selectModel(session);
+      session.model = await this.selectModel(session, undefined, true);
+      // A fallback counts as chosen, so turns keep it; the picker offers the default once it appears.
+      if (session.model !== defaultModel) session.modelSelected = true;
       await this.store.put('registration', { ...registration, clientId, subject: claims.sub });
       await this.store.put('session', session);
       return { ok: true };
@@ -312,10 +314,12 @@ export class BrowserChatGPT {
   private effort(session: Session) {
     return session.reasoning ?? (session.model === defaultModel ? 'medium' : undefined);
   }
-  private async selectModel(session: Session, signal?: AbortSignal) {
-    if (!(await this.catalog(session, signal)).some((model) => model.slug === defaultModel))
-      throw new Error('GPT-6.1 Sol is not available for this ChatGPT account.');
-    return defaultModel;
+  private async selectModel(session: Session, signal?: AbortSignal, firstSignIn = false) {
+    const catalog = await this.catalog(session, signal);
+    if (catalog.some((model) => model.slug === defaultModel)) return defaultModel;
+    // A new sign-in starts on the first model ChatGPT lists; an existing login never switches silently.
+    if (firstSignIn && catalog[0]) return catalog[0].slug;
+    throw new Error('GPT-6.1 Sol is not available for this ChatGPT account.');
   }
   /** The model and reasoning level a new turn should keep, read without a network call. */
   async turnSettings() {

@@ -10,7 +10,7 @@ import { customModelAction, customModelKey, type CustomModel } from '../connecti
 import { Connections } from '../connections/manager';
 import { CompatModel } from '../models/compat';
 import { MockModel } from '../models/mock';
-import { OpenAIModel } from '../models/openai';
+import { httpTransport, OpenAIModel } from '../models/openai';
 import { ModelRouter } from '../models/router';
 
 export interface HostReply {
@@ -53,30 +53,28 @@ export class RuntimeHost {
       );
     const chatgptModel = chatgpt
       ? new OpenAIModel(
-          'browser:',
           () => chatgpt!.status(),
-          async (_url, init) =>
-            chatgpt!.responses(
-              JSON.parse(String(init?.body)),
-              init?.signal ?? new AbortController().signal,
-            ),
+          (body, signal) => chatgpt!.responses(body, signal),
           (account, input, signal, pin) => chatgpt!.compact({ account, input, pin }, signal),
         )
       : helper
-        ? new OpenAIModel(new URL('responses', helper).href, async () => {
-            const response = await fetch(new URL('status', helper), {
-              cache: 'no-store',
-              signal: AbortSignal.timeout(5000),
-            });
-            if (response.status >= 500 || [408, 429].includes(response.status))
-              throw new ConnectionError('The model connection is unavailable.');
-            if (!response.ok)
-              throw new SignInRequired('Connect ChatGPT in Connections to continue.');
-            const status = await response.json();
-            if (!status.connected)
-              throw new SignInRequired('Connect ChatGPT in Connections to continue.');
-            return { account: status.account ?? 'default', model: status.model };
-          })
+        ? new OpenAIModel(
+            async () => {
+              const response = await fetch(new URL('status', helper), {
+                cache: 'no-store',
+                signal: AbortSignal.timeout(5000),
+              });
+              if (response.status >= 500 || [408, 429].includes(response.status))
+                throw new ConnectionError('The model connection is unavailable.');
+              if (!response.ok)
+                throw new SignInRequired('Connect ChatGPT in Connections to continue.');
+              const status = await response.json();
+              if (!status.connected)
+                throw new SignInRequired('Connect ChatGPT in Connections to continue.');
+              return { account: status.account ?? 'default', model: status.model };
+            },
+            httpTransport(new URL('responses', helper).href),
+          )
         : undefined;
     const runtime = new Runtime(
       store,
