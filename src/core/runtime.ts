@@ -39,6 +39,7 @@ import {
   addUsage,
   needsApproval,
   type Ask,
+  type ToolCall,
 } from './types';
 
 const maxSteps = 60;
@@ -46,6 +47,14 @@ const maxSteps = 60;
 const steering = (c: Conversation | undefined) =>
   (c?.pending ?? []).filter((id) => c!.messages.find((m) => m.id === id)?.queue !== 'after');
 const repeatLimit = 3;
+type ToolStep = Extract<ModelStep, { type: 'tool' }>;
+type ToolTurn = {
+  id: string;
+  controller: AbortController;
+  bindings: Record<string, Binding>;
+  pinned: InstalledPlugin[];
+  backgroundTurn: boolean;
+};
 export class Runtime {
   readonly plugins: Plugins;
   readonly automations: Automations;
@@ -506,176 +515,15 @@ export class Runtime {
             throw new Error(
               `Stopped: the same action (${output.name}) was requested ${repeatLimit + 1} times with the same input.`,
             );
-          const binding = bindings[output.name];
-          let rejected =
-            !binding || !modelVisible(binding)
-              ? 'There is no tool named ' + output.name + '.'
-              : undefined;
-          if (!rejected) {
-            const validate = this.ajv.compile(binding.tool.inputSchema);
-            if (!validate(output.input))
-              rejected = 'Invalid tool arguments: ' + this.ajv.errorsText(validate.errors);
-          }
-          // Nothing ran, so the model can correct itself instead of the turn stopping.
-          if (rejected) {
-            result = await this.recordToolError(
-              id,
-              output,
-              binding?.provider,
-              rejected,
-              backgroundTurn,
-            );
-            continue;
-          }
-          if (!approved)
-            await this.chats.update(id, (value) => ({
-              ...value,
-              modelInput: [...(value.modelInput ?? []), ...(output.items ?? [])],
-              messages: output.narration
-                ? [
-                    ...value.messages,
-                    {
-                      ...message('assistant', output.narration),
-                      visibility: backgroundTurn ? 'internal' : undefined,
-                    },
-                  ]
-                : value.messages,
-              retryAt: undefined,
-              retryAttempts: undefined,
-              call: {
-                callId: output.callId,
-                id: crypto.randomUUID(),
-                name: output.name,
-                input: output.input,
-                provider: binding.provider,
-                state: 'pending',
-              },
-            }));
-          const ask = approved ? undefined : this.askFor(output.name, output.input, binding);
-          if (ask) {
-            // The turn pauses here; answer() resumes it. Nothing has run, so a restart is safe.
-            await this.chats.update(id, (value) => ({
-              ...value,
-              status: 'asking',
-              call: { ...value.call!, state: 'awaiting', ask },
-            }));
-            await this.alert(id, ask.question);
-            return;
-          }
-          // From here the call may have effects, so a restart must review it, not rerun it.
-          if (approved)
-            await this.chats.update(id, (value) => ({
-              ...value,
-              call: { ...value.call!, approved: undefined },
-            }));
-          this.progress(id, { step: step + 1, tool: output.name });
-          const requestedTimeout = binding.tool.timeoutMs ?? 30000;
-          // A helper agent makes many model requests; it stops with the turn, not after a minute.
-          const timeout =
-            output.name === 'delegate'
-              ? 600000
-              : Number.isFinite(requestedTimeout)
-                ? Math.min(60000, Math.max(1000, Math.trunc(requestedTimeout)))
-                : 30000;
-          const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(timeout)]);
-          try {
-            signal.throwIfAborted();
-            const response = await abortable(
-              binding.tool.execute(output.input, {
-                signal,
-                checkpoint: async (operationId) => {
-                  await this.chats.update(id, (value) => ({
-                    ...value,
-                    call: value.call ? { ...value.call, operationId } : value.call,
-                  }));
-                },
-              }),
-              signal,
-            );
-            result = printable(response);
-            let app: AppView | undefined;
-            if (binding.tool.app) {
-              try {
-                const resource = await binding.tool.app.resource(signal);
-                const appId = crypto.randomUUID();
-                await this.store.put('app:' + appId, {
-                  plugins: pinned,
-                  tool: output.name,
-                  conversationId: id,
-                  provider: binding.provider,
-                });
-                app = { ...resource, id: appId, input: output.input, result: response };
-              } catch (error) {
-                await this.chats.update(id, (value) => ({
-                  ...value,
-                  messages: [
-                    ...value.messages,
-                    message('notice', 'Could not load app: ' + errorText(error)),
-                  ],
-                }));
-              }
-            }
-            await this.chats.update(id, (value) => ({
-              ...value,
-              call: { ...value.call!, state: 'completed', result },
-              modelInput: withOutput(value.modelInput, output.callId, result!),
-              messages: [
-                ...value.messages,
-                {
-                  ...message('tool', result!, `${output.name} · ${binding.provider}`),
-                  id: value.call!.id,
-                  activity: {
-                    input: output.input,
-                    outcome: toolOutcome(response, binding.tool.command),
-                  },
-                  app,
-                  file:
-                    binding.provider === 'local' && output.name === 'show_file'
-                      ? (response as { file: Message['file'] }).file
-                      : undefined,
-                  visibility:
-                    backgroundTurn || output.name === 'background' ? 'internal' : undefined,
-                },
-              ],
-            }));
-          } catch (error) {
-            const call = (await this.store.get<Conversation>(key(id)))?.call;
-            const rerunnable = localReadOnly(binding, output.input);
-            const offline = isConnectionError(error) || error instanceof SignInRequired;
-            if (!controller.signal.aborted && rerunnable && !offline) {
-              result = await this.recordToolError(
-                id,
-                output,
-                binding.provider,
-                errorText(error),
-                backgroundTurn,
-                true,
-              );
-              continue;
-            }
-            if (
-              !controller.signal.aborted &&
-              offline &&
-              (rerunnable || (call?.operationId && binding.tool.recover))
-            ) {
-              await waitForConnection(this.chats, id, error);
-              return;
-            }
-            await this.chats.update(id, (value) => ({
-              ...value,
-              status: 'needs_review',
-              call: { ...value.call!, state: 'unknown', result: errorText(error) },
-              messages: [
-                ...value.messages,
-                message(
-                  'notice',
-                  `Tool outcome needs review: ${errorText(error)}. Changes may already have happened.`,
-                ),
-              ],
-            }));
-            if (controller.signal.aborted) await this.requestCancellation(binding, id);
-            return;
-          }
+          const called = await this.callTool(
+            { id, controller, bindings, pinned, backgroundTurn },
+            step,
+            output,
+            approved,
+          );
+          if (called === 'paused') return;
+          result = called.result;
+          if (called.retry) continue;
           // Steering joins at a tool boundary, before any further model/tool calls.
           const latest = await this.store.get<Conversation>(key(id));
           if (steering(latest).length) {
@@ -741,6 +589,194 @@ export class Runtime {
       (next.pending.length || (next.status === 'queued' && next.activeMessage))
     )
       await this.run(id);
+  }
+  /** One tool call: check, journal, ask, run, record. 'paused' ends this run while the turn waits. */
+  private async callTool(
+    turn: ToolTurn,
+    step: number,
+    output: ToolStep,
+    approved: ToolCall | undefined,
+  ): Promise<'paused' | { result: string; retry?: boolean }> {
+    const { id, bindings, backgroundTurn } = turn;
+    const binding = bindings[output.name];
+    const rejected = this.rejection(binding, output);
+    // Nothing ran, so the model can correct itself instead of the turn stopping.
+    if (rejected)
+      return {
+        result: await this.recordToolError(id, output, binding?.provider, rejected, backgroundTurn),
+        retry: true,
+      };
+    if (!approved) await this.journal(turn, output, binding);
+    const ask = approved ? undefined : this.askFor(output.name, output.input, binding);
+    if (ask) {
+      // The turn pauses here; answer() resumes it. Nothing has run, so a restart is safe.
+      await this.chats.update(id, (value) => ({
+        ...value,
+        status: 'asking',
+        call: { ...value.call!, state: 'awaiting', ask },
+      }));
+      await this.alert(id, ask.question);
+      return 'paused';
+    }
+    // From here the call may have effects, so a restart must review it, not rerun it.
+    if (approved)
+      await this.chats.update(id, (value) => ({
+        ...value,
+        call: { ...value.call!, approved: undefined },
+      }));
+    this.progress(id, { step: step + 1, tool: output.name });
+    try {
+      return { result: await this.execute(turn, output, binding) };
+    } catch (error) {
+      return this.toolFailed(turn, output, binding, error);
+    }
+  }
+  private rejection(binding: Binding | undefined, output: ToolStep): string | undefined {
+    if (!binding || !modelVisible(binding)) return 'There is no tool named ' + output.name + '.';
+    const validate = this.ajv.compile(binding.tool.inputSchema);
+    if (!validate(output.input))
+      return 'Invalid tool arguments: ' + this.ajv.errorsText(validate.errors);
+  }
+  /** Records the call before it runs, so a restart knows it may have happened. */
+  private async journal({ id, backgroundTurn }: ToolTurn, output: ToolStep, binding: Binding) {
+    await this.chats.update(id, (value) => ({
+      ...value,
+      modelInput: [...(value.modelInput ?? []), ...(output.items ?? [])],
+      messages: output.narration
+        ? [
+            ...value.messages,
+            {
+              ...message('assistant', output.narration),
+              visibility: backgroundTurn ? 'internal' : undefined,
+            },
+          ]
+        : value.messages,
+      retryAt: undefined,
+      retryAttempts: undefined,
+      call: {
+        callId: output.callId,
+        id: crypto.randomUUID(),
+        name: output.name,
+        input: output.input,
+        provider: binding.provider,
+        state: 'pending',
+      },
+    }));
+  }
+  private async execute(
+    { id, controller, pinned, backgroundTurn }: ToolTurn,
+    output: ToolStep,
+    binding: Binding,
+  ): Promise<string> {
+    const requestedTimeout = binding.tool.timeoutMs ?? 30000;
+    // A helper agent makes many model requests; it stops with the turn, not after a minute.
+    const timeout =
+      output.name === 'delegate'
+        ? 600000
+        : Number.isFinite(requestedTimeout)
+          ? Math.min(60000, Math.max(1000, Math.trunc(requestedTimeout)))
+          : 30000;
+    const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(timeout)]);
+    signal.throwIfAborted();
+    const response = await abortable(
+      binding.tool.execute(output.input, {
+        signal,
+        checkpoint: async (operationId) => {
+          await this.chats.update(id, (value) => ({
+            ...value,
+            call: value.call ? { ...value.call, operationId } : value.call,
+          }));
+        },
+      }),
+      signal,
+    );
+    const result = printable(response);
+    let app: AppView | undefined;
+    if (binding.tool.app) {
+      try {
+        const resource = await binding.tool.app.resource(signal);
+        const appId = crypto.randomUUID();
+        await this.store.put('app:' + appId, {
+          plugins: pinned,
+          tool: output.name,
+          conversationId: id,
+          provider: binding.provider,
+        });
+        app = { ...resource, id: appId, input: output.input, result: response };
+      } catch (error) {
+        await this.chats.update(id, (value) => ({
+          ...value,
+          messages: [
+            ...value.messages,
+            message('notice', 'Could not load app: ' + errorText(error)),
+          ],
+        }));
+      }
+    }
+    await this.chats.update(id, (value) => ({
+      ...value,
+      call: { ...value.call!, state: 'completed', result },
+      modelInput: withOutput(value.modelInput, output.callId, result),
+      messages: [
+        ...value.messages,
+        {
+          ...message('tool', result, `${output.name} · ${binding.provider}`),
+          id: value.call!.id,
+          activity: { input: output.input, outcome: toolOutcome(response, binding.tool.command) },
+          app,
+          file:
+            binding.provider === 'local' && output.name === 'show_file'
+              ? (response as { file: Message['file'] }).file
+              : undefined,
+          visibility: backgroundTurn || output.name === 'background' ? 'internal' : undefined,
+        },
+      ],
+    }));
+    return result;
+  }
+  /** A failed call becomes a fact the model can use, a pause until online, or a review stop. */
+  private async toolFailed(
+    { id, controller, backgroundTurn }: ToolTurn,
+    output: ToolStep,
+    binding: Binding,
+    error: unknown,
+  ): Promise<'paused' | { result: string; retry: true }> {
+    const call = (await this.store.get<Conversation>(key(id)))?.call;
+    const rerunnable = localReadOnly(binding, output.input);
+    const offline = isConnectionError(error) || error instanceof SignInRequired;
+    if (!controller.signal.aborted && rerunnable && !offline) {
+      const result = await this.recordToolError(
+        id,
+        output,
+        binding.provider,
+        errorText(error),
+        backgroundTurn,
+        true,
+      );
+      return { result, retry: true };
+    }
+    if (
+      !controller.signal.aborted &&
+      offline &&
+      (rerunnable || (call?.operationId && binding.tool.recover))
+    ) {
+      await waitForConnection(this.chats, id, error);
+      return 'paused';
+    }
+    await this.chats.update(id, (value) => ({
+      ...value,
+      status: 'needs_review',
+      call: { ...value.call!, state: 'unknown', result: errorText(error) },
+      messages: [
+        ...value.messages,
+        message(
+          'notice',
+          `Tool outcome needs review: ${errorText(error)}. Changes may already have happened.`,
+        ),
+      ],
+    }));
+    if (controller.signal.aborted) await this.requestCancellation(binding, id);
+    return 'paused';
   }
   private async alert(id: string, body: string) {
     const c = await this.store.get<Conversation>(key(id));
