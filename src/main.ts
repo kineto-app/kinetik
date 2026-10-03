@@ -540,7 +540,6 @@ byId('new-chat').onclick = () => {
   void (async () => {
     const c = await rpc<Conversation>('create');
     choose(c.id);
-    byId('prompt').focus();
   })().catch(showError);
 };
 byId('top-new-chat').onclick = () => byId('new-chat').click();
@@ -741,11 +740,13 @@ navigator.serviceWorker?.addEventListener('message', (event) => {
 });
 /** Streamed text and step progress patch the open state; anything else reloads it. */
 function changed(event: RuntimeEvent | undefined) {
-  // A running chat has messages; one without them is a summary, so it is fetched instead.
-  const c =
-    event && ['text', 'progress', 'reasoning'].includes(event.type)
-      ? state.conversations.find((item) => item.id === event.conversationId && item.messages.length)
-      : undefined;
+  const streaming = event && ['text', 'progress', 'reasoning'].includes(event.type);
+  let c = streaming
+    ? state.conversations.find((item) => item.id === event.conversationId)
+    : undefined;
+  // A chat held only as a summary shows no stream: the open one is fetched, the rest wait.
+  if (c && !c.messages.length && c.id !== selected) return;
+  if (c && !c.messages.length) c = undefined;
   if (c && event?.type === 'text' && c.status === 'running') {
     c.draft = event.text;
     render();

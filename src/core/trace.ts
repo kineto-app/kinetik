@@ -45,7 +45,7 @@ export async function traced<T>(
   } catch (error) {
     const text = (error instanceof Error ? error.message : String(error))
       // An export leaves the device, so anything shaped like an API key is masked.
-      .replace(/\b(sk|rk|pk)-[\w-]{8,}/g, '[key]')
+      .replace(/\b(?:sk|rk|pk|gsk|ghp|gho|xox[abp])[-_][\w-]{8,}|\bAIza[\w-]{20,}/g, '[key]')
       .slice(0, 300);
     await trace(store, { ...entry, at, ok: false, ms: Date.now() - at, error: text });
     throw error;

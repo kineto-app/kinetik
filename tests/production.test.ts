@@ -116,8 +116,8 @@ test('an error that echoes an API key is masked in the trace', async () => {
   const store = new Store(crypto.randomUUID());
   await expect(
     traced(store, { conversationId: 'c', kind: 'model', name: 'm' }, async () => {
-      throw new Error('Invalid key sk-proj-abcdef1234567890 for this model');
+      throw new Error('Invalid key sk-proj-abcdef1234567890 or gsk_abcdef1234567890 here');
     }),
   ).rejects.toThrow('sk-proj');
-  expect((await recentTrace(store))[0].error).toBe('Invalid key [key] for this model');
+  expect((await recentTrace(store))[0].error).toBe('Invalid key [key] or [key] here');
 });
