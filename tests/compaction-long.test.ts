@@ -131,6 +131,11 @@ test('a worker killed while a summary is written loses nothing; the next worker 
   void first.run(c.id);
   const store = new Store(name);
   await expect.poll(() => summarising).toBe(true);
+  // The first worker stops at the blocking threshold, waiting on a summary that never comes:
+  // what a killed worker leaves behind, whatever the machine's speed.
+  await expect
+    .poll(async () => (await loadChat(store, c.id)).context?.tokens ?? 0, { timeout: 10_000 })
+    .toBeGreaterThanOrEqual(12_000 * 0.75);
   const before = (await modelInput(store, c.id))!;
   const second = new Runtime(store, undefined, busyModel(2, 1_000_000).model);
   const locks = Object.getOwnPropertyDescriptor(globalThis.navigator, 'locks');

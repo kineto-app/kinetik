@@ -212,7 +212,9 @@ function showFeedback(value: unknown, kind: string) {
   byId('error').textContent = value instanceof Error ? value.message : String(value);
   byId('error').dataset.kind = kind;
 }
-export function setupFiles(attach: (file: { name: string; bytes: Uint8Array }) => Promise<void>) {
+export type PickedFile = { name: string; read: () => Promise<Uint8Array> };
+/** `attach` gets the whole pick at once, so the composer can stay busy until every file is in. */
+export function setupFiles(attach: (files: PickedFile[]) => Promise<void>) {
   byId('file-dialog').addEventListener('close', () => {
     closePreview?.();
     closePreview = undefined;
@@ -223,11 +225,15 @@ export function setupFiles(attach: (file: { name: string; bytes: Uint8Array }) =
       const input = byId<HTMLInputElement>('upload');
       const files = [...(input.files ?? [])];
       input.value = '';
-      // One at a time keeps the chosen order and stops at the first file over the limits.
-      for (const file of files) {
-        if (file.size > 25 * 1024 * 1024) throw new Error('Choose a file smaller than 25 MB.');
-        await attach({ name: file.name, bytes: new Uint8Array(await file.arrayBuffer()) });
-      }
+      await attach(
+        files.map((file) => ({
+          name: file.name,
+          read: async () => {
+            if (file.size > 25 * 1024 * 1024) throw new Error('Choose a file smaller than 25 MB.');
+            return new Uint8Array(await file.arrayBuffer());
+          },
+        })),
+      );
       if (files.length)
         byId('ui-announcement').textContent =
           files.length === 1 ? 'Attached ' + files[0].name : `Attached ${files.length} files`;
