@@ -81,6 +81,7 @@ test('photos, choices, actions and memory', async ({ page, request }, info) => {
   await send(page, 'Remember I write in Russian');
   await expect(replies(page).last()).toContainText('keep that in mind');
   await expect(ask).toBeHidden();
+  await expect(page.locator('.toast')).toContainText('Saved to your memory');
   await shot('4-memory-saved');
   await send(page, 'Hi');
   await expect
@@ -94,7 +95,13 @@ test('photos, choices, actions and memory', async ({ page, request }, info) => {
   await expect(page.locator('#memory-text')).toHaveValue(
     'Writes in Russian. Prefers short answers.',
   );
+  await expect(page.locator('.memory-change')).toContainText(
+    'Last changed by Kinetik in “Use these photos”',
+  );
   await shot('5-memory-settings');
+  await page.locator('.memory-change').getByRole('button', { name: 'Undo' }).click();
+  await expect(page.locator('#memory-text')).toHaveValue('');
+  await expect(page.locator('.memory-change')).toHaveCount(0);
 });
 
 test('with approvals turned on, a destructive action waits for Approve', async ({

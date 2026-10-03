@@ -30,6 +30,8 @@ import { setupConnections } from './ui/onboarding';
 import {
   setSettingsActions,
   setSettingsPlugins,
+  setSettingsChats,
+  toggleNotifications,
   setSettingsSetup,
   showAddedPlugin,
   showSettings,
@@ -37,6 +39,7 @@ import {
 } from './ui/settings';
 import type { SetupState } from './connections/manager';
 import { byId } from './ui/dom';
+import { toast } from './ui/toast';
 import { renderAsk } from './ui/ask-panel';
 import { latestThought, renderThought } from './ui/thought';
 import { closeDrawer, setupDrawer } from './ui/drawer';
@@ -67,6 +70,7 @@ const [customModel, setCustomModel] = createSignal<{ configured: boolean; chosen
 async function refreshCustomModel() {
   const result = await rpc<CustomModelState>('customModel', { action: 'state' });
   setCustomModel({ configured: result.configured, chosen: result.chosen });
+  updateConnectionStatus();
   // The empty chat's ChatGPT hint depends on the choice.
   if (!current()?.messages.length) lastMessages = '';
   render();
@@ -136,6 +140,9 @@ function renderDraft() {
   updateJumpButton();
 }
 const renderedMessages = new Set<string>();
+/** Results already announced by a toast; only those produced after the app opened are. */
+const announced = new Set<string>();
+const openedAt = Date.now();
 const draftKey = 'kinetik-composer';
 byId<HTMLTextAreaElement>('prompt').value = uiStorage.getItem(draftKey) ?? '';
 const isBackgroundTurn = (c: Conversation) => {
@@ -161,16 +168,109 @@ function button(
   });
   return result;
 }
-function choose(id: string) {
+function choose(id: string, focus = true) {
+  markRead(id);
   selected = id;
   uiStorage.setItem('kinetik-conversation', id);
   lastMessages = '';
   // Only the open chat carries its messages, so a newly opened one is fetched before it shows.
   void refresh().catch(showError);
   closeDrawer(false);
-  byId('prompt').focus();
+  // Opened from a notification, the chat is for reading; the keyboard would hide it.
+  if (focus) byId('prompt').focus();
 }
 const [view, setView] = createSignal({ state, selected });
+/** Chats that finished or asked something while another chat was open. */
+function storedUnread() {
+  try {
+    const value = JSON.parse(localStorage.getItem('kinetik-unread') ?? '[]');
+    return new Set<string>(
+      Array.isArray(value) ? value.filter((id) => typeof id === 'string') : [],
+    );
+  } catch {
+    return new Set<string>();
+  }
+}
+const [unread, setUnread] = createSignal(storedUnread());
+function markRead(id: string, read = true) {
+  const next = new Set(unread());
+  if (read) next.delete(id);
+  else next.add(id);
+  setUnread(next);
+  try {
+    localStorage.setItem('kinetik-unread', JSON.stringify([...next]));
+  } catch {
+    /* Without storage the dots last until the app closes. */
+  }
+}
+const working = ['running', 'queued', 'waiting'];
+/** Tells about work that ended in another chat, and offers notifications after a long task here. */
+/** When the page first saw each chat at work; the turn record can be gone a moment before. */
+const workingSince = new Map<string, number>();
+function noticeFinished(before: Conversation[], after: Conversation[]) {
+  for (const c of after) {
+    const previous = before.find((item) => item.id === c.id);
+    if (working.includes(c.status)) {
+      if (!workingSince.has(c.id))
+        workingSince.set(c.id, Math.min(c.turn?.startedAt ?? Date.now(), Date.now()));
+      continue;
+    }
+    const since = workingSince.get(c.id);
+    workingSince.delete(c.id);
+    if (!previous || !working.includes(previous.status)) continue;
+    const verb =
+      c.status === 'asking'
+        ? 'has a question'
+        : c.status === 'needs_review'
+          ? 'needs a look'
+          : c.status === 'idle'
+            ? 'is ready'
+            : undefined;
+    if (!verb) continue;
+    if (c.id !== selected) {
+      markRead(c.id, false);
+      toast({
+        key: 'chat:' + c.id,
+        text: `“${c.title}” ${verb}`,
+        ms: 8000,
+        action: { label: 'Open', run: () => choose(c.id, false) },
+      });
+    } else if (c.status === 'idle' && since !== undefined && Date.now() - since > 15000)
+      void offerNotifications();
+  }
+}
+async function offerNotifications() {
+  try {
+    if (
+      localStorage.getItem('kinetik-notify-offered') ||
+      !(isNative || ('Notification' in window && Notification.permission !== 'denied'))
+    )
+      return;
+  } catch {
+    return;
+  }
+  if (await rpc<boolean>('notifications')) return;
+  localStorage.setItem('kinetik-notify-offered', '1');
+  toast({
+    text: 'Want a notification when work is done?',
+    ms: 15000,
+    action: {
+      label: 'Turn on',
+      run: () =>
+        void toggleNotifications(true)
+          .then(() => toast({ text: 'Notifications are on', ms: 3000 }))
+          .catch(showError),
+    },
+  });
+}
+window.addEventListener('kinetik-open-chat', (event) => {
+  const id = (event as CustomEvent<string>).detail;
+  // A tap from a cold start arrives before the chats load; refresh falls back if the id is gone.
+  if (typeof id !== 'string' || !id) return;
+  // The composer may still hold focus from before the app was left; the keyboard would cover the reply.
+  (document.activeElement as HTMLElement | null)?.blur();
+  choose(id, false);
+});
 renderSolid(
   () =>
     ConversationList({
@@ -181,6 +281,9 @@ renderSolid(
         return view().selected;
       },
       background: isBackgroundTurn,
+      get unread() {
+        return unread();
+      },
       choose,
     }),
   byId('conversations'),
@@ -229,17 +332,24 @@ function render() {
     foreground && c?.live?.reasoning && !c.draft && !openCall(c.turn?.call)
       ? latestThought(c.live.reasoning)
       : undefined;
-  byId('activity-label').textContent =
-    (openCall(c?.turn?.call)
-      ? taskLabel(c!.turn!.call!.name)
-      : c?.live?.activity === 'summarising'
-        ? 'Summarising earlier messages…'
-        : (thought?.heading ?? 'Working')) +
-    (c?.live && c.live.step > 1 ? ` · step ${c.live.step}` : '') +
-    (c?.live?.helperStep ? ` · helper step ${c.live.helperStep}` : '');
+  byId('activity-label').textContent = openCall(c?.turn?.call)
+    ? taskLabel(c!.turn!.call!.name)
+    : c?.live?.activity === 'summarising'
+      ? 'Summarising earlier messages…'
+      : (thought?.heading ?? 'Working');
+  byId('activity-label').title = [
+    c?.live && c.live.step > 1 ? `Step ${c.live.step}` : '',
+    c?.live?.helperStep ? `helper step ${c.live.helperStep}` : '',
+  ]
+    .filter(Boolean)
+    .join(' · ');
   renderThought(thought);
   updateElapsed();
   byId('recovery').hidden = c?.status !== 'needs_review';
+  byId('timeline').toggleAttribute(
+    'data-busy',
+    ['running', 'queued', 'waiting', 'asking', 'needs_review'].includes(c?.status ?? ''),
+  );
   renderAsk(c, (id, value) => rpc('answer', { id, value }).then(refresh).catch(showError));
   const serialized = JSON.stringify([selected, c?.messages, c?.draft, c?.turn?.call, c?.status]);
   if (serialized !== lastMessages) {
@@ -258,7 +368,7 @@ function render() {
     }
     if (c?.messages.length) timeline.querySelector('.empty')?.remove();
     let replacesDraft = false;
-    if (!c?.draft || isBackgroundTurn(c)) {
+    if (!foreground) {
       const draft = timeline.querySelector('[data-draft]');
       replacesDraft = Boolean(draft);
       draft?.remove();
@@ -268,10 +378,10 @@ function render() {
       empty.className = 'empty';
       empty.innerHTML = `<div class="welcome-mark" aria-hidden="true">${icon('spark')}</div><h2>What can we get done today?</h2><div class="starter"><div class="suggestions"></div></div><p class="preview-note">Preview uses sample replies. ChatGPT is not connected.</p>`;
       if (connectionState?.chatgpt.available) {
-        empty.querySelector('.preview-note')!.textContent =
-          connectionState.chatgpt.connected || customModel().chosen
-            ? ''
-            : 'Connect ChatGPT to start a conversation.';
+        const note = empty.querySelector('.preview-note')!;
+        note.replaceChildren();
+        if (!connectionState.chatgpt.connected && !customModel().chosen)
+          note.append(button('Connect ChatGPT to start', openSetup, 'primary connect-start'));
       }
       const examples: [string, IconName, string][] = [
         ...demoTasks.map((task): [string, IconName, string] => [task.title, 'file', task.prompt]),
@@ -293,6 +403,34 @@ function render() {
       timeline.append(empty);
     }
     for (const item of c?.messages ?? []) {
+      if (
+        item.role === 'tool' &&
+        item.tool === 'remember · local' &&
+        item.text === 'Saved to memory.' &&
+        item.createdAt > openedAt &&
+        !announced.has(item.id)
+      ) {
+        announced.add(item.id);
+        toast({
+          key: 'memory',
+          text: 'Saved to your memory',
+          action: {
+            label: 'Undo',
+            run: () =>
+              void rpc('memory', { undo: true })
+                .then(() => rpc<unknown>('memoryChange'))
+                .then((left) => {
+                  toast({
+                    key: 'memory',
+                    text: left ? 'Memory changed since, so it was kept' : 'Memory restored',
+                    ms: 3000,
+                  });
+                  return refreshSettingsData();
+                })
+                .catch(showError),
+          },
+        });
+      }
       timeline
         .querySelector<HTMLElement>(`[data-message-id="${CSS.escape(item.id)}"]`)
         ?.toggleAttribute('data-queued', Boolean(item.queue));
@@ -320,7 +458,8 @@ function render() {
         ),
       );
     }
-    if (c?.draft && !isBackgroundTurn(c)) {
+    // While Kinetik works, its reply block is already there and says what it is doing.
+    if (foreground) {
       let draft = timeline.querySelector<HTMLElement>('[data-draft]');
       if (!draft) {
         draft = document.createElement('article');
@@ -329,12 +468,16 @@ function render() {
         // Re-rendered content would otherwise be re-announced in full on every frame.
         draft.setAttribute('aria-busy', 'true');
         // Holds the line the final reply's "Worked for" takes, so the swap does not shift text.
-        draft.innerHTML = `<div class="work-duration">${icon('clock')}Working…</div><div class="message-label"><img src="./icon.svg" width="24" height="24" alt="" />Kinetik<span class="streaming-label">Writing</span></div><div class="message-content streaming-content"></div>`;
+        draft.innerHTML = `<div class="work-duration">${icon('clock')}<span>Working…</span></div><div class="message-label"><img src="./icon.svg" width="24" height="24" alt="" />Kinetik<span class="streaming-label">Writing</span></div><div class="message-content streaming-content"></div>`;
         timeline.append(draft);
       }
-      draftText = c.draft;
+      draftText = c!.draft ?? '';
       draftFrame ||= requestAnimationFrame(renderDraft);
     }
+    const replies = timeline.querySelectorAll('.message[data-role=assistant]:not([data-draft])');
+    replies.forEach((reply, index) =>
+      reply.toggleAttribute('data-latest', index === replies.length - 1),
+    );
     renderToolActivity(timeline, c);
     timeline.scrollTop = !c?.messages.length
       ? 0
@@ -342,20 +485,36 @@ function render() {
         ? timeline.scrollHeight
         : oldScroll;
   }
+  const pending = byId('timeline').querySelector<HTMLElement>('[data-draft] .streaming-label');
+  // Steps and the thinking note above already say what is happening; this only shows it is alive.
+  if (pending && pending.dataset.writing !== String(Boolean(c?.draft))) {
+    pending.dataset.writing = String(Boolean(c?.draft));
+    pending.innerHTML = c?.draft
+      ? 'Writing'
+      : '<span class="thinking-dots" aria-hidden="true"><i></i><i></i><i></i></span>';
+    updateElapsed();
+  }
   updateJumpButton();
   renderAutomations(state.automations, refresh, choose);
   setSettingsPlugins(state.plugins);
+  setSettingsChats(state.conversations);
 }
 async function refresh() {
   const generation = ++refreshGeneration;
-  let next = await rpc<State>('state', { conversation: selected });
+  const load = async () => {
+    const value = await rpc<State>('state', { conversation: selected });
+    return { ...value, conversations: value.conversations.filter((c) => !deleting.has(c.id)) };
+  };
+  let next = await load();
   if (generation !== refreshGeneration) return;
   if (!next.conversations.some((c) => c.id === selected) && next.conversations.length) {
     selected = next.conversations[0].id;
-    next = await rpc<State>('state', { conversation: selected });
+    next = await load();
     if (generation !== refreshGeneration) return;
   }
+  noticeFinished(state.conversations, next.conversations);
   state = next;
+  if (unread().has(selected)) markRead(selected);
   uiStorage.setItem('kinetik-conversation', selected);
   render();
 }
@@ -483,17 +642,36 @@ for (const [id, retry] of [
   byId(id).onclick = () => {
     void rpc('resolve', { id: selected, retry }).then(refresh).catch(showError);
   };
-byId('delete-chat').onclick = () => openDialog('delete');
-byId('delete-confirm').onclick = () => {
+/** Chats deleted but still undoable: hidden now, removed when their toast leaves. */
+const deleting = new Map<string, () => void>();
+byId('delete-chat').onclick = () => {
   const id = selected;
-  byId<HTMLDialogElement>('delete-dialog').close();
-  void rpc('delete', { id })
-    .then(() => {
-      selected = state.conversations.find((c) => c.id !== id)?.id ?? '';
-      return refresh();
-    })
-    .catch(showError);
+  const title = current()?.title ?? 'Chat';
+  deleting.set(id, () => {
+    deleting.delete(id);
+    void rpc('delete', { id }).then(refresh).catch(showError);
+  });
+  selected = state.conversations.find((c) => c.id !== id && !deleting.has(c.id))?.id ?? '';
+  void refresh().catch(showError);
+  toast({
+    text: `Deleted “${title}”`,
+    ms: 8000,
+    action: {
+      label: 'Undo',
+      run: () => {
+        deleting.delete(id);
+        choose(id);
+      },
+    },
+    done: () => deleting.get(id)?.(),
+  });
 };
+// Leaving the app ends the chance to undo; Android's WebView only reports it as hidden.
+const commitDeletes = () => [...deleting.values()].forEach((remove) => remove());
+addEventListener('pagehide', commitDeletes);
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') commitDeletes();
+});
 function openDialog(name: string) {
   closeDrawer();
   for (const dialog of document.querySelectorAll<HTMLDialogElement>('dialog:modal')) dialog.close();
@@ -563,8 +741,32 @@ function updateJumpButton() {
     !timeline.querySelector('.message') ||
     timeline.scrollHeight - timeline.scrollTop - timeline.clientHeight < 100;
 }
-byId('timeline').addEventListener('scroll', updateJumpButton, { passive: true });
-new ResizeObserver(updateJumpButton).observe(byId('timeline'));
+let pinned = true;
+byId('timeline').addEventListener(
+  'scroll',
+  () => {
+    const timeline = byId('timeline');
+    pinned = timeline.scrollHeight - timeline.scrollTop - timeline.clientHeight < 80;
+    updateJumpButton();
+  },
+  { passive: true },
+);
+// The keyboard opening shrinks the chat; one that was at its end stays there.
+new ResizeObserver(() => {
+  if (pinned) byId('timeline').scrollTop = byId('timeline').scrollHeight;
+  updateJumpButton();
+}).observe(byId('timeline'));
+byId('timeline').addEventListener('click', (event) => {
+  const target = event.target as HTMLElement;
+  if (target.closest('a, button, summary, details, iframe')) return;
+  const message = target.closest<HTMLElement>(
+    '.message[data-role=assistant], .message[data-role=user]',
+  );
+  if (!message || getSelection()?.toString()) return;
+  for (const shown of byId('timeline').querySelectorAll('[data-show-actions]'))
+    if (shown !== message) shown.removeAttribute('data-show-actions');
+  message.toggleAttribute('data-show-actions');
+});
 byId('jump-latest').onclick = () => {
   const timeline = byId('timeline');
   timeline.scrollTo({
@@ -577,6 +779,9 @@ let sidebarTimer: ReturnType<typeof setTimeout>;
 function updateElapsed() {
   const c = current();
   const now = Date.now();
+  const working = byId('timeline').querySelector('[data-draft] .work-duration span');
+  if (working && c?.turn?.startedAt !== undefined)
+    working.textContent = 'Working for ' + elapsed(now - c.turn.startedAt);
   for (const id of ['activity', 'connection-wait', 'background-activity']) {
     const parent = byId(id);
     let timer = parent.querySelector<HTMLElement>('.elapsed-time');
@@ -610,6 +815,14 @@ setInterval(() => {
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden) updateElapsed();
 });
+window.addEventListener('kinetik-retry', (event) => {
+  const id = (event as CustomEvent<string>).detail;
+  if (id !== selected) return;
+  followNextMessage = true;
+  void rpc('submit', { id, text: 'Try again.', messageId: crypto.randomUUID() })
+    .then(refresh)
+    .catch(showError);
+});
 window.addEventListener('kinetik-changed', (event) =>
   changed((event as CustomEvent<RuntimeEvent | undefined>).detail),
 );
@@ -618,6 +831,8 @@ window.addEventListener('kinetik-native-error', (event) =>
 );
 navigator.serviceWorker?.addEventListener('message', (event) => {
   if (event.data?.type === 'changed') changed(event.data.event);
+  if (event.data?.type === 'open-chat')
+    window.dispatchEvent(new CustomEvent('kinetik-open-chat', { detail: event.data.id }));
 });
 /** Streamed text and step progress patch the open state; anything else reloads it. */
 function changed(event: RuntimeEvent | undefined) {
@@ -662,6 +877,15 @@ async function start() {
   const updatesReady = registration
     ? setupUpdates(registration)
     : import('./platform/updates').then(({ setupNativeUpdates }) => setupNativeUpdates());
+  // Opened from a notification: show that chat.
+  const opened = new URL(location.href).searchParams.get('chat');
+  if (opened) {
+    selected = opened;
+    markRead(opened);
+    const url = new URL(location.href);
+    url.searchParams.delete('chat');
+    history.replaceState(null, '', url);
+  }
   await refresh();
   await refreshCustomModel().catch(() => {});
   await connectionSetup.initialize();
@@ -720,21 +944,10 @@ const connectionSetup = setupConnections((value) => {
     model: value.chatgpt.model ?? '',
   });
   if (becameConnected) void resumeWork();
-  const configured = value.charms.available || value.chatgpt.available;
-  const attention =
-    (value.chatgpt.available && !value.chatgpt.connected) || value.charms.status === 'reconnect';
-  byId('connection-status').hidden = !attention;
-  byId('connections-dot').dataset.attention = String(attention);
-  const connected = [
-    value.chatgpt.connected ? 'ChatGPT' : '',
-    value.charms.status === 'connected' ? 'Charms' : '',
-  ].filter(Boolean);
-  byId('connections-dot').hidden = !attention && !connected.length;
-  byId('connections-summary').textContent = attention
-    ? 'Needs attention'
-    : connected.join(' · ') || (configured ? 'Not connected' : 'Manage services');
-  byId('connection-status').innerHTML = icon('plug');
-  byId('connection-status').classList.add('icon-button');
+  updateConnectionStatus();
+  byId('connection-status').innerHTML =
+    icon('plug') +
+    `<span>${value.chatgpt.available && !value.chatgpt.connected ? 'Connect' : 'Reconnect'}</span>`;
   byId('connection-status').title =
     value.chatgpt.available && !value.chatgpt.connected ? 'Connect ChatGPT' : 'Reconnect Charms';
   if (value.chatgpt.available) {
@@ -750,6 +963,25 @@ byId('install-open').onclick = () => {
   closeDrawer(false);
   connectionSetup.install();
 };
+/** What needs connecting, in the header and the drawer; a chosen custom model needs no ChatGPT. */
+function updateConnectionStatus() {
+  const value = connectionState;
+  if (!value) return;
+  const attention =
+    (value.chatgpt.available && !value.chatgpt.connected && !customModel().chosen) ||
+    value.charms.status === 'reconnect';
+  byId('connection-status').hidden = !attention;
+  byId('connections-dot').dataset.attention = String(attention);
+  const connected = [
+    value.chatgpt.connected ? 'ChatGPT' : customModel().chosen ? 'Custom model' : '',
+    value.charms.status === 'connected' ? 'Charms' : '',
+  ].filter(Boolean);
+  byId('connections-dot').hidden = !attention && !connected.length;
+  byId('connections-summary').textContent = attention
+    ? 'Needs attention'
+    : connected.join(' · ') ||
+      (value.charms.available || value.chatgpt.available ? 'Not connected' : 'Manage services');
+}
 function openSetup() {
   for (const dialog of document.querySelectorAll<HTMLDialogElement>('dialog:modal')) dialog.close();
   connectionSetup.open();

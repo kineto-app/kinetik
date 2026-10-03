@@ -86,19 +86,34 @@ test('bug 2: a widget message goes into the composer instead of being sent', asy
   await page.screenshot({ path: info.outputPath('2-widget-message.png') });
 });
 
-test('bug 6: a chat can be deleted with everything stored for it', async ({ page }, info) => {
+test('bug 6: a deleted chat can be undone, and is removed with everything stored for it', async ({
+  page,
+}, info) => {
   await send(page, '/exec printf "hi" > note.txt');
   await settled(page);
   const before = await rpc<{ conversations: Conversation[] }>(page, 'state');
   const id = before.conversations[0].id;
+  const title = await page.locator('#title').textContent();
+  const toastNode = page.locator('.toast').filter({ hasText: 'Deleted' });
   await page.getByRole('button', { name: 'Delete chat' }).click();
-  const dialog = page.getByRole('dialog', { name: 'Delete this chat?' });
-  await expect(dialog).toBeVisible();
-  await page.screenshot({ path: info.outputPath('3-delete-confirm.png') });
-  await dialog.getByRole('button', { name: 'Delete' }).click();
+  await expect(toastNode).toBeVisible();
   await expect(page.locator('#title')).toHaveText('New chat');
-  const after = await rpc<{ conversations: Conversation[] }>(page, 'state');
-  expect(after.conversations.some((c) => c.id === id)).toBe(false);
+  await page.screenshot({ path: info.outputPath('3-delete-undo.png') });
+  // A pointer on the toast holds it past its 8 seconds.
+  await toastNode.hover();
+  await page.waitForTimeout(9000);
+  await expect(toastNode).toBeVisible();
+  await toastNode.getByRole('button', { name: 'Undo' }).click();
+  await expect(page.locator('#title')).toHaveText(title!);
+  await page.getByRole('button', { name: 'Delete chat' }).click();
+  await toastNode.getByRole('button', { name: 'Dismiss' }).click();
+  await expect
+    .poll(async () =>
+      (await rpc<{ conversations: Conversation[] }>(page, 'state')).conversations.some(
+        (c) => c.id === id,
+      ),
+    )
+    .toBe(false);
   await page.screenshot({ path: info.outputPath('4-deleted.png') });
 });
 

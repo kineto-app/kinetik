@@ -1,4 +1,4 @@
-import { onCleanup, onMount, Show } from 'solid-js';
+import { createSignal, onCleanup, onMount, Show } from 'solid-js';
 import type { Message } from '../core/types';
 import { renderMessageContent, copyButton } from './message-content';
 import { messageTime, tokenCount, workDuration } from './time';
@@ -7,6 +7,7 @@ import { mountApp } from './mcp-app';
 import { mountFile } from './files';
 import { attachmentCarousel } from './attachments';
 import { isInternalActivity } from './activity-data';
+import { plainNotice } from './notice';
 
 /** A message mounts once. Widget adapters retain their iframe through streaming and fullscreen. */
 export function MessageBubble(props: {
@@ -49,6 +50,57 @@ export function MessageBubble(props: {
             : 'Earlier messages summarised'}
         </span>
       </p>
+    );
+  }
+  if (item.role === 'notice' && item.text === 'Stopped.') {
+    props.article.classList.add('compaction-note');
+    return (
+      <p>
+        <span class="icon-slot" innerHTML={icon('stop')} />
+        <span>Stopped</span>
+      </p>
+    );
+  }
+  if (item.role === 'notice') {
+    const notice = plainNotice(item.text);
+    const [open, setOpen] = createSignal(false);
+    const detailId = 'notice-detail-' + item.id;
+    props.article.toggleAttribute('data-failed', notice.failed);
+    // One quiet line like "Stopped"; the original text opens under it.
+    return (
+      <>
+        <div class="notice-line">
+          <span class="icon-slot notice-mark" innerHTML={icon('info')} />
+          <Show when={notice.detail} fallback={<span class="notice-title">{notice.title}</span>}>
+            <button
+              class="notice-title"
+              aria-expanded={open()}
+              aria-controls={detailId}
+              onClick={() => setOpen(!open())}
+            >
+              {notice.title}
+              <span class="icon-slot notice-chevron" innerHTML={icon('chevron')} />
+            </button>
+          </Show>
+          <Show when={notice.failed}>
+            <button
+              class="notice-retry"
+              onClick={() =>
+                window.dispatchEvent(
+                  new CustomEvent('kinetik-retry', { detail: props.conversationId }),
+                )
+              }
+            >
+              Try again
+            </button>
+          </Show>
+        </div>
+        <Show when={notice.detail}>
+          <p class="notice-detail" id={detailId} hidden={!open()}>
+            {notice.detail}
+          </p>
+        </Show>
+      </>
     );
   }
   return (

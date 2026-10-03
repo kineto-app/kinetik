@@ -296,7 +296,7 @@ test('a streaming reply shows Markdown formatting before it completes', async ({
   await expect(draft.locator('li')).toHaveCount(2);
   await expect(draft.locator('.code-block code')).toHaveText('const ready =');
   await expect(draft).toContainText('Writing');
-  await expect(draft.locator('.work-duration')).toHaveText('Working…');
+  await expect(draft.locator('.work-duration')).toHaveText(/^Working(…| for \d+s)$/);
   await expect(draft).toHaveAttribute('aria-busy', 'true');
   await expect(page.locator('[data-role=assistant]')).toHaveCount(0);
   await page.screenshot({ path: info.outputPath('streaming-markdown.png') });

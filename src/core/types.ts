@@ -162,6 +162,7 @@ export interface SkillSnapshot {
 }
 export interface ToolContext {
   background?: boolean;
+  conversationId?: string;
   signal: AbortSignal;
   checkpoint(operationId: string): Promise<void>;
 }

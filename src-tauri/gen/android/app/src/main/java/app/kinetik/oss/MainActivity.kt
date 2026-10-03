@@ -1,11 +1,13 @@
 package app.kinetik.oss
 
+import android.content.Intent
 import android.os.Bundle
 import android.view.View
 import android.webkit.WebView
 import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AlertDialog
 import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsAnimationCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
@@ -19,10 +21,33 @@ class MainActivity : TauriActivity() {
     // Edge to edge, the keyboard no longer resizes the window: end the content at its top so the
     // composer stays visible.
     val content = findViewById<View>(android.R.id.content)
+    val ime = WindowInsetsCompat.Type.ime()
+    var animating = false
     ViewCompat.setOnApplyWindowInsetsListener(content) { view, insets ->
-      view.setPadding(0, 0, 0, insets.getInsets(WindowInsetsCompat.Type.ime()).bottom)
+      if (!animating) view.setPadding(0, 0, 0, insets.getInsets(ime).bottom)
       insets
     }
+    // Follow the keyboard frame by frame, so the composer slides with it instead of jumping.
+    ViewCompat.setWindowInsetsAnimationCallback(
+      content,
+      object : WindowInsetsAnimationCompat.Callback(DISPATCH_MODE_CONTINUE_ON_SUBTREE) {
+        override fun onPrepare(animation: WindowInsetsAnimationCompat) {
+          if (animation.typeMask and ime != 0) animating = true
+        }
+        override fun onProgress(
+          insets: WindowInsetsCompat,
+          running: MutableList<WindowInsetsAnimationCompat>,
+        ): WindowInsetsCompat {
+          if (animating) content.setPadding(0, 0, 0, insets.getInsets(ime).bottom)
+          return insets
+        }
+        override fun onEnd(animation: WindowInsetsAnimationCompat) {
+          if (animation.typeMask and ime == 0) return
+          animating = false
+          ViewCompat.requestApplyInsets(content)
+        }
+      },
+    )
   }
 
   override fun onWebViewCreate(webView: WebView) {
@@ -49,6 +74,13 @@ class MainActivity : TauriActivity() {
         message.data?.let { data -> ipcExecutor.execute { Rust.ipc(id, url, data) } }
       }
     }
+  }
+
+  // A notification tap on a restarted process arrives here before any plugin has loaded;
+  // keeping it as the activity's intent lets the native plugin read it once it does.
+  override fun onNewIntent(intent: Intent) {
+    super.onNewIntent(intent)
+    setIntent(intent)
   }
 
   override fun onDestroy() {

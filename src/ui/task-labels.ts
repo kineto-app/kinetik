@@ -55,6 +55,10 @@ export function taskLabel(name: string, complete = false, count = 1): string {
       return complete ? 'Asked a helper' : 'Asking a helper';
     case 'background':
       return complete ? 'Started background work' : 'Starting background work';
+    case 'remember':
+      return complete ? 'Saved to your memory' : 'Saving to your memory';
+    case 'ask':
+      return complete ? 'Asked you' : 'Asking you';
     default: {
       const title = taskKind(name).replace(/[_-]+/g, ' ').trim();
       return title ? title[0].toUpperCase() + title.slice(1) : 'Tool activity';

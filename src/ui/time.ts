@@ -46,11 +46,7 @@ export function workDuration(ms: number, usage?: { input: number; output: number
   summary.title = 'Elapsed time, including connection waits';
   summary.innerHTML = icon('clock');
   summary.append(document.createTextNode('Worked for ' + elapsed(ms)));
-  if (usage) {
-    summary.append(
-      document.createTextNode(' · ' + tokenCount(usage.input + usage.output) + ' tokens'),
-    );
-    summary.title += `. Tokens: ${usage.input} in, ${usage.output} out`;
-  }
+  // Token counts mean nothing to most people; they stay in the tooltip and the Activity log.
+  if (usage) summary.title += `. Tokens: ${usage.input} in, ${usage.output} out`;
   return summary;
 }
