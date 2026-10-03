@@ -231,4 +231,5 @@ Each step is small enough for one PR. The order puts risk first.
   - Left on purpose by step 6:
     - streamed tool output: no tool can stream today (just-bash and Charms return at the end), so the event would have no producer;
     - the full text of a shortened tool output is not saved to a file; the model can read the source again.
+  - After step 6, by the owner's decision: **no approvals by default.** Tools marked for approval, widget actions, background starts and memory saves run without asking. The approval path stays, unchanged and tested, behind a stored `ask-before-actions: true` that nothing in the UI sets. The `ask` tool, which asks for information, is not an approval and stays.
 - **Open:** nothing.

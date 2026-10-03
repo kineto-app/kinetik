@@ -11,6 +11,15 @@ const initial: SetupState = {
   chatgpt: { available: false, connected: false },
 };
 
+const laterKey = 'kinetik-setup-later';
+const laterChosen = () => {
+  try {
+    return localStorage.getItem(laterKey) === '1';
+  } catch {
+    return false;
+  }
+};
+
 export function setupConnections(changed: (state: SetupState) => void) {
   let state = initial;
   let busy = false;
@@ -321,7 +330,15 @@ export function setupConnections(changed: (state: SetupState) => void) {
   }
   $('cancel-signin').onclick = () =>
     void import('../platform/native').then((native) => native.cancelNativeAuthentication());
-  $('later').onclick = close;
+  $('later').onclick = () => {
+    // Setup does not open by itself on every launch after "Later"; Connections still opens it.
+    try {
+      localStorage.setItem(laterKey, '1');
+    } catch {
+      /* Without storage it simply asks again next time. */
+    }
+    close();
+  };
   $('start').onclick = close;
   dialog.addEventListener('cancel', (event) => {
     if (screen === 'handoff' || screen === 'connected') {
@@ -520,6 +537,7 @@ export function setupConnections(changed: (state: SetupState) => void) {
       }
       if (
         (state.installation.required &&
+          !laterChosen() &&
           !(state.charms.status === 'connected' && state.chatgpt.connected)) ||
         callback ||
         sessionStorage.getItem('kinetik-setup') ||

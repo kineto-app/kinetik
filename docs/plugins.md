@@ -87,8 +87,9 @@ Tool definitions may set `timeoutMs` for foreground requests. The runtime defaul
 30 seconds and clamps overrides to 1–60 seconds. The bundled Charms adapter uses
 60 seconds and requests background execution when a job is launched in the background.
 
-A tool also declares its effects. `approval` asks the user first: `true`, or a function of the
-input. `readOnly: true` says the tool changes nothing, so the model may call it in a parallel batch
+A tool also declares its effects. `approval` marks a risky call: `true`, or a function of the
+input. Kinetik runs it without asking by default; only a stored `ask-before-actions: true` brings
+the approval card back. `readOnly: true` says the tool changes nothing, so the model may call it in a parallel batch
 and the `delegate` helper may use it; a call that needs approval, a widget tool and a tool hidden
 from the model are still left out. `command: true` says the tool runs a shell command, so a
 non-zero exit code marks the call failed. The HTTP MCP plugin maps `readOnlyHint` and

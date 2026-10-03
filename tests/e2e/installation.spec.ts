@@ -56,6 +56,20 @@ test('hosted setup works without installing and offers installation separately',
   await expect(page.getByRole('heading', { name: 'Connect ChatGPT' })).toBeVisible();
 });
 
+test('after "Later", setup does not open by itself again; the status button still opens it', async ({
+  page,
+}, info) => {
+  await page.goto(base);
+  await expect(page.getByRole('heading', { name: 'Connect ChatGPT' })).toBeVisible();
+  await page.getByRole('button', { name: 'Set up later' }).click();
+  await page.reload();
+  await expect(page.locator('#composer')).toBeVisible();
+  await expect(page.locator('#connection-setup')).toBeHidden();
+  await page.screenshot({ path: info.outputPath('after-later-reload.png') });
+  await page.locator('#connection-status').click();
+  await expect(page.getByRole('heading', { name: 'Connect ChatGPT' })).toBeVisible();
+});
+
 test('iPhone offers manual installation without blocking account setup', async ({ page }) => {
   await page.addInitScript(() =>
     Object.defineProperty(navigator, 'userAgent', {
