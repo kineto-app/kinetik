@@ -96,6 +96,18 @@ Each reply shows how long the agent worked and how many tokens it used. When a c
 
 Tool calls that cannot have changed anything — a call to a tool that does not exist, arguments that fail the schema, or an error from Kinetik's own `read`, `list` or `read_skill` — go back to the agent as an error result so it can correct itself; the activity line counts them as "handled". Errors from tools that may have had side effects still pause the chat for review. A turn stops after 60 steps, or earlier when the agent repeats the same call with the same input more than three times.
 
+## Photos, questions, approvals and memory
+
+Attached photos reach the model as images, not only as file paths, when the selected ChatGPT model accepts images (the model catalog says which do); other models get a note that a photo was attached. The agent still gets the file path, so a tool can use the original.
+
+While the agent works, the clock button next to Stop sends your message **after** the current work instead of steering it now. The message shows "Queued · runs after the current work" until its turn starts.
+
+The agent can stop and ask. The local `ask` tool shows a question with two to six answer buttons; an MCP tool that a server marks `destructiveHint: true` shows its input with **Approve** and **Decline** and runs only after Approve. The chat status reads "Waiting for your answer", a restart keeps the question, and sending a new message instead tells the agent the question went unanswered.
+
+**Settings → Memory** holds short notes about you — at most 4000 characters — that every chat reads first. The agent can propose a new version with the `remember` tool; nothing is saved until you choose **Save to memory**.
+
+**Settings → Notify me when work finishes** asks for notification permission and then shows a system notification when a reply is ready or the agent asks a question, but only when no Kinetik window is in front. The web app shows it from the service worker; the Android app uses a native notification. iOS and desktop do not notify yet.
+
 ## Plugins and skills
 
 Open **Settings → Connections → Add a connection**, select **Use demo connection**, add it, then choose **Turn on**. Its `exec` replacement echoes what it received instead of running a shell. Choose **Turn off** to restore local execution. Its skill appears in `/skills` and loads through `read_skill` independently of workspace replacements.

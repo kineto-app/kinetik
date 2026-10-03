@@ -30,7 +30,8 @@ fn error(message: &str) -> io::Error {
 // entries cannot hold a full OAuth token response, which can exceed its size limit.
 impl<R: Runtime> Native<R> {
     pub fn call(&self, method: &str, payload: NativeRequest) -> crate::Result<NativeResponse> {
-        if method == "background" {
+        // Desktop shows no system notification yet; the open window already shows the result.
+        if method == "background" || method == "notify" {
             return Ok(NativeResponse::default());
         }
         let _guard = self

@@ -156,6 +156,7 @@ export function Shell() {
                 </div>
               </details>
             </div>
+            <section id="ask" class="ask-card" aria-live="polite" hidden></section>
             <div id="recovery" class="panel" hidden>
               <p>A step was interrupted. Check what changed before trying it again.</p>
               <div class="actions">
@@ -206,6 +207,16 @@ export function Shell() {
                     title="Stop"
                   >
                     <Icon name="stop" />
+                  </button>
+                  <button
+                    type="button"
+                    id="queue"
+                    class="icon-button"
+                    hidden
+                    aria-label="Send after current work"
+                    title="Send after current work"
+                  >
+                    <Icon name="clock" />
                   </button>
                   <button
                     class="primary"

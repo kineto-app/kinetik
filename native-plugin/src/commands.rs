@@ -31,6 +31,14 @@ pub(crate) async fn file_info<R: Runtime>(
 }
 
 #[command]
+pub(crate) async fn notify<R: Runtime>(
+    app: AppHandle<R>,
+    payload: NativeRequest,
+) -> Result<NativeResponse> {
+    app.native().call("notify", payload)
+}
+
+#[command]
 pub(crate) async fn register_listener<R: Runtime>(
     app: AppHandle<R>,
     event: String,

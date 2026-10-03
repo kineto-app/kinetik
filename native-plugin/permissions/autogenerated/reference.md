@@ -8,6 +8,7 @@ Native credentials and user-visible ongoing work.
 - `allow-secure-put`
 - `allow-background`
 - `allow-file-info`
+- `allow-notify`
 - `allow-register-listener`
 - `allow-remove-listener`
 
@@ -68,6 +69,32 @@ Enables the file_info command without any pre-configured scope.
 <td>
 
 Denies the file_info command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native:allow-notify`
+
+</td>
+<td>
+
+Enables the notify command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native:deny-notify`
+
+</td>
+<td>
+
+Denies the notify command without any pre-configured scope.
 
 </td>
 </tr>

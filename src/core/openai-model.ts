@@ -110,6 +110,25 @@ export async function readResponse(
   }
 }
 
+/** Models without image input get a note in place of each photo instead of a rejected request. */
+function withoutImages(history: Record<string, unknown>[] | undefined) {
+  return history?.map((item) =>
+    Array.isArray(item.content)
+      ? {
+          ...item,
+          content: item.content.map((part: { type?: string }) =>
+            part.type === 'input_image'
+              ? {
+                  type: 'input_text',
+                  text: '[A photo is attached, but this model cannot view images.]',
+                }
+              : part,
+          ),
+        }
+      : item,
+  );
+}
+
 export class OpenAIModel implements Model {
   constructor(
     private endpoint: string,
@@ -117,6 +136,7 @@ export class OpenAIModel implements Model {
       account: string;
       model: string;
       contextWindow?: number;
+      images?: boolean;
     }>,
     private request: typeof fetch = fetch.bind(globalThis),
   ) {}
@@ -148,7 +168,10 @@ export class OpenAIModel implements Model {
         request: {
           model: config.model,
           instructions: request.instructions,
-          input: request.history ?? [{ role: 'user', content: request.message }],
+          input:
+            config.images === false
+              ? withoutImages(request.history)
+              : (request.history ?? [{ role: 'user', content: request.message }]),
           tools: tools.length
             ? [{ type: 'namespace', name: 'kinetik', description: 'Kinetik agent tools', tools }]
             : [],

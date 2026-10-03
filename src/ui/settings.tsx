@@ -1,4 +1,5 @@
 import { createSignal, Index, Show } from 'solid-js';
+import { rpc } from '../browser/client';
 import type { SetupState } from '../connections/manager';
 import type { InstalledPlugin } from '../core/types';
 import { isNative } from '../platform/environment';
@@ -6,7 +7,7 @@ import { icon, type IconName } from './icons';
 import './settings.css';
 
 type Plugin = Pick<InstalledPlugin, 'manifest' | 'source' | 'enabledAt'>;
-type Page = 'root' | 'connections' | 'service' | 'add';
+type Page = 'root' | 'connections' | 'service' | 'add' | 'memory';
 interface Entry {
   page: Page;
   service?: string;
@@ -113,6 +114,7 @@ const titles: Record<Exclude<Page, 'service'>, string> = {
   root: 'Settings',
   connections: 'Connections',
   add: 'Add a connection',
+  memory: 'Memory',
 };
 const top = () => stack().at(-1)!;
 const title = (entry: Entry) =>
@@ -292,6 +294,32 @@ function ServicePage(props: { service: Service }) {
   );
 }
 
+const [memory, setMemory] = createSignal('');
+const [memorySaved, setMemorySaved] = createSignal(false);
+const [notifying, setNotifying] = createSignal(false);
+/** Loads the values Settings shows that live in the agent store. */
+export async function refreshSettingsData() {
+  setMemory(await rpc<string>('memory'));
+  setNotifying(await rpc<boolean>('notifications'));
+}
+async function toggleNotifications(enabled: boolean) {
+  if (enabled) {
+    // Ask for the permission at the moment the user turns the switch on.
+    const granted = isNative
+      ? (
+          await import('@tauri-apps/api/core').then(({ invoke }) =>
+            invoke<{ value: string }>('plugin:native|notify', { payload: { active: true } }),
+          )
+        ).value !== 'denied'
+      : 'Notification' in globalThis && (await Notification.requestPermission()) === 'granted';
+    if (!granted) {
+      setNotifying(false);
+      throw new Error('Notifications are blocked. Allow them for Kinetik in your device settings.');
+    }
+  }
+  setNotifying(await rpc<boolean>('notifications', { enabled }));
+}
+
 export function SettingsDialog() {
   const parent = () => stack().at(-2);
   const page = () => top().page;
@@ -325,6 +353,34 @@ export function SettingsDialog() {
             </span>
             <Icon name="chevron" />
           </button>
+        </div>
+        <div class="settings-group">
+          <button
+            class="settings-row"
+            onClick={() => {
+              setMemorySaved(false);
+              go('memory');
+            }}
+          >
+            <Tile name="brain" color="var(--tile-memory)" />
+            <span class="settings-label">Memory</span>
+            <span class="settings-value">{memory().trim() ? 'On' : 'Empty'}</span>
+            <Icon name="chevron" />
+          </button>
+          <label class="settings-row">
+            <Tile name="bell" color="var(--tile-notify)" />
+            <span class="settings-label">Notify me when work finishes</span>
+            <input
+              type="checkbox"
+              role="switch"
+              class="settings-switch"
+              checked={notifying()}
+              onChange={(event) => {
+                const enabled = event.currentTarget.checked;
+                void run(() => toggleNotifications(enabled));
+              }}
+            />
+          </label>
         </div>
         <div class="settings-group">
           <button class="settings-row" onClick={() => go('connections')}>
@@ -402,6 +458,43 @@ export function SettingsDialog() {
       </section>
       <section class="settings-page" hidden={page() !== 'service'}>
         <Show when={current()}>{(service) => <ServicePage service={service()} />}</Show>
+      </section>
+      <section class="settings-page" hidden={page() !== 'memory'}>
+        <p class="settings-note">
+          Short notes about you that every chat reads: name, language, brand style, accounts.
+          Kinetik can suggest changes; you confirm each one.
+        </p>
+        <label class="sr-only" for="memory-text">
+          Memory
+        </label>
+        <textarea
+          id="memory-text"
+          class="memory-text"
+          maxLength={4000}
+          placeholder="For example: I write in Russian. My brand colours are black and coral."
+          value={memory()}
+          onInput={(event) => {
+            setMemory(event.currentTarget.value);
+            setMemorySaved(false);
+          }}
+        />
+        <div class="form-actions">
+          <span class="field-hint" role="status">
+            {memorySaved() ? 'Saved' : ''}
+          </span>
+          <button
+            class="primary"
+            type="button"
+            onClick={() =>
+              void run(async () => {
+                setMemory(await rpc<string>('memory', { text: memory() }));
+                setMemorySaved(true);
+              })
+            }
+          >
+            Save
+          </button>
+        </div>
       </section>
       <section class="settings-page" hidden={page() !== 'add'}>
         <p class="settings-note">

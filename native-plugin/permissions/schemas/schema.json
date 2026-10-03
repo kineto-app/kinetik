@@ -319,6 +319,18 @@
           "markdownDescription": "Denies the file_info command without any pre-configured scope."
         },
         {
+          "description": "Enables the notify command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-notify",
+          "markdownDescription": "Enables the notify command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the notify command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-notify",
+          "markdownDescription": "Denies the notify command without any pre-configured scope."
+        },
+        {
           "description": "Enables the register_listener command without any pre-configured scope.",
           "type": "string",
           "const": "allow-register-listener",
@@ -367,10 +379,10 @@
           "markdownDescription": "Denies the secure_put command without any pre-configured scope."
         },
         {
-          "description": "Native credentials and user-visible ongoing work.\n#### This default permission set includes:\n\n- `allow-secure-get`\n- `allow-secure-put`\n- `allow-background`\n- `allow-file-info`\n- `allow-register-listener`\n- `allow-remove-listener`",
+          "description": "Native credentials and user-visible ongoing work.\n#### This default permission set includes:\n\n- `allow-secure-get`\n- `allow-secure-put`\n- `allow-background`\n- `allow-file-info`\n- `allow-notify`\n- `allow-register-listener`\n- `allow-remove-listener`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Native credentials and user-visible ongoing work.\n#### This default permission set includes:\n\n- `allow-secure-get`\n- `allow-secure-put`\n- `allow-background`\n- `allow-file-info`\n- `allow-register-listener`\n- `allow-remove-listener`"
+          "markdownDescription": "Native credentials and user-visible ongoing work.\n#### This default permission set includes:\n\n- `allow-secure-get`\n- `allow-secure-put`\n- `allow-background`\n- `allow-file-info`\n- `allow-notify`\n- `allow-register-listener`\n- `allow-remove-listener`"
         }
       ]
     }

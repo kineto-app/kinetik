@@ -29,6 +29,7 @@ test.each(['inline', 'split', 'text-only'])(
       'charms_files_list',
       'charms_skill_find',
       'charms_skill_load',
+      'charms_files_delete',
     ];
     const definitions = Object.fromEntries(
       names.map((name) => [
@@ -36,6 +37,8 @@ test.each(['inline', 'split', 'text-only'])(
         {
           description: name,
           inputSchema: { type: 'object' },
+          // As the Charms server annotates them: every write and command is destructive.
+          approval: !['charms_files_read', 'charms_files_list'].includes(name),
           execute: vi.fn(async () => ({
             structuredContent: { status: 'running', job_id: 'job-1' },
           })),
@@ -79,6 +82,12 @@ test.each(['inline', 'split', 'text-only'])(
     expect(first.skills).toHaveLength(2);
     expect(first.skills[0].content).toContain('startend');
     expect(plugin.tools.charms_skill_find).toBeUndefined();
+    // Only deleting a file asks for approval; commands and writes in the sandbox do not.
+    expect(
+      Object.entries(plugin.tools)
+        .filter(([, tool]) => (tool as { approval?: boolean }).approval)
+        .map(([name]) => name),
+    ).toEqual(['charms_files_delete']);
     expect(Object.keys(plugin.replacements)).toEqual([
       'exec',
       'read',

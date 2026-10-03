@@ -42,6 +42,10 @@ async function boot() {
     config,
     chatgpt,
   );
+  host.notify = async ({ title, body }) => {
+    if (document.visibilityState === 'visible') return;
+    await invoke('plugin:native|notify', { payload: { key: title, value: body } });
+  };
   await host.initialize();
   if (/Android/i.test(navigator.userAgent))
     await addPluginListener('native', 'background-stop', async () => {
