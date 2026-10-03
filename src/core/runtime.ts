@@ -712,6 +712,7 @@ export class Runtime {
     const response = await abortable(
       binding.tool.execute(output.input, {
         signal,
+        conversationId: id,
         checkpoint: async (operationId) => {
           await this.chats.update(id, (value) =>
             value.turn?.call ? withCall(value, { operationId }) : value,

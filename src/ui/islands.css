@@ -803,3 +803,61 @@ dialog::backdrop,
 .main:has(.connect-start) #connection-status {
   display: none;
 }
+
+/* Toasts: one line, an action, a close; they float over the top of the chat. */
+.toasts {
+  position: absolute;
+  top: var(--space-inline);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 5;
+  display: grid;
+  gap: var(--space-inline);
+  width: min(440px, calc(100% - 2 * var(--space-content)));
+  pointer-events: none;
+}
+.toast {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--space-inline);
+  padding: 4px 4px 4px var(--space-section);
+  min-height: calc(var(--target) + 8px);
+  font-size: 14px;
+  color: var(--ink);
+  background: var(--glass);
+  border: 1px solid var(--control-line);
+  border-radius: var(--radius-pill);
+  box-shadow: var(--chat-shadow);
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  backdrop-filter: blur(var(--glass-blur));
+}
+.toast > span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.toast-action {
+  min-height: var(--target);
+  padding-inline: var(--space-content);
+  font-weight: 600;
+  color: var(--accent-ink);
+  background: transparent;
+}
+.toast-close .icon {
+  width: 16px;
+  height: 16px;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .toast {
+    animation: toast-in var(--duration-enter, 200ms) var(--ease-out, ease-out);
+  }
+}
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+}

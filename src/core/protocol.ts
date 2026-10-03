@@ -34,6 +34,7 @@ export type Op =
   | 'import'
   | 'install'
   | 'memory'
+  | 'memoryChange'
   | 'notifications'
   | 'resolve'
   | 'resume'

@@ -111,6 +111,7 @@ export function Shell() {
             </button>
           </div>
           <div class="conversation-stage">
+            <div id="toasts" class="toasts" role="status" aria-live="polite"></div>
             <section
               id="timeline"
               aria-label="Conversation"
@@ -253,21 +254,6 @@ export function Shell() {
       </div>
       <StaticMarkup html={filesDialog} />
       <SettingsDialog />
-      <dialog id="delete-dialog" class="confirm-dialog" aria-labelledby="delete-heading">
-        <h2 id="delete-heading">Delete this chat?</h2>
-        <p class="muted">
-          Its messages, attachments and saved model history are removed from this device. This
-          cannot be undone.
-        </p>
-        <div class="form-actions">
-          <button type="button" class="secondary" data-close="delete-dialog">
-            Cancel
-          </button>
-          <button type="button" class="danger" id="delete-confirm">
-            Delete
-          </button>
-        </div>
-      </dialog>
       <StaticMarkup html={automationDialog} />
     </>
   );

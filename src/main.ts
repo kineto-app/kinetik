@@ -30,6 +30,7 @@ import { setupConnections } from './ui/onboarding';
 import {
   setSettingsActions,
   setSettingsPlugins,
+  setSettingsChats,
   setSettingsSetup,
   showAddedPlugin,
   showSettings,
@@ -37,6 +38,7 @@ import {
 } from './ui/settings';
 import type { SetupState } from './connections/manager';
 import { byId } from './ui/dom';
+import { toast } from './ui/toast';
 import { renderAsk } from './ui/ask-panel';
 import { latestThought, renderThought } from './ui/thought';
 import { closeDrawer, setupDrawer } from './ui/drawer';
@@ -136,6 +138,9 @@ function renderDraft() {
   updateJumpButton();
 }
 const renderedMessages = new Set<string>();
+/** Results already announced by a toast; only those produced after the app opened are. */
+const announced = new Set<string>();
+const openedAt = Date.now();
 const draftKey = 'kinetik-composer';
 byId<HTMLTextAreaElement>('prompt').value = uiStorage.getItem(draftKey) ?? '';
 const isBackgroundTurn = (c: Conversation) => {
@@ -300,6 +305,26 @@ function render() {
       timeline.append(empty);
     }
     for (const item of c?.messages ?? []) {
+      if (
+        item.role === 'tool' &&
+        item.tool === 'remember · local' &&
+        item.text === 'Saved to memory.' &&
+        item.createdAt > openedAt &&
+        !announced.has(item.id)
+      ) {
+        announced.add(item.id);
+        toast({
+          key: 'memory',
+          text: 'Saved to your memory',
+          action: {
+            label: 'Undo',
+            run: () =>
+              void rpc('memory', { undo: true })
+                .then(() => toast({ key: 'memory', text: 'Memory restored', ms: 3000 }))
+                .catch(showError),
+          },
+        });
+      }
       timeline
         .querySelector<HTMLElement>(`[data-message-id="${CSS.escape(item.id)}"]`)
         ?.toggleAttribute('data-queued', Boolean(item.queue));
@@ -366,14 +391,19 @@ function render() {
   updateJumpButton();
   renderAutomations(state.automations, refresh, choose);
   setSettingsPlugins(state.plugins);
+  setSettingsChats(state.conversations);
 }
 async function refresh() {
   const generation = ++refreshGeneration;
-  let next = await rpc<State>('state', { conversation: selected });
+  const load = async () => {
+    const value = await rpc<State>('state', { conversation: selected });
+    return { ...value, conversations: value.conversations.filter((c) => !deleting.has(c.id)) };
+  };
+  let next = await load();
   if (generation !== refreshGeneration) return;
   if (!next.conversations.some((c) => c.id === selected) && next.conversations.length) {
     selected = next.conversations[0].id;
-    next = await rpc<State>('state', { conversation: selected });
+    next = await load();
     if (generation !== refreshGeneration) return;
   }
   state = next;
@@ -504,17 +534,32 @@ for (const [id, retry] of [
   byId(id).onclick = () => {
     void rpc('resolve', { id: selected, retry }).then(refresh).catch(showError);
   };
-byId('delete-chat').onclick = () => openDialog('delete');
-byId('delete-confirm').onclick = () => {
+/** Chats deleted but still undoable: hidden now, removed when their toast leaves. */
+const deleting = new Map<string, () => void>();
+byId('delete-chat').onclick = () => {
   const id = selected;
-  byId<HTMLDialogElement>('delete-dialog').close();
-  void rpc('delete', { id })
-    .then(() => {
-      selected = state.conversations.find((c) => c.id !== id)?.id ?? '';
-      return refresh();
-    })
-    .catch(showError);
+  const title = current()?.title ?? 'Chat';
+  deleting.set(id, () => {
+    deleting.delete(id);
+    void rpc('delete', { id }).then(refresh).catch(showError);
+  });
+  selected = state.conversations.find((c) => c.id !== id && !deleting.has(c.id))?.id ?? '';
+  void refresh().catch(showError);
+  toast({
+    text: `Deleted “${title}”`,
+    ms: 8000,
+    action: {
+      label: 'Undo',
+      run: () => {
+        deleting.delete(id);
+        choose(id);
+      },
+    },
+    done: () => deleting.get(id)?.(),
+  });
 };
+// Leaving the app ends the chance to undo.
+addEventListener('pagehide', () => [...deleting.values()].forEach((remove) => remove()));
 function openDialog(name: string) {
   closeDrawer();
   for (const dialog of document.querySelectorAll<HTMLDialogElement>('dialog:modal')) dialog.close();

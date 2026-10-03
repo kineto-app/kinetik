@@ -4,6 +4,8 @@ import type { CustomModelState } from '../connections/custom-model';
 import type { SetupState } from '../connections/manager';
 import type { TraceEntry } from '../core/trace';
 import type { InstalledPlugin } from '../core/types';
+import type { MemoryChange } from '../core/memory';
+import { shortAge } from './time';
 import { isNative } from '../platform/environment';
 import { icon, type IconName } from './icons';
 import './settings.css';
@@ -42,6 +44,10 @@ let actions: SettingsActions | undefined;
 let heading: HTMLHeadingElement | undefined;
 let feedback: HTMLParagraphElement | undefined;
 export { setSetup as setSettingsSetup, setPlugins as setSettingsPlugins };
+/** Chat titles, so Memory can say where Kinetik last changed it. */
+const [chatTitles, setChatTitles] = createSignal(new Map<string, string>());
+export const setSettingsChats = (chats: { id: string; title: string }[]) =>
+  setChatTitles(new Map(chats.map((c) => [c.id, c.title])));
 export function setSettingsActions(value: SettingsActions) {
   actions = value;
 }
@@ -379,11 +385,18 @@ const [custom, setCustom] = createSignal<CustomModelState>({ configured: false, 
 const [advancedOpen, setAdvancedOpen] = createSignal(false);
 const [memory, setMemory] = createSignal('');
 const [memorySaved, setMemorySaved] = createSignal(false);
+const [memoryChange, setMemoryChange] = createSignal<MemoryChange | null>(null);
+function changeLine(change: MemoryChange) {
+  const chat = change.conversationId && chatTitles().get(change.conversationId);
+  const who = change.by === 'kinetik' ? 'Kinetik' : 'you';
+  return `Last changed by ${who}${chat ? ` in “${chat}”` : ''} · ${shortAge(change.at)}`;
+}
 const [notifying, setNotifying] = createSignal(false);
 /** Loads the values Settings shows that live in the agent store. */
 export async function refreshSettingsData() {
   setCustom(await rpc<CustomModelState>('customModel', { action: 'state' }));
   setMemory(await rpc<string>('memory'));
+  setMemoryChange(await rpc<MemoryChange | null>('memoryChange'));
   setNotifying(await rpc<boolean>('notifications'));
 }
 async function toggleNotifications(enabled: boolean) {
@@ -638,7 +651,7 @@ export function SettingsDialog() {
       <section class="settings-page" hidden={page() !== 'memory'}>
         <p class="settings-note">
           Short notes about you that every chat reads: name, language, brand style, accounts.
-          Kinetik can suggest changes; you confirm each one.
+          Kinetik saves what it learns here. Change anything, any time.
         </p>
         <label class="sr-only" for="memory-text">
           Memory
@@ -654,6 +667,25 @@ export function SettingsDialog() {
             setMemorySaved(false);
           }}
         />
+        <Show when={memoryChange()}>
+          {(change) => (
+            <p class="field-hint memory-change">
+              <span>{changeLine(change())}</span>
+              <button
+                type="button"
+                class="link-button"
+                onClick={() =>
+                  void run(async () => {
+                    setMemory(await rpc<string>('memory', { undo: true }));
+                    setMemoryChange(await rpc<MemoryChange | null>('memoryChange'));
+                  })
+                }
+              >
+                Undo
+              </button>
+            </p>
+          )}
+        </Show>
         <div class="form-actions">
           <span class="field-hint" role="status">
             {memorySaved() ? 'Saved' : ''}
@@ -664,6 +696,7 @@ export function SettingsDialog() {
             onClick={() =>
               void run(async () => {
                 setMemory(await rpc<string>('memory', { text: memory() }));
+                setMemoryChange(await rpc<MemoryChange | null>('memoryChange'));
                 setMemorySaved(true);
               })
             }
