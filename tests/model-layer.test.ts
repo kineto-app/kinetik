@@ -40,9 +40,14 @@ test('a provider failure inside the stream is a rejection; a busy provider is a 
   await expect(
     readResponse(sse({ type: 'response.failed', response: { error: { message: 'Bad input' } } })),
   ).rejects.toBeInstanceOf(ModelRejected);
-  await expect(
-    readResponse(sse({ type: 'error', error: { message: 'Try later', code: 'server_error' } })),
-  ).rejects.toBeInstanceOf(ConnectionError);
+  for (const [code, kind] of [
+    ['server_error', ConnectionError],
+    ['rate_limit_exceeded', ConnectionError],
+    ['insufficient_quota', ModelRejected],
+  ] as const)
+    await expect(
+      readResponse(sse({ type: 'error', error: { message: 'No', code } })),
+    ).rejects.toBeInstanceOf(kind);
   const filtered = readResponse(
     sse({
       type: 'response.incomplete',

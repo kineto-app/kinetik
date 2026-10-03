@@ -83,7 +83,7 @@ export async function readResponse(
       if (reason === 'max_output_tokens') throw new ContextOverflow(message);
       // An unfinished answer (a content filter, say) is not a refusal of the request itself.
       if (event.type === 'response.incomplete')
-        throw new Error(reason ? message + ': ' + reason : message);
+        throw new Error(reason ? 'The answer stopped early: ' + reason : message);
       throw providerError(failure.code, message);
     }
     if (event.type === 'response.completed') {
@@ -165,7 +165,7 @@ export class OpenAIModel implements Model {
       );
     } catch (error) {
       signal.throwIfAborted();
-      if (isConnectionError(error))
+      if (isConnectionError(error) && !(error instanceof ConnectionError))
         throw new ConnectionError('ChatGPT is unreachable: ' + errorText(error));
       throw error;
     }
