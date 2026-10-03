@@ -90,14 +90,28 @@ export interface ToolCall {
   name: string;
   input: Record<string, unknown>;
   provider: string;
-  state: 'pending' | 'completed' | 'unknown' | 'awaiting';
+  /**
+   * proposed: recorded, never run. awaiting: asks the user first. approved: the user said yes,
+   * never run. started: may have had effects. completed and unknown are outcomes.
+   */
+  state: 'proposed' | 'awaiting' | 'approved' | 'started' | 'completed' | 'unknown';
   /** What the user is asked while the call waits; set only in the awaiting state. */
   ask?: Ask;
-  /** The user approved this call; it may now run. */
-  approved?: boolean;
   result?: string;
   operationId?: string;
   callId?: string;
+}
+export interface Turn {
+  /** A turn the user started, or one started by finished background work. */
+  kind?: 'foreground' | 'background';
+  /** The message being answered. */
+  message?: string;
+  /** Kept across steering and recovery; Stop clears it while a call still needs a decision. */
+  startedAt?: number;
+  /** The provider and model this turn keeps, even if the user switches. */
+  model?: TurnPin;
+  usage?: Usage;
+  call?: ToolCall;
 }
 export interface Conversation {
   id: string;
@@ -109,17 +123,13 @@ export interface Conversation {
   waitingFor?: 'connection' | 'signin';
   retryAt?: number;
   retryAttempts?: number;
-  activeMessage?: string;
-  turn?: 'foreground' | 'background';
+  /** The work in progress; endTurn clears it. */
+  turn?: Turn;
+  /** Plugin code pinned for this run of work; kept until the chat goes idle. */
   plugins?: InstalledPlugin[];
-  call?: ToolCall;
   updatedAt: number;
-  /** Persisted across steering and recovery; cleared when this turn ends. */
-  workStartedAt?: number;
   /** A provider-side compaction not yet accepted by a request; undone if the next one fails. */
   serverCompaction?: { n: number; head: number };
-  /** The model this turn uses; meaningful while `workStartedAt` is set. */
-  turnModel?: TurnPin;
   /**
    * Model input as Runtime.update sees it. It is stored in append-only segments under
    * `input`, so a step writes only its new items; older builds stored it inline here.
@@ -130,8 +140,6 @@ export interface Conversation {
   context?: { tokens: number; window: number };
   /** Number of earlier model-input segments archived by compaction. */
   compactions?: number;
-  /** Tokens used so far by the running turn. */
-  turnUsage?: Usage;
   draft?: string;
   /** In-memory progress of the running turn, served with state so a reload shows it. */
   live?: LiveProgress;

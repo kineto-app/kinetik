@@ -182,7 +182,7 @@ export class ReadOnlyTools {
       if (output.usage)
         await this.deps.chats.update(id, (value) => ({
           ...value,
-          turnUsage: addUsage(value.turnUsage, output.usage),
+          turn: { ...value.turn, usage: addUsage(value.turn?.usage, output.usage) },
         }));
       if (output.type === 'text') return output.text;
       const calls =

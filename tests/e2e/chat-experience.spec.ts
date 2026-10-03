@@ -178,14 +178,16 @@ test('returning online resumes a persisted reply without rerunning its tool', as
           const c = cursor.value;
           c.status = 'waiting';
           c.waitingFor = 'connection';
-          c.activeMessage = c.messages.find((m: { role: string }) => m.role === 'user').id;
-          c.call = {
-            id: 'completed',
-            name: 'exec',
-            provider: 'local',
-            input: {},
-            state: 'completed',
-            result: 'Recovered saved result',
+          c.turn = {
+            message: c.messages.find((m: { role: string }) => m.role === 'user').id,
+            call: {
+              id: 'completed',
+              name: 'exec',
+              provider: 'local',
+              input: {},
+              state: 'completed',
+              result: 'Recovered saved result',
+            },
           };
           cursor.update(c);
         }

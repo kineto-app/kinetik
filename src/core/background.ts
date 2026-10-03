@@ -129,9 +129,9 @@ export class BackgroundProcesses {
                 'Maximum eight background jobs per conversation. Wait for a running job to finish.',
             };
           const conversation = await this.store.get<Conversation>('conversation:' + conversationId);
-          if (!conversation?.call)
-            throw new Error('Background start requires a journaled tool call.');
-          const id = conversation.call.id;
+          const call = conversation?.turn?.call;
+          if (!call) throw new Error('Background start requires a journaled tool call.');
+          const id = call.id;
           const existing = await this.store.get<BackgroundProcess>(key(id));
           if (existing) return { id, state: existing.state };
           const job: BackgroundProcess = {

@@ -134,9 +134,9 @@ test('parallel turns, steering and cancellation', async ({ page }) => {
       async () =>
         (await rpc<{ conversations: Conversation[] }>(page, 'state')).conversations.find(
           (c) => c.id === a.id,
-        )?.call?.state,
+        )?.turn?.call?.state,
     )
-    .toBe('pending');
+    .toBe('started');
   await rpc(page, 'stop', { id: a.id });
   await expect
     .poll(
