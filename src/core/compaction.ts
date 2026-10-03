@@ -1,4 +1,4 @@
-import type { Store } from '../browser/store';
+import type { Store } from './ports';
 import { openCall } from './turn';
 import { abortable } from './abortable';
 import { ContextOverflow } from './connection-error';

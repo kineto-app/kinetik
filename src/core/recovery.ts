@@ -1,4 +1,4 @@
-import type { Store } from '../browser/store';
+import type { Store } from './ports';
 import type { Plugins } from '../plugins/loader';
 import { abortable } from './abortable';
 import type { AppCalls } from './apps';

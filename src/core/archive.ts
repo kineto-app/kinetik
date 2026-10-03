@@ -1,6 +1,6 @@
 import Ajv from 'ajv';
 import { recentTrace, type TraceEntry } from './trace';
-import { Store } from '../browser/store';
+import type { Store } from './ports';
 import { createFilesystem } from '../browser/filesystem';
 import { modelMessageText, type Conversation, type InstalledPlugin } from './types';
 import type { Automation } from './automation';

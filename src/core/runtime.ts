@@ -10,7 +10,7 @@ import { Compactor, defaultContextWindow, estimateTokens } from './compaction';
 import { localSkills } from './skills';
 import { Automations } from './automation';
 import { BackgroundProcesses, type BackgroundProcess } from './background';
-import { Store } from '../browser/store';
+import type { Store } from './ports';
 import { ConversationStore, conversationKey as key } from './conversation-store';
 import { Attachments, attachmentLock } from './attachments';
 import { abortable } from './abortable';
@@ -91,7 +91,7 @@ export class Runtime {
   private workspaceFiles: WorkspaceFiles;
   private workspace: ReturnType<typeof createFilesystem>;
   constructor(
-    readonly store = new Store(),
+    readonly store: Store,
     private changed: (event?: RuntimeEvent) => void = () => {},
     private model: Model = new MockModel(),
   ) {

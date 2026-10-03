@@ -1,4 +1,4 @@
-import { Store } from '../browser/store';
+import type { Store } from './ports';
 import { openCall } from './turn';
 import { errorText, type Binding, type Conversation } from './types';
 

@@ -1,4 +1,4 @@
-import type { Store } from '../browser/store';
+import type { Store } from '../core/ports';
 
 export interface Credential {
   token: string;

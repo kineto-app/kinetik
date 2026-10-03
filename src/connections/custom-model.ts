@@ -1,4 +1,4 @@
-import type { Store } from '../browser/store';
+import type { Store } from '../core/ports';
 
 /** Stored under the `connection-token:` prefix: kept out of exports, and in secure storage on devices. */
 export const customModelKey = 'connection-token:custom-model';

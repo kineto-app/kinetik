@@ -1,4 +1,4 @@
-import type { Store } from '../browser/store';
+import type { Store } from './ports';
 import type { BackgroundProcess } from './background';
 import { traceKey } from './trace';
 import type { Conversation, InstalledPlugin } from './types';

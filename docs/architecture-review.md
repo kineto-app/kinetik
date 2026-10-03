@@ -118,6 +118,7 @@ src/
     migrations.ts, cleanup.ts  schema versions; the startup sweep and chat deletion
     trace.ts                 the local activity log of model requests and tool calls
     protocol.ts              RPC op names and the window–worker protocol version
+    ports.ts, memory-store.ts  the Store the core needs; an in-memory one for Node and evals
     conversation-store.ts    conversation records; model input in append-only segments
     attachments.ts           staged files, uploads, photo previews for the model
     compaction.ts            context limits, local summaries, ChatGPT compaction and its undo
