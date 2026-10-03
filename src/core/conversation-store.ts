@@ -16,7 +16,7 @@ export class ConversationStore {
   private inputs = new Map<string, { segments: InputSegments; items: Item[] }>();
   constructor(
     private store: Store,
-    private changed: () => void,
+    private changed: (conversationId: string) => void,
   ) {}
   /** The conversation with its model input joined in. */
   async load(id: string): Promise<Conversation | undefined> {
@@ -91,7 +91,7 @@ export class ConversationStore {
       }
       if (result.input && items) this.inputs.set(id, { segments: result.input, items });
       else this.inputs.delete(id);
-      this.changed();
+      this.changed(id);
       return { ...result, modelInput: items };
     }
   }

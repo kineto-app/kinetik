@@ -34,6 +34,7 @@ const schema = new Ajv({ strict: false }).compile({
                 text: { type: 'string', maxLength: 2000000 },
                 createdAt: { type: 'number' },
                 durationMs: { type: 'number', minimum: 0 },
+                aborted: { const: true },
                 attachments: {
                   type: 'array',
                   maxItems: 10,
@@ -204,6 +205,7 @@ function conversation(value: Conversation): Conversation {
           }
         : {}),
       ...(typeof m.durationMs === 'number' ? { durationMs: m.durationMs } : {}),
+      ...(m.aborted ? { aborted: true } : {}),
       ...(m.visibility === 'internal' ? { visibility: 'internal' as const } : {}),
       ...(m.source === 'background' ? { source: 'background' as const } : {}),
       ...(typeof m.tool === 'string' ? { tool: m.tool } : {}),

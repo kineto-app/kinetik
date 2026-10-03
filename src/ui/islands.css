@@ -650,6 +650,13 @@ dialog::backdrop,
   color: var(--muted);
   font-size: 12px;
 }
+.message[data-aborted]::after {
+  content: 'Cut off · this answer did not finish';
+  display: block;
+  margin-top: var(--space-inline);
+  color: var(--muted);
+  font-size: 12px;
+}
 
 /* A paused call waiting for the user: approve, choose, or confirm a memory edit. */
 .ask-card {

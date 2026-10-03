@@ -309,6 +309,7 @@ function render() {
       article.dataset.messageId = item.id;
       article.toggleAttribute('data-queued', Boolean(item.queue));
       article.toggleAttribute('data-unsent', Boolean(item.unsent));
+      article.toggleAttribute('data-aborted', Boolean(item.aborted));
       timeline.insertBefore(article, timeline.querySelector('[data-draft]'));
       disposeContent.push(
         renderSolid(
@@ -693,6 +694,7 @@ byId('jump-latest').onclick = () => {
   });
 };
 let refreshTimer: ReturnType<typeof setTimeout>;
+let sidebarTimer: ReturnType<typeof setTimeout>;
 function updateElapsed() {
   const c = current();
   const now = Date.now();
@@ -765,6 +767,12 @@ function changed(event: RuntimeEvent | undefined) {
   if (c && event?.type === 'reasoning' && c.status === 'running') {
     c.live = { step: c.live?.step ?? 1, reasoning: event.text };
     render();
+    return;
+  }
+  // A change in a chat that is not open only moves the sidebar, so it can wait a little.
+  if (event?.type === 'changed' && event.conversationId && event.conversationId !== selected) {
+    clearTimeout(sidebarTimer);
+    sidebarTimer = setTimeout(() => void refresh().catch(showError), 500);
     return;
   }
   clearTimeout(refreshTimer);

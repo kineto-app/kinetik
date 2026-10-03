@@ -8,7 +8,8 @@ import { conversationKey as key, type ConversationStore } from './conversation-s
 import { printable, withOutput } from './model-input';
 import { localReadOnly } from './read-only';
 import { toolOutcome } from './tool-outcome';
-import { openCall, withCall } from './turn';
+import { cutOff, openCall, withCall } from './turn';
+import { partialKey } from './cleanup';
 import { message, type Binding, type Conversation } from './types';
 
 /** Pauses a turn until the connection or sign-in is back; a stopped or reviewed turn stays put. */
@@ -73,6 +74,14 @@ export async function recoverWork(deps: RecoveryDeps): Promise<void> {
     )
       continue;
     const recover = async () => {
+      const partial = await store.get<string>(partialKey(c.id));
+      if (partial) {
+        await chats.update(c.id, (value) => ({
+          ...value,
+          messages: [...value.messages, cutOff(value, partial)],
+        }));
+        await store.delete(partialKey(c.id));
+      }
       if (call?.state === 'proposed' || call?.state === 'approved') {
         // Never started: running it now is its first and only run. A proposed call still asks.
         if (c.status !== 'stopped')

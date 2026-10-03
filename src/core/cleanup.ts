@@ -7,6 +7,8 @@ const day = 24 * 3600 * 1000;
 const keepFinishedJobs = 7 * day;
 const finished = new Set(['completed', 'interrupted', 'cancelled']);
 const sweptKey = 'meta:swept-at';
+/** The answer a turn is streaming, saved now and then until it completes. */
+export const partialKey = (conversationId: string) => 'partial:' + conversationId;
 
 /** Files stored for a conversation: its staged attachments and what its messages show. */
 const fileKeys = (c: Conversation) => [
@@ -53,8 +55,9 @@ export async function sweep(store: Store, now = Date.now()) {
     else usePlugins(app.plugins);
   for (const [key, call] of await store.entries<{ state: string }>('app-call:'))
     if (call.state !== 'pending') stale.push(key);
-  for (const key of await store.keys('trace:'))
-    if (!chats.has(key.slice('trace:'.length))) stale.push(key);
+  for (const prefix of ['trace:', 'partial:'])
+    for (const key of await store.keys(prefix))
+      if (!chats.has(key.slice(prefix.length))) stale.push(key);
   for (const prefix of [
     'model-archive:',
     'shared-file:',
@@ -75,6 +78,7 @@ export async function conversationKeys(store: Store, id: string) {
   const keys = [
     'conversation:' + id,
     traceKey(id),
+    partialKey(id),
     ...(await store.keys(`model-input:${id}:`)),
     ...(await store.keys(`model-archive:${id}:`)),
   ];

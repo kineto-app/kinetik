@@ -21,8 +21,9 @@ import { WorkspaceFiles } from './workspace-files';
 import { migrate } from './migrations';
 import { conversationKeys, sweepDaily } from './cleanup';
 import { recoverWork, waitForConnection } from './recovery';
-import { endTurn, withCall, withTurn } from './turn';
+import { cutOff, endTurn, withCall, withTurn } from './turn';
 import { traced } from './trace';
+import { partialKey } from './cleanup';
 import { buildInstructions, builtinSkill, modelVisible, toolDefinitions } from './prompt';
 import { createFilesystem } from '../browser/filesystem';
 import { Plugins } from '../plugins/loader';
@@ -95,7 +96,9 @@ export class Runtime {
     private changed: (event?: RuntimeEvent) => void = () => {},
     private model: Model = new MockModel(),
   ) {
-    this.chats = new ConversationStore(store, () => this.changed());
+    this.chats = new ConversationStore(store, (conversationId) =>
+      this.changed({ type: 'changed', conversationId }),
+    );
     this.plugins = new Plugins(store, (name, text, id) => this.automations.emit(name, text, id));
     this.automations = new Automations(store, this, changed);
     this.workspace = createFilesystem(store);
@@ -430,6 +433,7 @@ export class Runtime {
                     definitions: toolDefinitions(bindings),
                     onText: (text) => {
                       this.drafts.set(id, text);
+                      this.savePartial(id, text);
                       this.changed({ type: 'text', conversationId: id, text });
                     },
                     onReasoning: (text) => {
@@ -441,13 +445,13 @@ export class Runtime {
                 ),
               );
             } catch (error) {
-              this.drafts.delete(id);
               // Only a request the provider rejected can blame the compaction before it.
               if (
                 !controller.signal.aborted &&
                 error instanceof ModelRejected &&
                 (await this.compactor.undoServerCompaction(id))
               ) {
+                await this.dropPartial(id);
                 step--;
                 continue;
               }
@@ -457,12 +461,13 @@ export class Runtime {
                 throw new Error(
                   'This chat no longer fits the model, even after summarising earlier messages. Start a new chat to continue.',
                 );
+              await this.dropPartial(id);
               overflowRetried = true;
               step--;
               continue;
             }
             overflowRetried = false;
-            this.drafts.delete(id);
+            await this.dropPartial(id);
             // Steering received during inference takes precedence over an unexecuted tool
             // or stale answer. The old request remains in model history.
             if (steering(await this.store.get<Conversation>(key(id))).length) {
@@ -560,17 +565,22 @@ export class Runtime {
         !controller.signal.aborted &&
         (isConnectionError(error) || error instanceof SignInRequired)
       ) {
+        // The request is sent again once online, so its partial answer is not kept.
+        await this.dropPartial(id);
         await waitForConnection(this.chats, id, error);
         return;
       }
+      const partial = this.drafts.get(id);
       await this.chats.update(id, (c) => ({
         ...endTurn(c, 'stopped'),
         plugins: undefined,
         messages: [
           ...c.messages,
+          ...(partial ? [cutOff(c, partial)] : []),
           message('notice', controller.signal.aborted ? 'Stopped.' : errorText(error)),
         ],
       }));
+      await this.store.delete(partialKey(id));
     } finally {
       this.drafts.delete(id);
       this.live.delete(id);
@@ -774,6 +784,18 @@ export class Runtime {
     }));
     if (controller.signal.aborted) await this.requestCancellation(binding, id);
     return 'paused';
+  }
+  private partialSaved = new Map<string, number>();
+  /** Keeps the streaming answer at most once a second, so a restart can show what was written. */
+  private savePartial(id: string, text: string) {
+    if (Date.now() - (this.partialSaved.get(id) ?? 0) < 1000) return;
+    this.partialSaved.set(id, Date.now());
+    void this.store.put(partialKey(id), text).catch(() => {});
+  }
+  private async dropPartial(id: string) {
+    this.drafts.delete(id);
+    this.partialSaved.delete(id);
+    await this.store.delete(partialKey(id));
   }
   private async alert(id: string, body: string) {
     const c = await this.store.get<Conversation>(key(id));
