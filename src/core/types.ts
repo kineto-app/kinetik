@@ -30,6 +30,10 @@ export interface Message {
   createdAt: number;
   /** Elapsed time for the completed agent turn, including connection waits. */
   durationMs?: number;
+  /** Tokens the completed turn used across its model requests. */
+  usage?: Usage;
+  /** Marks the notice that replaced earlier model input with a summary. */
+  compaction?: { items: number; tokens: number };
   attachments?: Attachment[];
   visibility?: 'internal';
   source?: 'background';
@@ -39,6 +43,8 @@ export interface Message {
     scope?: string;
     input: Record<string, unknown>;
     outcome: 'completed' | 'failed' | 'running' | 'started' | 'unknown';
+    /** The error went back to the model, which could act on it; not an unresolved failure. */
+    returned?: boolean;
   };
   app?: AppView;
   file?: { path: string; name: string; snapshotId?: string };
@@ -72,6 +78,12 @@ export interface Conversation {
   /** Persisted across steering and recovery; cleared when this turn ends. */
   workStartedAt?: number;
   modelInput?: Record<string, unknown>[];
+  /** Input tokens of the latest model request and the model's usable context. */
+  context?: { tokens: number; window: number };
+  /** Number of earlier model-input segments archived by compaction. */
+  compactions?: number;
+  /** Tokens used so far by the running turn. */
+  turnUsage?: Usage;
   draft?: string;
 }
 export interface Skill {
@@ -157,7 +169,12 @@ export interface ModelRequest {
   definitions?: Record<string, Pick<ToolDefinition, 'description' | 'inputSchema'>>;
   onText?: (text: string) => void;
 }
-export type ModelStep =
+export interface Usage {
+  input: number;
+  output: number;
+  cached?: number;
+}
+export type ModelStep = (
   | { type: 'text'; text: string; items?: Record<string, unknown>[] }
   | {
       type: 'tool';
@@ -166,7 +183,8 @@ export type ModelStep =
       callId?: string;
       narration?: string;
       items?: Record<string, unknown>[];
-    };
+    }
+) & { usage?: Usage; contextWindow?: number };
 export interface Model {
   next(request: ModelRequest, signal: AbortSignal): Promise<ModelStep>;
 }

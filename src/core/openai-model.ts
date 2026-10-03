@@ -1,5 +1,5 @@
-import type { Model, ModelRequest, ModelStep } from './types';
-import { ConnectionError, SignInRequired } from './connection-error';
+import type { Model, ModelRequest, ModelStep, Usage } from './types';
+import { ConnectionError, ContextOverflow, SignInRequired } from './connection-error';
 
 async function toolName(name: string): Promise<string> {
   const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(name));
@@ -10,17 +10,25 @@ async function toolName(name: string): Promise<string> {
   return name.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 30) + '_' + suffix;
 }
 /** OpenAI-compatible streaming response parser. Success requires the terminal event. */
+const overflow = (code: unknown, text: unknown) =>
+  code === 'context_length_exceeded' ||
+  /context (window|length)|maximum context|too many (input )?tokens/i.test(String(text ?? ''));
 export async function readResponse(
   response: Response,
   onText?: (text: string) => void,
+  meta: { usage?: Usage } = {},
 ): Promise<Record<string, unknown>[]> {
   if (!response.ok) {
     if ([401, 403].includes(response.status))
       throw new SignInRequired('Reconnect ChatGPT to continue.');
     if ([408, 429, 500, 502, 503, 504].includes(response.status))
       throw new ConnectionError('The model connection was interrupted.');
-    const error = (await response.json().catch(() => ({}))) as { error?: { message?: string } };
-    throw new Error(error.error?.message ?? `Model request failed: HTTP ${response.status}`);
+    const error = (await response.json().catch(() => ({}))) as {
+      error?: { message?: string; code?: string };
+    };
+    const text = error.error?.message ?? `Model request failed: HTTP ${response.status}`;
+    if (overflow(error.error?.code, error.error?.message)) throw new ContextOverflow(text);
+    throw new Error(text);
   }
   if (!response.body) throw new Error('Model returned no response stream.');
   const reader = response.body.getReader();
@@ -67,14 +75,24 @@ export async function readResponse(
           text += event.delta;
           onText?.(text);
         }
-        if (['response.failed', 'response.incomplete', 'error'].includes(event.type))
-          throw new Error(
-            event.response?.error?.message ??
-              event.error?.message ??
-              event.message ??
-              'Model response did not complete.',
-          );
+        if (['response.failed', 'response.incomplete', 'error'].includes(event.type)) {
+          const failure = event.response?.error ?? event.error ?? event;
+          const text = failure.message ?? 'Model response did not complete.';
+          if (
+            overflow(failure.code, failure.message) ||
+            event.response?.incomplete_details?.reason === 'max_output_tokens'
+          )
+            throw new ContextOverflow(text);
+          throw new Error(text);
+        }
         if (event.type === 'response.completed') {
+          const usage = event.response?.usage;
+          if (usage && Number.isFinite(usage.input_tokens))
+            meta.usage = {
+              input: usage.input_tokens,
+              output: Number(usage.output_tokens) || 0,
+              cached: Number(usage.input_tokens_details?.cached_tokens) || undefined,
+            };
           if (!Array.isArray(event.response?.output))
             throw new Error('Model completed without output.');
           if (event.response.output.length) return event.response.output;
@@ -95,7 +113,11 @@ export async function readResponse(
 export class OpenAIModel implements Model {
   constructor(
     private endpoint: string,
-    private configuration: () => Promise<{ account: string; model: string }>,
+    private configuration: () => Promise<{
+      account: string;
+      model: string;
+      contextWindow?: number;
+    }>,
     private request: typeof fetch = fetch.bind(globalThis),
   ) {}
   async next(request: ModelRequest, signal: AbortSignal): Promise<ModelStep> {
@@ -137,7 +159,9 @@ export class OpenAIModel implements Model {
         },
       }),
     });
-    const items = await readResponse(response, request.onText);
+    const meta: { usage?: Usage } = {};
+    const items = await readResponse(response, request.onText, meta);
+    const extra = { usage: meta.usage, contextWindow: config.contextWindow };
     const text = items
       .filter((item) => item.type === 'message')
       .flatMap((item) => (item.content ?? []) as { text?: string }[])
@@ -163,9 +187,10 @@ export class OpenAIModel implements Model {
         callId: call.call_id,
         narration: text || undefined,
         items,
+        ...extra,
       };
     }
     if (!text) throw new Error('Model completed without a message or tool call.');
-    return { type: 'text', text, items };
+    return { type: 'text', text, items, ...extra };
   }
 }

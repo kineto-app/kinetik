@@ -31,11 +31,26 @@ export function messageTime(timestamp: number): HTMLTimeElement {
   return time;
 }
 
-export function workDuration(ms: number): HTMLElement {
+/** "950", "12.4k", "1.2M" */
+export function tokenCount(tokens: number): string {
+  return tokens < 1000
+    ? String(tokens)
+    : tokens < 1_000_000
+      ? `${(tokens / 1000).toFixed(tokens < 10_000 ? 1 : 0)}k`
+      : `${(tokens / 1_000_000).toFixed(1)}M`;
+}
+
+export function workDuration(ms: number, usage?: { input: number; output: number }): HTMLElement {
   const summary = document.createElement('div');
   summary.className = 'work-duration';
   summary.title = 'Elapsed time, including connection waits';
   summary.innerHTML = icon('clock');
   summary.append(document.createTextNode('Worked for ' + elapsed(ms)));
+  if (usage) {
+    summary.append(
+      document.createTextNode(' · ' + tokenCount(usage.input + usage.output) + ' tokens'),
+    );
+    summary.title += `. Tokens: ${usage.input} in, ${usage.output} out`;
+  }
   return summary;
 }
