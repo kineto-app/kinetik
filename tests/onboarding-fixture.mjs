@@ -14,6 +14,9 @@ let modelRequests = 0;
 let narratedModel = false;
 let backgroundModel = false;
 let streamModel = false;
+let agentModel = false;
+let overflowOnce = false;
+export const agentRequests = [];
 let finishStream;
 let remoteRuns = 0;
 let remoteDone = false;
@@ -63,6 +66,12 @@ export async function onboardingFixture(req, res) {
     remoteDone = true;
     return reply({});
   }
+  if (url.pathname === prefix + 'agent-model') {
+    agentModel = true;
+    agentRequests.length = 0;
+    return reply({});
+  }
+  if (url.pathname === prefix + 'agent-requests') return reply(agentRequests);
   if (url.pathname === prefix + 'stream-model') {
     streamModel = true;
     return reply({});
@@ -88,6 +97,9 @@ export async function onboardingFixture(req, res) {
     narratedModel = false;
     backgroundModel = false;
     streamModel = false;
+    agentModel = false;
+    overflowOnce = false;
+    agentRequests.length = 0;
     finishStream?.();
     remoteRuns = 0;
     remoteDone = false;
@@ -270,6 +282,11 @@ export async function onboardingFixture(req, res) {
       failModel = false;
       return reply({ error: 'Temporary model failure' }, 503);
     }
+    if (agentModel) {
+      const { request } = JSON.parse(await body());
+      agentRequests.push(request);
+      return agentReply(res, request);
+    }
     if (streamModel) {
       await body();
       const event = (value) => 'data: ' + JSON.stringify(value) + '\n\n';
@@ -389,4 +406,65 @@ export async function onboardingFixture(req, res) {
     return reply({}, 404);
   }
   return true;
+}
+
+/** Scripted agent for reliability proofs: usage, summaries, overflow and self-correction. */
+function agentReply(res, request) {
+  const event = (value) => 'data: ' + JSON.stringify(value) + '\n\n';
+  const users = request.input.filter((item) => item.role === 'user');
+  const last = String(users.at(-1)?.content ?? '');
+  const calls = request.input.filter((item) => item.type === 'function_call_output');
+  const tool = (prefix) =>
+    request.tools[0]?.tools.find((t) => t.name.startsWith(prefix + '_'))?.name;
+  const send = (
+    output,
+    usage = { input_tokens: 1200 + 400 * request.input.length, output_tokens: 60 },
+  ) => {
+    res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+    const text = output.find((item) => item.type === 'message')?.content[0].text;
+    res.end(
+      (text ? event({ type: 'response.output_text.delta', delta: text }) : '') +
+        event({ type: 'response.completed', response: { output, usage } }),
+    );
+    return true;
+  };
+  const say = (text, usage) =>
+    send([{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text }] }], usage);
+  const call = (name, args, id) =>
+    send([
+      { type: 'function_call', call_id: id, name: tool(name), arguments: JSON.stringify(args) },
+    ]);
+  if (last.startsWith('Summarise the conversation so far'))
+    return say(
+      'The user is planning a Lisbon trip, prefers short answers, and saved notes in /workspace/trip.md.',
+    );
+  if (last === 'Fill the context')
+    return say('Noted. That was a long document.', { input_tokens: 170000, output_tokens: 80 });
+  if (last === 'Overflow now' && !overflowOnce) {
+    overflowOnce = true;
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(
+      JSON.stringify({
+        error: { code: 'context_length_exceeded', message: 'Input exceeds the context window.' },
+      }),
+    );
+    return true;
+  }
+  if (last === 'Save my trip note') {
+    if (calls.length === 0) return call('write', { path: 42 }, 'fix-1');
+    if (calls.length === 1) return call('read', { path: '/workspace/missing.md' }, 'fix-2');
+    if (calls.length === 2)
+      return call('write', { path: '/workspace/trip.md', content: 'Lisbon, 3 days' }, 'fix-3');
+    return say(
+      'Saved your trip note to trip.md. I fixed a wrong argument and skipped a missing file along the way.',
+    );
+  }
+  const summarised = String(users[0]?.content ?? '').startsWith(
+    'Summary of the earlier conversation',
+  );
+  return say(
+    users.length > 2 || summarised
+      ? `Here is answer ${users.length}. I still remember your earlier requests${summarised ? ' from the summary' : ''}.`
+      : 'Happy to help. What would you like to plan?',
+  );
 }

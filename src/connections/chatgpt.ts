@@ -15,6 +15,9 @@ export interface ChatGPTModel {
   name: string;
   reasoning?: ReasoningLevel[];
   defaultReasoning?: string;
+  /** Usable input tokens: the catalog window scaled by its effective percentage. */
+  contextWindow?: number;
+  images?: boolean;
 }
 // `ultra` delegates to Codex sub-agents, which this client does not run.
 const unsupportedEfforts = new Set(['ultra']);
@@ -101,7 +104,20 @@ export class BrowserChatGPT {
   }
   async status() {
     const session = await this.storedSession();
-    return { connected: !!session, model: session?.model ?? '', account: session?.account ?? '' };
+    const capabilities = session
+      ? (
+          await this.store.get<Record<string, { contextWindow?: number; images?: boolean }>>(
+            'capabilities',
+          )
+        )?.[session.model]
+      : undefined;
+    return {
+      connected: !!session,
+      model: session?.model ?? '',
+      account: session?.account ?? '',
+      contextWindow: capabilities?.contextWindow,
+      images: capabilities?.images,
+    };
   }
   async login(callbackUri = redirectUri) {
     const callback = new URL(callbackUri);
@@ -260,8 +276,32 @@ export class BrowserChatGPT {
         ...(reasoning.some((level) => level.effort === model.default_reasoning_level)
           ? { defaultReasoning: model.default_reasoning_level }
           : {}),
+        ...(Number.isFinite(model.context_window) && model.context_window > 0
+          ? {
+              contextWindow: Math.floor(
+                (model.context_window *
+                  (Number.isFinite(model.effective_context_window_percent)
+                    ? Math.min(100, Math.max(1, model.effective_context_window_percent))
+                    : 100)) /
+                  100,
+              ),
+            }
+          : {}),
+        ...(Array.isArray(model.input_modalities) && model.input_modalities.includes('image')
+          ? { images: true }
+          : {}),
       });
     }
+    // Kept for the model adapter, which needs limits without re-reading the catalog each turn.
+    await this.store.put(
+      'capabilities',
+      Object.fromEntries(
+        [...models.values()].map((model) => [
+          model.slug,
+          { contextWindow: model.contextWindow, images: model.images },
+        ]),
+      ),
+    );
     return [...models.values()];
   }
   /** GPT-6.1 Sol runs at medium unless chosen otherwise; other models use the provider default. */
