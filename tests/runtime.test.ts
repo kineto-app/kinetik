@@ -41,15 +41,15 @@ test('incoming messages steer at a tool boundary', async () => {
   const c = await runtime.create();
   await runtime.submit(c.id, '/exec sleep 0.3; echo original');
   const run = runtime.run(c.id);
-  await waitFor(async () => (await read(store, c.id)).call?.state === 'pending');
-  const started = (await read(store, c.id)).workStartedAt!;
+  await waitFor(async () => (await read(store, c.id)).turn?.call?.state === 'started');
+  const started = (await read(store, c.id)).turn?.startedAt!;
   expect(started).toBeGreaterThan(0);
   await runtime.submit(c.id, '/write /workspace/steered\nnew direction');
-  expect((await read(store, c.id)).workStartedAt).toBe(started);
+  expect((await read(store, c.id)).turn?.startedAt).toBe(started);
   await run;
   expect((await read(store, c.id)).pending).toEqual([]);
   const finished = await read(store, c.id);
-  expect(finished.workStartedAt).toBeUndefined();
+  expect(finished.turn?.startedAt).toBeUndefined();
   expect(finished.messages.at(-1)?.durationMs).toBeGreaterThanOrEqual(200);
   expect(new TextDecoder().decode(await runtime.exportFile('/workspace/steered'))).toBe(
     'new direction',
@@ -68,9 +68,12 @@ test('elapsed time survives a new runtime and a connection wait', async () => {
   await offline.run(c.id);
   const waiting = await read(store, c.id);
   expect(waiting.status).toBe('waiting');
-  expect(waiting.workStartedAt).toBeGreaterThan(0);
-  const started = waiting.workStartedAt! - 10000;
-  await store.put('conversation:' + c.id, { ...waiting, workStartedAt: started });
+  expect(waiting.turn?.startedAt).toBeGreaterThan(0);
+  const started = waiting.turn?.startedAt! - 10000;
+  await store.put('conversation:' + c.id, {
+    ...waiting,
+    turn: { ...waiting.turn, startedAt: started },
+  });
   const reopened = new Runtime(store, undefined, {
     async next() {
       return { type: 'text', text: 'Finished' };
@@ -79,7 +82,7 @@ test('elapsed time survives a new runtime and a connection wait', async () => {
   await reopened.recover();
   await reopened.run(c.id);
   const finished = await read(store, c.id);
-  expect(finished.workStartedAt).toBeUndefined();
+  expect(finished.turn?.startedAt).toBeUndefined();
   expect(finished.messages.at(-1)?.durationMs).toBeGreaterThanOrEqual(10000);
   await reopened.submit(c.id, 'New request');
   await reopened.run(c.id);
@@ -91,7 +94,7 @@ test('stop leaves interrupted effects explicit and does not retry them', async (
   const c = await runtime.create();
   await runtime.submit(c.id, '/exec sleep 10; echo should-not-run > late');
   const run = runtime.run(c.id);
-  await waitFor(async () => (await read(store, c.id)).call?.state === 'pending');
+  await waitFor(async () => (await read(store, c.id)).turn?.call?.state === 'started');
   await runtime.stop(c.id);
   await run;
   expect((await read(store, c.id)).status).toBe('needs_review');
@@ -189,7 +192,7 @@ test('an unavailable plugin during recovery does not block the workspace or repe
   }));
   await new Runtime(store).recover();
   expect((await read(store, c.id)).status).toBe('needs_review');
-  expect((await read(store, c.id)).call?.state).toBe('unknown');
+  expect((await read(store, c.id)).turn?.call?.state).toBe('unknown');
   expect((await runtime.create()).status).toBe('idle');
 });
 
@@ -204,7 +207,7 @@ test('a crash immediately after Stop still exposes the pending tool for review',
   }));
   await new Runtime(store).recover();
   expect((await read(store, c.id)).status).toBe('needs_review');
-  expect((await read(store, c.id)).call?.state).toBe('unknown');
+  expect((await read(store, c.id)).turn?.call?.state).toBe('unknown');
 });
 
 test('resolving while provider cancellation finishes resumes the conversation', async () => {
@@ -225,7 +228,7 @@ test('resolving while provider cancellation finishes resumes the conversation', 
   const c = await runtime.create();
   await runtime.submit(c.id, '/exec remote');
   const running = runtime.run(c.id);
-  await waitFor(async () => (await read(store, c.id)).call?.operationId === 'remote-id');
+  await waitFor(async () => (await read(store, c.id)).turn?.call?.operationId === 'remote-id');
   await runtime.stop(c.id);
   await waitFor(async () => (await read(store, c.id)).status === 'needs_review');
   await runtime.resolve(c.id, false);

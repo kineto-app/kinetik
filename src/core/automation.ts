@@ -1,4 +1,5 @@
 import { Store } from '../browser/store';
+import { openCall } from './turn';
 import { errorText, type Binding, type Conversation } from './types';
 
 export interface Automation {
@@ -99,7 +100,7 @@ export class Automations {
       : undefined;
     if (
       status === 'active' &&
-      (conversation?.status === 'needs_review' || conversation?.call?.state === 'pending')
+      (conversation?.status === 'needs_review' || openCall(conversation?.turn?.call))
     )
       throw new Error('Review the interrupted tool in its conversation before resuming.');
     let conversationId: string | undefined;

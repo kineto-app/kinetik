@@ -16,6 +16,7 @@ import { WorkspaceFiles } from './workspace-files';
 import { migrate } from './migrations';
 import { conversationKeys, sweepDaily } from './cleanup';
 import { recoverWork, waitForConnection } from './recovery';
+import { endTurn, openCall, withCall, withTurn } from './turn';
 import { buildInstructions, builtinSkill, modelVisible, toolDefinitions } from './prompt';
 import { createFilesystem } from '../browser/filesystem';
 import { Plugins } from '../plugins/loader';
@@ -40,7 +41,6 @@ import {
   needsApproval,
   type Ask,
   type ToolCall,
-  type RunStatus,
 } from './types';
 
 const maxSteps = 60;
@@ -48,20 +48,6 @@ const maxSteps = 60;
 const steering = (c: Conversation | undefined) =>
   (c?.pending ?? []).filter((id) => c!.messages.find((m) => m.id === id)?.queue !== 'after');
 const repeatLimit = 3;
-/** Clears what belongs to one turn. Pinned plugins stay until the chat goes idle. */
-const endTurn = (c: Conversation, status: RunStatus): Conversation => ({
-  ...c,
-  status,
-  turn: undefined,
-  activeMessage: undefined,
-  call: undefined,
-  workStartedAt: undefined,
-  turnModel: undefined,
-  turnUsage: undefined,
-  retryAt: undefined,
-  retryAttempts: undefined,
-  waitingFor: undefined,
-});
 type ToolStep = Extract<ModelStep, { type: 'tool' }>;
 type ToolTurn = {
   id: string;
@@ -281,11 +267,12 @@ export class Runtime {
       const pinned = c.plugins ?? (await this.plugins.pin(await this.plugins.list()));
       const choice = await this.model.pin?.();
       await this.chats.update(id, (value) => ({
-        ...value,
+        ...withTurn(value, {
+          model: value.turn?.startedAt === undefined ? choice : value.turn.model,
+          startedAt: value.turn?.startedAt ?? Date.now(),
+        }),
         plugins: pinned,
         status: value.status === 'stopped' ? value.status : 'running',
-        turnModel: value.workStartedAt === undefined ? choice : value.turnModel,
-        workStartedAt: value.workStartedAt ?? Date.now(),
         waitingFor: undefined,
       }));
       let skills: Skill[] = [];
@@ -309,7 +296,7 @@ export class Runtime {
       while (!controller.signal.aborted) {
         c = await this.store.get<Conversation>(key(id));
         if (!c || c.status === 'needs_review') break;
-        if (!c.activeMessage || c.pending.length) {
+        if (!c.turn?.message || c.pending.length) {
           if (!c.pending.length) {
             await this.chats.update(id, (value) => ({
               ...endTurn(value, 'idle'),
@@ -323,35 +310,34 @@ export class Runtime {
             // Steering joins now; a queued follow-up waits until no steering is left, one at a time.
             const steer = steering(value);
             const taken = steer.length ? steer : value.pending.slice(0, 1);
-            // A pending local call never ran or only read, so the new message replaces it.
-            const unanswered = !value.call?.callId
+            const call = value.turn?.call;
+            // A local call left open never ran or only read, so the new message replaces it.
+            const unanswered = !call?.callId
               ? []
-              : value.call.state === 'awaiting'
+              : call.state === 'awaiting'
                 ? [
                     functionOutput(
-                      value.call.callId,
+                      call.callId,
                       'The user did not answer and sent a new message instead.',
                     ),
                   ]
-                : value.call.state === 'pending' && value.call.provider === 'local'
-                  ? [
-                      functionOutput(
-                        value.call.callId,
-                        'Not finished: the user sent a new message.',
-                      ),
-                    ]
+                : openCall(call) && call.provider === 'local'
+                  ? [functionOutput(call.callId, 'Not finished: the user sent a new message.')]
                   : [];
             return {
               ...value,
-              activeMessage: taken.at(-1),
-              workStartedAt: value.workStartedAt ?? Date.now(),
-              // A turn keeps the provider and model it started with, even if the user switches.
-              turnModel: value.turnModel ?? current,
-              turn:
-                value.turn === 'foreground' ||
-                taken.some((id) => value.messages.find((m) => m.id === id)?.role === 'user')
-                  ? 'foreground'
-                  : 'background',
+              turn: {
+                kind:
+                  value.turn?.kind === 'foreground' ||
+                  taken.some((id) => value.messages.find((m) => m.id === id)?.role === 'user')
+                    ? 'foreground'
+                    : 'background',
+                message: taken.at(-1),
+                startedAt: value.turn?.startedAt ?? Date.now(),
+                // A turn keeps the provider and model it started with, even if the user switches.
+                model: value.turn?.model ?? current,
+                usage: value.turn?.message ? value.turn.usage : undefined,
+              },
               modelInput: [
                 ...(value.modelInput ?? []),
                 ...unanswered,
@@ -373,15 +359,13 @@ export class Runtime {
               messages: value.messages.map((m) =>
                 taken.includes(m.id) && m.queue ? { ...m, queue: undefined } : m,
               ),
-              call: undefined,
               status: 'running',
               waitingFor: undefined,
-              turnUsage: value.activeMessage ? value.turnUsage : undefined,
             };
           });
         }
-        const activeMessage = c.messages.find((m) => m.id === c!.activeMessage)!;
-        const backgroundTurn = c.turn === 'background';
+        const activeMessage = c.messages.find((m) => m.id === c!.turn?.message)!;
+        const backgroundTurn = c.turn?.kind === 'background';
         const sync = await this.plugins.sync(sources, controller.signal);
         const localWorkspace = ['exec', 'read', 'write', 'edit', 'list'].every(
           (name) => bindings[name]?.provider === 'local',
@@ -401,21 +385,22 @@ export class Runtime {
           bindings,
           skills,
         );
-        let result = c.call?.state === 'completed' ? c.call.result : undefined;
+        let result = c.turn?.call?.state === 'completed' ? c.turn.call.result : undefined;
         const repeats = new Map<string, number>();
         let overflowRetried = false;
         for (let step = 0; step < maxSteps; step++) {
           this.progress(id, { step: step + 1 });
-          const resumed = (await this.store.get<Conversation>(key(id)))?.call;
-          // A call the user approved runs as it was proposed, without asking the model again.
-          const approved = resumed?.state === 'pending' && resumed.approved ? resumed : undefined;
+          // A call recorded but never run continues as proposed, without asking the model again.
+          const call = (await this.store.get<Conversation>(key(id)))?.turn?.call;
+          const resumed =
+            call?.state === 'proposed' || call?.state === 'approved' ? call : undefined;
           let output: ModelStep;
-          if (approved)
+          if (resumed)
             output = {
               type: 'tool',
-              name: approved.name,
-              input: approved.input,
-              callId: approved.callId,
+              name: resumed.name,
+              input: resumed.input,
+              callId: resumed.callId,
             };
           else {
             await this.compactor.compactIfNeeded(id, controller.signal);
@@ -470,11 +455,9 @@ export class Runtime {
             // Steering received during inference takes precedence over an unexecuted tool
             // or stale answer. The old request remains in model history.
             if (steering(await this.store.get<Conversation>(key(id))).length) {
-              await this.chats.update(id, (value) => ({
-                ...value,
-                activeMessage: undefined,
-                call: undefined,
-              }));
+              await this.chats.update(id, (value) =>
+                withTurn(value, { message: undefined, call: undefined }),
+              );
               break;
             }
           }
@@ -486,10 +469,10 @@ export class Runtime {
                 {
                   ...message('assistant', output.text),
                   durationMs:
-                    value.workStartedAt === undefined
+                    value.turn?.startedAt === undefined
                       ? undefined
-                      : Math.max(0, Date.now() - value.workStartedAt),
-                  usage: value.turnUsage,
+                      : Math.max(0, Date.now() - value.turn.startedAt),
+                  usage: value.turn?.usage,
                 },
               ],
               modelInput: [...(value.modelInput ?? []), ...(output.items ?? [])],
@@ -527,7 +510,7 @@ export class Runtime {
             { id, controller, bindings, pinned, backgroundTurn },
             step,
             output,
-            approved,
+            resumed,
           );
           if (called === 'paused') return;
           result = called.result;
@@ -535,11 +518,9 @@ export class Runtime {
           // Steering joins at a tool boundary, before any further model/tool calls.
           const latest = await this.store.get<Conversation>(key(id));
           if (steering(latest).length) {
-            await this.chats.update(id, (value) => ({
-              ...value,
-              activeMessage: undefined,
-              call: undefined,
-            }));
+            await this.chats.update(id, (value) =>
+              withTurn(value, { message: undefined, call: undefined }),
+            );
             break;
           }
           if (step === maxSteps - 1)
@@ -589,7 +570,7 @@ export class Runtime {
     if (
       next &&
       ['running', 'queued', 'idle'].includes(next.status) &&
-      (next.pending.length || (next.status === 'queued' && next.activeMessage))
+      (next.pending.length || (next.status === 'queued' && next.turn?.message))
     )
       await this.run(id);
   }
@@ -598,7 +579,7 @@ export class Runtime {
     turn: ToolTurn,
     step: number,
     output: ToolStep,
-    approved: ToolCall | undefined,
+    resumed: ToolCall | undefined,
   ): Promise<'paused' | { result: string; retry?: boolean }> {
     const { id, bindings, backgroundTurn } = turn;
     const binding = bindings[output.name];
@@ -609,24 +590,20 @@ export class Runtime {
         result: await this.recordToolError(id, output, binding?.provider, rejected, backgroundTurn),
         retry: true,
       };
-    if (!approved) await this.journal(turn, output, binding);
-    const ask = approved ? undefined : this.askFor(output.name, output.input, binding);
+    if (!resumed) await this.journal(turn, output, binding);
+    const ask =
+      resumed?.state === 'approved' ? undefined : this.askFor(output.name, output.input, binding);
     if (ask) {
       // The turn pauses here; answer() resumes it. Nothing has run, so a restart is safe.
       await this.chats.update(id, (value) => ({
-        ...value,
+        ...withCall(value, { state: 'awaiting', ask }),
         status: 'asking',
-        call: { ...value.call!, state: 'awaiting', ask },
       }));
       await this.alert(id, ask.question);
       return 'paused';
     }
     // From here the call may have effects, so a restart must review it, not rerun it.
-    if (approved)
-      await this.chats.update(id, (value) => ({
-        ...value,
-        call: { ...value.call!, approved: undefined },
-      }));
+    await this.chats.update(id, (value) => withCall(value, { state: 'started' }));
     this.progress(id, { step: step + 1, tool: output.name });
     try {
       return { result: await this.execute(turn, output, binding) };
@@ -656,13 +633,16 @@ export class Runtime {
         : value.messages,
       retryAt: undefined,
       retryAttempts: undefined,
-      call: {
-        callId: output.callId,
-        id: crypto.randomUUID(),
-        name: output.name,
-        input: output.input,
-        provider: binding.provider,
-        state: 'pending',
+      turn: {
+        ...value.turn,
+        call: {
+          callId: output.callId,
+          id: crypto.randomUUID(),
+          name: output.name,
+          input: output.input,
+          provider: binding.provider,
+          state: 'proposed',
+        },
       },
     }));
   }
@@ -685,10 +665,9 @@ export class Runtime {
       binding.tool.execute(output.input, {
         signal,
         checkpoint: async (operationId) => {
-          await this.chats.update(id, (value) => ({
-            ...value,
-            call: value.call ? { ...value.call, operationId } : value.call,
-          }));
+          await this.chats.update(id, (value) =>
+            value.turn?.call ? withCall(value, { operationId }) : value,
+          );
         },
       }),
       signal,
@@ -717,14 +696,13 @@ export class Runtime {
       }
     }
     await this.chats.update(id, (value) => ({
-      ...value,
-      call: { ...value.call!, state: 'completed', result },
+      ...withCall(value, { state: 'completed', result }),
       modelInput: withOutput(value.modelInput, output.callId, result),
       messages: [
         ...value.messages,
         {
           ...message('tool', result, `${output.name} · ${binding.provider}`),
-          id: value.call!.id,
+          id: value.turn!.call!.id,
           activity: { input: output.input, outcome: toolOutcome(response, binding.tool.command) },
           app,
           file:
@@ -744,7 +722,7 @@ export class Runtime {
     binding: Binding,
     error: unknown,
   ): Promise<'paused' | { result: string; retry: true }> {
-    const call = (await this.store.get<Conversation>(key(id)))?.call;
+    const call = (await this.store.get<Conversation>(key(id)))?.turn?.call;
     const rerunnable = localReadOnly(binding, output.input);
     const offline = isConnectionError(error) || error instanceof SignInRequired;
     if (!controller.signal.aborted && rerunnable && !offline) {
@@ -767,9 +745,8 @@ export class Runtime {
       return 'paused';
     }
     await this.chats.update(id, (value) => ({
-      ...value,
+      ...withCall(value, { state: 'unknown', result: errorText(error) }),
       status: 'needs_review',
-      call: { ...value.call!, state: 'unknown', result: errorText(error) },
       messages: [
         ...value.messages,
         message(
@@ -813,13 +790,13 @@ export class Runtime {
     if (typeof value !== 'string' || !value || value.length > 500)
       throw new Error('Invalid answer.');
     const c = await this.store.get<Conversation>(key(id));
-    const ask = c?.call?.state === 'awaiting' ? c.call.ask : undefined;
+    const call = c?.turn?.call;
+    const ask = call?.state === 'awaiting' ? call.ask : undefined;
     if (!c || c.status !== 'asking' || !ask) throw new Error('There is no question to answer.');
     if (ask.kind === 'approval' && value === 'approve') {
       await this.chats.update(id, (current) => ({
-        ...current,
+        ...withCall(current, { state: 'approved', ask: undefined }),
         status: 'queued',
-        call: { ...current.call!, state: 'pending', approved: true, ask: undefined },
       }));
     } else {
       let result: string;
@@ -831,17 +808,16 @@ export class Runtime {
           value === 'save' ? 'The user saved the memory.' : 'The user kept the memory as it was.';
       }
       await this.chats.update(id, (current) => ({
-        ...current,
+        ...withCall(current, { state: 'completed', result, ask: undefined }),
         status: 'queued',
-        call: { ...current.call!, state: 'completed', result, ask: undefined },
-        modelInput: withOutput(current.modelInput, current.call!.callId, result),
+        modelInput: withOutput(current.modelInput, call!.callId, result),
         messages: [
           ...current.messages,
           {
-            ...message('tool', result, `${current.call!.name} · ${current.call!.provider}`),
-            id: current.call!.id,
+            ...message('tool', result, `${call!.name} · ${call!.provider}`),
+            id: call!.id,
             activity: {
-              input: current.call!.input,
+              input: call!.input,
               outcome: ask.kind === 'approval' ? ('failed' as const) : ('completed' as const),
               returned: ask.kind === 'approval' ? true : undefined,
             },
@@ -852,7 +828,7 @@ export class Runtime {
   }
   private async pinFor(id: string) {
     const c = await this.store.get<Conversation>(key(id));
-    return c?.workStartedAt !== undefined ? c.turnModel : await this.model.pin?.();
+    return c?.turn?.startedAt !== undefined ? c.turn.model : await this.model.pin?.();
   }
   /** A model request with the provider and model pinned for this conversation's turn. */
   private async modelNext(id: string, request: ModelRequest, signal: AbortSignal) {
@@ -873,7 +849,7 @@ export class Runtime {
     await this.chats.update(id, (value) => ({
       ...value,
       context: { tokens, window },
-      turnUsage: addUsage(value.turnUsage, output.usage),
+      turn: { ...value.turn, usage: addUsage(value.turn?.usage, output.usage) },
       // A request that worked accepts any provider compaction before it.
       serverCompaction: undefined,
     }));
@@ -896,7 +872,10 @@ export class Runtime {
         ...(ran ? [] : (output.items ?? [])),
         ...(output.callId ? [functionOutput(output.callId, text)] : []),
       ],
-      call: ran ? { ...value.call!, state: 'completed', result: text } : undefined,
+      turn: {
+        ...value.turn,
+        call: ran ? { ...value.turn!.call!, state: 'completed', result: text } : undefined,
+      },
       messages: [
         ...value.messages,
         ...(!ran && output.narration
@@ -909,7 +888,7 @@ export class Runtime {
           : []),
         {
           ...message('tool', text, `${output.name} · ${provider ?? 'unknown'}`),
-          ...(ran ? { id: value.call!.id } : {}),
+          ...(ran ? { id: value.turn!.call!.id } : {}),
           activity: { input: output.input, outcome: 'failed' as const, returned: true },
           visibility: backgroundTurn ? ('internal' as const) : undefined,
         },
@@ -935,9 +914,10 @@ export class Runtime {
   }
   private async requestCancellation(binding: Binding, id: string): Promise<void> {
     const c = await this.store.get<Conversation>(key(id));
-    if (c?.call?.operationId && binding.tool.cancel) {
+    const operationId = c?.turn?.call?.operationId;
+    if (operationId && binding.tool.cancel) {
       try {
-        await binding.tool.cancel(c.call.operationId);
+        await binding.tool.cancel(operationId);
       } catch {
         await this.chats.update(id, (value) => ({
           ...value,
@@ -958,7 +938,8 @@ export class Runtime {
       messages: c.messages.map((m) =>
         c.pending.includes(m.id) ? { ...m, queue: undefined, unsent: true } : m,
       ),
-      workStartedAt: undefined,
+      // A call left open stays for recovery to decide; only the clock stops.
+      turn: c.turn && { ...c.turn, startedAt: undefined },
     }));
     await this.background.cancelConversation(id);
   }
@@ -1003,25 +984,24 @@ export class Runtime {
   }
   async resolve(id: string, retry: boolean): Promise<void> {
     await this.chats.update(id, (c) => {
-      if (c.status !== 'needs_review' || !c.call)
+      const call = c.turn?.call;
+      if (c.status !== 'needs_review' || !call)
         throw new Error('No uncertain tool call to resolve.');
       return {
-        ...c,
+        ...withCall(
+          c,
+          retry
+            ? undefined
+            : { state: 'completed', result: 'User resolved the uncertain call without retrying.' },
+        ),
         status: 'queued',
         modelInput: withOutput(
           c.modelInput,
-          c.call.callId,
+          call.callId,
           retry
             ? 'User requested retry of this call.'
             : 'User resolved this uncertain outcome without retrying. Do not repeat it.',
         ),
-        call: retry
-          ? undefined
-          : {
-              ...c.call,
-              state: 'completed',
-              result: 'User resolved the uncertain call without retrying.',
-            },
       };
     });
   }

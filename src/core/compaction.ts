@@ -1,4 +1,5 @@
 import type { Store } from '../browser/store';
+import { openCall } from './turn';
 import { abortable } from './abortable';
 import { ContextOverflow } from './connection-error';
 import type { ConversationStore } from './conversation-store';
@@ -81,7 +82,7 @@ export class Compactor {
     const { n, head } = c.serverCompaction;
     const archived = await this.deps.store.get<Item[]>(`model-archive:${id}:${n}`);
     if (!archived) return false;
-    await this.deps.store.put(noServerCompact(c.turnModel), true);
+    await this.deps.store.put(noServerCompact(c.turn?.model), true);
     await this.deps.chats.update(id, (value) =>
       value.serverCompaction?.n !== n
         ? value
@@ -120,7 +121,7 @@ export class Compactor {
   private async summarise(id: string, signal: AbortSignal): Promise<boolean> {
     const c = await this.deps.chats.load(id);
     const input = c?.modelInput ?? [];
-    if (!c || c.call?.state === 'pending') return false;
+    if (!c || openCall(c.turn?.call)) return false;
     let cut = splitPoint(input);
     if (cut < 2) return false;
     const pin = await this.deps.pin(id);

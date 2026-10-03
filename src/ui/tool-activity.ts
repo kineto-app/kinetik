@@ -1,3 +1,4 @@
+import { openCall } from '../core/turn';
 import type { Conversation, Message } from '../core/types';
 import {
   activityBatches,
@@ -149,13 +150,13 @@ export function renderToolActivity(timeline: HTMLElement, conversation?: Convers
     groups.set(turn, group);
     article.hidden = !message.app && !message.file;
   }
-  const call = conversation.call;
+  const call = conversation.turn?.call;
   const active =
-    conversation.turn !== 'background' &&
+    conversation.turn?.kind !== 'background' &&
     call &&
     call.name !== 'background' &&
     (call.state === 'unknown' ||
-      (call.state === 'pending' && ['running', 'waiting'].includes(conversation.status)));
+      (openCall(call) && ['running', 'waiting'].includes(conversation.status)));
   if (active) {
     const group = groups.get(turn) ?? {
       messages: [],
