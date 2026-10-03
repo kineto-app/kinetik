@@ -4,6 +4,8 @@ import { Store } from '../src/browser/store';
 import { ConversationStore } from '../src/core/conversation-store';
 import { RuntimeHost } from '../src/core/host';
 import { protocolVersion, reloadHint } from '../src/core/protocol';
+import { recentTrace } from '../src/core/trace';
+import { exportArchive } from '../src/core/archive';
 import type { Conversation } from '../src/core/types';
 
 test('a chat whose saved history lost a part says so instead of retrying forever', async () => {
@@ -75,4 +77,31 @@ test('state sends messages only for the chat the window shows', async () => {
   expect(byId[b.id].title).toBe(byId[a.id].title);
   const full = await ask<{ conversations: Conversation[] }>({ op: 'state' });
   expect(full.conversations.every((c) => c.messages.length > 0)).toBe(true);
+});
+
+test('each model request and tool call is traced, deleted with its chat and exported', async () => {
+  const store = new Store(crypto.randomUUID());
+  const runtime = new Runtime(store);
+  const c = await runtime.create();
+  await runtime.submit(c.id, '/exec printf hi');
+  await runtime.run(c.id);
+  const entries = await recentTrace(store);
+  expect(entries.map((e) => `${e.kind}:${e.ok}`)).toEqual(
+    expect.arrayContaining(['model:true', 'tool:true']),
+  );
+  expect(entries.every((e) => e.conversationId === c.id && e.ms >= 0)).toBe(true);
+  expect(JSON.parse(await exportArchive(store)).trace).toHaveLength(entries.length);
+  await runtime.deleteConversation(c.id);
+  expect(await recentTrace(store)).toEqual([]);
+});
+
+test('a failed tool call is traced with its error', async () => {
+  const store = new Store(crypto.randomUUID());
+  const runtime = new Runtime(store);
+  const c = await runtime.create();
+  await runtime.submit(c.id, '/read /workspace/missing.txt');
+  await runtime.run(c.id);
+  const failed = (await recentTrace(store)).find((e) => !e.ok);
+  expect(failed).toMatchObject({ kind: 'tool', name: 'read' });
+  expect(failed?.error).toBeTruthy();
 });
