@@ -630,7 +630,9 @@ export class Runtime {
             }));
           } catch (error) {
             const call = (await this.store.get<Conversation>(key(id)))?.call;
-            if (!controller.signal.aborted && localReadOnly(binding) && !isConnectionError(error)) {
+            const rerunnable = localReadOnly(binding, output.input);
+            const offline = isConnectionError(error) || error instanceof SignInRequired;
+            if (!controller.signal.aborted && rerunnable && !offline) {
               result = await this.recordToolError(
                 id,
                 output,
@@ -643,9 +645,8 @@ export class Runtime {
             }
             if (
               !controller.signal.aborted &&
-              call?.operationId &&
-              binding.tool.recover &&
-              (isConnectionError(error) || error instanceof SignInRequired)
+              offline &&
+              (rerunnable || (call?.operationId && binding.tool.recover))
             ) {
               await this.waitForConnection(id, error);
               return;
@@ -987,7 +988,7 @@ export class Runtime {
         if (
           c.call?.state === 'pending' &&
           c.call.provider === 'local' &&
-          localReadOnly(local[c.call.name]) &&
+          localReadOnly(local[c.call.name], c.call.input) &&
           !c.call.approved
         ) {
           // It changed nothing, so running it again is safe; the approved path runs it as proposed.

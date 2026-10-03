@@ -187,7 +187,8 @@ Each step is small enough for one PR. The order puts risk first.
     - tools declare `readOnly` and `command`; the three name sets and the `__charms_exec` suffix test are gone;
     - parallel batches and the helper accept remote read-only tools, so with Charms on the helper can read files and jobs;
     - a read that needs approval, a widget tool and a model-hidden tool never run in a batch or the helper;
-    - a lost connection in a batch pauses the turn instead of failing the reads.
+    - a lost connection in a batch or in the helper pauses the turn instead of failing the reads or asking for review;
+    - the Charms adapter keeps sharing a file and rendering out of reads, because both publish a link.
   - Left on purpose by step 2:
     - An existing Charms install keeps its pinned adapter until the next Connect, because a link never replaces pinned code. Until then a failed Charms command shows as done in the activity list; the model still sees the exit code.
     - Error-as-result and replay stay local-only, as the plan says.

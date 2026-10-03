@@ -118,8 +118,50 @@ test('a read that needs approval for this input does not run in a batch', async 
   await runtime.run(c.id);
   expect(execute).not.toHaveBeenCalled();
   expect(seen[1].result).toContain(
-    'charms__files_read: Error: charms__files_read needs your approval',
+    'charms__files_read: Error: charms__files_read may change something here',
   );
+});
+
+test('a read that publishes for this input does not run in a batch', async () => {
+  const store = new Store(crypto.randomUUID());
+  const execute = vi.fn(async () => 'link');
+  const { model, seen } = scripted([
+    () => batch(['read', { path: 'a', share: true }], ['list', { path: '/' }]),
+    () => say('Asked.'),
+  ]);
+  const runtime = new Runtime(store, undefined, model);
+  withTools(runtime, {
+    read: remote({ readOnly: (input) => input.share !== true, execute }),
+  });
+  const c = await runtime.create();
+  await runtime.submit(c.id, 'Share');
+  await runtime.run(c.id);
+  expect(execute).not.toHaveBeenCalled();
+  expect(seen[1].result).toContain('read: Error: read may change something here');
+});
+
+test('a lost connection inside the helper pauses the turn instead of asking for review', async () => {
+  const store = new Store(crypto.randomUUID());
+  const { model } = scripted([
+    () => call('delegate', { task: 'Read the brief' }),
+    () => call('charms__files_read', { path: 'brief.md' }),
+  ]);
+  const runtime = new Runtime(store, undefined, model);
+  withTools(runtime, {
+    charms__files_read: remote({
+      readOnly: true,
+      execute: async () => {
+        throw new ConnectionError('offline');
+      },
+    }),
+  });
+  const c = await runtime.create();
+  await runtime.submit(c.id, 'Research');
+  await runtime.run(c.id);
+  const saved = await read(store, c.id);
+  expect(saved.status).not.toBe('needs_review');
+  expect(saved.waitingFor).toBe('connection');
+  expect(saved.call).toMatchObject({ name: 'delegate', state: 'pending' });
 });
 
 test('a lost connection during a batch pauses the turn and records nothing', async () => {

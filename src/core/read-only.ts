@@ -10,6 +10,7 @@ import {
   errorText,
   message,
   needsApproval,
+  readsOnly,
   type Binding,
   type LiveProgress,
   type ModelRequest,
@@ -18,12 +19,13 @@ import {
 
 type Item = Record<string, unknown>;
 type ReadOnlyResult = { text: string; response?: unknown; failed?: boolean };
-/** A local tool that changes nothing: its errors are facts, and a restart runs it again. */
-export const localReadOnly = (binding: Binding | undefined) =>
-  binding?.provider === 'local' && binding.tool.readOnly === true;
+/** A local call that changes nothing: its errors are facts, and a restart runs it again. */
+export const localReadOnly = (binding: Binding | undefined, input: Record<string, unknown>) =>
+  binding?.provider === 'local' && readsOnly(binding.tool, input);
 /** Tools a parallel batch or the helper may call. A helper never starts another helper. */
 const readable = (name: string, binding: Binding | undefined): binding is Binding =>
-  binding?.tool.readOnly === true &&
+  binding !== undefined &&
+  Boolean(binding.tool.readOnly) &&
   !binding.tool.app &&
   binding.tool.approval !== true &&
   modelVisible(binding) &&
@@ -115,8 +117,11 @@ export class ReadOnlyTools {
         text: 'Error: Invalid tool arguments: ' + this.ajv.errorsText(validate.errors),
         failed: true,
       };
-    if (needsApproval(binding.tool, call.input))
-      return { text: `Error: ${call.name} needs your approval. Call it directly.`, failed: true };
+    if (needsApproval(binding.tool, call.input) || !readsOnly(binding.tool, call.input))
+      return {
+        text: `Error: ${call.name} may change something here. Call it directly.`,
+        failed: true,
+      };
     const timeout = AbortSignal.any([signal, AbortSignal.timeout(binding.tool.timeoutMs ?? 30000)]);
     try {
       const response = await abortable(

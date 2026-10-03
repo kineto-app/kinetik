@@ -148,6 +148,7 @@ export function localTools(
       async () => {
         throw new Error('The delegate tool is run by the agent runtime.');
       },
+      // Its helper only reads, so a restart runs it again and its errors are results.
       { readOnly: true },
     ),
     remember: bind(

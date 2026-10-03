@@ -167,7 +167,7 @@ export interface ToolDefinition {
   /** Ask the user before running: for actions that publish, send, pay or delete. */
   approval?: boolean | ((input: Record<string, unknown>) => boolean);
   /** Changes nothing, so it may run in parallel or in the helper. */
-  readOnly?: boolean;
+  readOnly?: boolean | ((input: Record<string, unknown>) => boolean);
   /** Runs a shell command, so a non-zero exit code means it failed. */
   command?: boolean;
   app?: {
@@ -278,3 +278,5 @@ export const addUsage = (a: Usage | undefined, b: Usage | undefined): Usage | un
 
 export const needsApproval = (tool: ToolDefinition, input: Record<string, unknown>) =>
   tool.approval === true || (typeof tool.approval === 'function' && tool.approval(input));
+export const readsOnly = (tool: ToolDefinition, input: Record<string, unknown>) =>
+  tool.readOnly === true || (typeof tool.readOnly === 'function' && tool.readOnly(input));
