@@ -1,8 +1,9 @@
+import { protocolVersion } from '../../src/core/protocol';
 import { test, expect, type Page } from '@playwright/test';
 import type { Conversation } from '../../src/core/types';
 async function rpc<T>(page: Page, op: string, data: Record<string, unknown> = {}): Promise<T> {
   return page.evaluate(
-    async ({ op, data }) => {
+    async ({ op, data, protocol }) => {
       const r = await navigator.serviceWorker.ready;
       return new Promise((resolve, reject) => {
         const c = new MessageChannel();
@@ -12,10 +13,10 @@ async function rpc<T>(page: Page, op: string, data: Record<string, unknown> = {}
           c.port1.close();
           e.data.ok ? resolve(e.data.result) : reject(new Error(e.data.error));
         };
-        r.active!.postMessage({ op, ...data }, [c.port2]);
+        r.active!.postMessage({ op, ...data, protocol }, [c.port2]);
       });
     },
-    { op, data },
+    { op, data, protocol: protocolVersion },
   ) as Promise<T>;
 }
 async function send(page: Page, text: string) {

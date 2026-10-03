@@ -174,6 +174,7 @@ export class Runtime {
     messageId?: string,
     attachmentIds: string[] = [],
     queue?: 'after',
+    automated = false,
   ): Promise<void> {
     if (
       !Array.isArray(attachmentIds) ||
@@ -185,14 +186,20 @@ export class Runtime {
     if (
       typeof text !== 'string' ||
       (!text.trim() && !attachmentIds.length) ||
-      text.length > (messageId ? 32768 : 16384)
+      text.length > (automated ? 32768 : 16384)
     )
       throw new Error('Enter a message up to 16,384 characters.');
-    if (text.trim() === '/compact' && !attachmentIds.length && !messageId) {
+    if (text.trim() === '/compact' && !attachmentIds.length && !automated) {
       await this.compact(id);
       return;
     }
     await attachmentLock(id, async () => {
+      // A retried send arrives with the same id; it was saved already, attachments included.
+      if (
+        messageId &&
+        (await this.store.get<Conversation>(key(id)))?.messages.some((m) => m.id === messageId)
+      )
+        return;
       const entry = message('user', text);
       if (messageId) entry.id = messageId;
       // Queuing only matters while work is in progress.

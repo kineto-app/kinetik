@@ -542,6 +542,7 @@ byId('new-chat').onclick = () => {
 };
 byId('top-new-chat').onclick = () => byId('new-chat').click();
 let queueNext = false;
+let unsent: { draft: string; id: string } | undefined;
 byId('queue').onclick = () => {
   queueNext = true;
   byId<HTMLFormElement>('composer').requestSubmit();
@@ -569,7 +570,11 @@ byId('composer').onsubmit = (event) => {
       }
       if (!current()) selected = (await rpc<Conversation>('create')).id;
       followNextMessage = true;
-      await rpc('submit', { id: selected, text, attachments, queue });
+      // Sending the same draft again after a failure reuses its id, so it is never posted twice.
+      const sending = JSON.stringify([selected, text, attachments]);
+      if (unsent?.draft !== sending) unsent = { draft: sending, id: crypto.randomUUID() };
+      await rpc('submit', { id: selected, text, attachments, queue, messageId: unsent.id });
+      unsent = undefined;
       input.value = '';
       updateComposer();
       byId('error').textContent = '';

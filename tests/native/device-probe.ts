@@ -1,5 +1,6 @@
 // Injected into a debug WebView by the device test runner. Never included in application assets.
 import { RuntimeHost } from '../../src/core/host';
+import { protocolVersion } from '../../src/core/protocol';
 import { Store } from '../../src/browser/store';
 import { NativeStore } from '../../src/platform/secure-store';
 import { invoke, addPluginListener } from '@tauri-apps/api/core';
@@ -17,7 +18,7 @@ const host = new RuntimeHost(
 const call = <T>(op: string, data: Record<string, unknown> = {}): Promise<T> =>
   new Promise((resolve, reject) => {
     void host
-      .handle({ op, ...data }, (reply) =>
+      .handle({ op, ...data, protocol: protocolVersion }, (reply) =>
         reply.ok ? resolve(reply.result as T) : reject(new Error(reply.error)),
       )
       .catch(reject);
