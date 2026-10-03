@@ -187,7 +187,7 @@ export class McpClient {
             ui?: { resourceUri?: string; visibility?: ('model' | 'app')[] };
             'ui/resourceUri'?: string;
           };
-          annotations?: { destructiveHint?: boolean };
+          annotations?: { destructiveHint?: boolean; readOnlyHint?: boolean };
         }[];
         nextCursor?: string;
       };
@@ -197,8 +197,10 @@ export class McpClient {
         tools[tool.name] = {
           description: tool.description ?? tool.name,
           visibility: tool._meta?.ui?.visibility,
-          // A server's hint only adds a confirmation, so trusting it cannot weaken safety.
+          // A server's hints only add a confirmation or let reads run together; a restart never
+          // re-runs a remote call on their word.
           approval: tool.annotations?.destructiveHint === true,
+          readOnly: tool.annotations?.readOnlyHint === true,
           app:
             (tool._meta?.ui?.resourceUri ?? tool._meta?.['ui/resourceUri'])
               ? {
