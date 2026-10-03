@@ -35,9 +35,10 @@ async function boot() {
   host = new RuntimeHost(
     new NativeStore(),
     base,
-    () => {
-      window.dispatchEvent(new Event('kinetik-changed'));
-      void synchronizeBackground();
+    (event) => {
+      window.dispatchEvent(new CustomEvent('kinetik-changed', { detail: event }));
+      // Streamed text and progress change nothing the background service tracks.
+      if (!event) void synchronizeBackground();
     },
     config,
     chatgpt,

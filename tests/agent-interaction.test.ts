@@ -1,12 +1,14 @@
 import { expect, test } from 'vitest';
 import { Runtime } from '../src/core/runtime';
 import { Store } from '../src/browser/store';
+import { modelInput } from './model-input';
 import type {
   Conversation,
   Model,
   ModelRequest,
   ModelStep,
   ToolDefinition,
+  RuntimeEvent,
 } from '../src/core/types';
 
 const read = async (store: Store, id: string) =>
@@ -111,7 +113,7 @@ test('the ask tool pauses for a choice and the answer resumes the turn', async (
   await reopened.run(c.id);
   saved = await read(store, c.id);
   expect(seen[1].result).toBe('The user chose: Calm');
-  expect(saved.modelInput).toContainEqual({
+  expect(await modelInput(store, c.id)).toContainEqual({
     type: 'function_call_output',
     call_id: 'c1',
     output: 'The user chose: Calm',
@@ -270,4 +272,66 @@ test('an approved action interrupted by a restart runs exactly once', async () =
   await second.run(c.id);
   expect(ran).toEqual([{ title: 'Launch' }]);
   expect((await read(store, c.id)).messages.at(-1)?.text).toBe('Result: Published');
+});
+
+test('a turn reports step progress and streamed text as events', async () => {
+  const store = new Store(crypto.randomUUID());
+  const events: RuntimeEvent[] = [];
+  let during: Conversation | undefined;
+  let runtime!: Runtime;
+  const { model } = scripted([
+    () => ({ type: 'tool', name: 'list', input: { path: '/workspace' } }),
+    () => ({ type: 'tool', name: 'list', input: { path: '/' } }),
+    (request) => {
+      request.onText?.('Done');
+      return say('Done');
+    },
+  ]);
+  const original = model.next.bind(model);
+  model.next = async (request, signal) => {
+    during = (await runtime.conversations())[0];
+    return original(request, signal);
+  };
+  runtime = new Runtime(store, (event) => event && events.push(event), model);
+  const c = await runtime.create();
+  await runtime.submit(c.id, 'Look around');
+  await runtime.run(c.id);
+  expect(events.filter((e) => e.type === 'progress')).toEqual([
+    { type: 'progress', conversationId: c.id, step: 1 },
+    { type: 'progress', conversationId: c.id, step: 1, tool: 'list' },
+    { type: 'progress', conversationId: c.id, step: 2 },
+    { type: 'progress', conversationId: c.id, step: 2, tool: 'list' },
+    { type: 'progress', conversationId: c.id, step: 3 },
+  ]);
+  expect(events.filter((e) => e.type === 'text')).toEqual([
+    { type: 'text', conversationId: c.id, text: 'Done' },
+  ]);
+  // State served while the turn runs carries the progress; it is gone afterwards.
+  expect(during?.live).toEqual({ step: 3 });
+  expect((await runtime.conversations())[0].live).toBeUndefined();
+});
+
+test('the reasoning summary is served as live progress and pushed as an event', async () => {
+  const store = new Store(crypto.randomUUID());
+  const events: RuntimeEvent[] = [];
+  let during: Conversation | undefined;
+  let runtime!: Runtime;
+  const { model } = scripted([
+    (request) => {
+      request.onReasoning?.('**Planning**');
+      return say('Done');
+    },
+  ]);
+  const original = model.next.bind(model);
+  model.next = async (request, signal) => {
+    const step = await original(request, signal);
+    during = (await runtime.conversations())[0];
+    return step;
+  };
+  runtime = new Runtime(store, (event) => event && events.push(event), model);
+  const c = await runtime.create();
+  await runtime.submit(c.id, 'Plan');
+  await runtime.run(c.id);
+  expect(events).toContainEqual({ type: 'reasoning', conversationId: c.id, text: '**Planning**' });
+  expect(during?.live).toEqual({ step: 1, reasoning: '**Planning**' });
 });

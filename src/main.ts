@@ -24,7 +24,7 @@ import { taskLabel } from './ui/task-labels';
 import { setupFiles } from './ui/files';
 import { setupUpdates } from './browser/updates';
 import { connect, rpc } from './browser/client';
-import type { Conversation, InstalledPlugin } from './core/types';
+import type { Conversation, InstalledPlugin, RuntimeEvent } from './core/types';
 import { setupConnections } from './ui/onboarding';
 import {
   setSettingsActions,
@@ -176,8 +176,18 @@ function render() {
   updateComposer();
   byId('status').dataset.state = c?.status ?? 'idle';
   byId('activity').hidden = !foreground;
+  const thought =
+    foreground && c?.live?.reasoning && !c.draft && c.call?.state !== 'pending'
+      ? latestThought(c.live.reasoning)
+      : undefined;
   byId('activity-label').textContent =
-    c?.call?.state === 'pending' ? taskLabel(c.call.name) : 'Working';
+    (c?.call?.state === 'pending'
+      ? taskLabel(c.call.name)
+      : c?.live?.activity === 'summarising'
+        ? 'Summarising earlier messages…'
+        : (thought?.heading ?? 'Working')) +
+    (c?.live && c.live.step > 1 ? ` · step ${c.live.step}` : '');
+  renderThought(thought);
   updateElapsed();
   byId('recovery').hidden = c?.status !== 'needs_review';
   renderAsk(c);
@@ -288,6 +298,32 @@ async function refresh() {
   if (!current() && state.conversations.length) selected = state.conversations[0].id;
   uiStorage.setItem('kinetik-conversation', selected);
   render();
+}
+/** The newest part of a reasoning summary: its bold heading and the text after it. */
+function latestThought(text: string) {
+  const headings = [...text.matchAll(/\*\*(.+?)\*\*/g)];
+  const last = headings.at(-1);
+  const body = (last ? text.slice(last.index! + last[0].length) : text).trim();
+  return {
+    heading: last?.[1].trim() || 'Thinking',
+    body: body.length > 280 ? '…' + body.slice(-280).replace(/^\S*\s/, '') : body,
+  };
+}
+function renderThought(thought: { heading: string; body: string } | undefined) {
+  const timeline = byId('timeline');
+  let note = timeline.querySelector<HTMLElement>('[data-thinking]');
+  if (!thought) return note?.remove();
+  if (!note) {
+    note = document.createElement('div');
+    note.className = 'thinking-note';
+    note.dataset.thinking = 'true';
+    note.innerHTML = `<div class="thinking-heading">${icon('spark')}<span></span></div><p></p>`;
+    timeline.insertBefore(note, timeline.querySelector('[data-draft]'));
+    if (timeline.scrollHeight - timeline.scrollTop - timeline.clientHeight < 160)
+      timeline.scrollTop = timeline.scrollHeight;
+  }
+  note.querySelector('span')!.textContent = thought.heading;
+  note.querySelector('p')!.textContent = thought.body;
 }
 let askShown = '';
 /** The question a paused call is waiting on, answered with buttons. */
@@ -621,21 +657,39 @@ setInterval(() => {
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden) updateElapsed();
 });
-window.addEventListener('kinetik-changed', () => {
-  clearTimeout(refreshTimer);
-  refreshTimer = setTimeout(() => void refresh().catch(showError), 30);
-});
+window.addEventListener('kinetik-changed', (event) =>
+  changed((event as CustomEvent<RuntimeEvent | undefined>).detail),
+);
 window.addEventListener('kinetik-native-error', (event) =>
   showError((event as CustomEvent).detail),
 );
 navigator.serviceWorker?.addEventListener('message', (event) => {
-  if (event.data?.type === 'changed') {
-    clearTimeout(refreshTimer);
-    refreshTimer = setTimeout(() => {
-      void refresh().catch(showError);
-    }, 30);
-  }
+  if (event.data?.type === 'changed') changed(event.data.event);
 });
+/** Streamed text and step progress patch the open state; anything else reloads it. */
+function changed(event: RuntimeEvent | undefined) {
+  const c =
+    event && ['text', 'progress', 'reasoning'].includes(event.type)
+      ? state.conversations.find((item) => item.id === event.conversationId)
+      : undefined;
+  if (c && event?.type === 'text' && c.status === 'running') {
+    c.draft = event.text;
+    render();
+    return;
+  }
+  if (c && event?.type === 'progress' && c.status === 'running') {
+    c.live = { step: event.step, tool: event.tool, activity: event.activity };
+    render();
+    return;
+  }
+  if (c && event?.type === 'reasoning' && c.status === 'running') {
+    c.live = { step: c.live?.step ?? 1, reasoning: event.text };
+    render();
+    return;
+  }
+  clearTimeout(refreshTimer);
+  refreshTimer = setTimeout(() => void refresh().catch(showError), 30);
+}
 async function start() {
   const registration = await connect();
   const updatesReady = registration

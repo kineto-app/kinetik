@@ -1,3 +1,4 @@
+import type { RuntimeEvent } from './types';
 import { exportArchive, parseArchive } from './archive';
 import { Runtime } from '../core/runtime';
 import { errorText } from '../core/types';
@@ -25,7 +26,7 @@ export class RuntimeHost {
   constructor(
     readonly store: Store,
     readonly scope: URL,
-    private changed: () => void,
+    private changed: (event?: RuntimeEvent) => void,
     private configuration?: Configuration,
     private chatgpt?: BrowserChatGPT,
   ) {}
