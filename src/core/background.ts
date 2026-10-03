@@ -197,10 +197,10 @@ export class BackgroundProcesses {
               background: true,
               checkpoint: async (operationId) => {
                 job.operationId = operationId;
-                await this.store.update<BackgroundProcess>(key(job.id), (previous) => ({
-                  ...previous!,
-                  operationId,
-                }));
+                await this.store.update<BackgroundProcess | undefined>(
+                  key(job.id),
+                  (previous) => previous && { ...previous, operationId },
+                );
               },
             });
             // A provider that starts asynchronous remote work owns its completion transport.
@@ -270,10 +270,10 @@ export class BackgroundProcesses {
   }
   async cancel(job: BackgroundProcess) {
     if (!['running', 'waiting'].includes(job.state)) return;
-    await this.store.update<BackgroundProcess>(key(job.id), (previous) => ({
-      ...previous!,
-      cancelRequested: true,
-    }));
+    await this.store.update<BackgroundProcess | undefined>(
+      key(job.id),
+      (previous) => previous && { ...previous, cancelRequested: true },
+    );
     this.active.get(job.id)?.controller.abort(new Error('Background job cancelled.'));
     if (!this.active.has(job.id)) {
       try {
