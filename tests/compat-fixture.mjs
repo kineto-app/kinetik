@@ -44,7 +44,9 @@ function reply(res, body) {
           .join('')
   ).split('\n\nAttached files')[0];
   const answered = messages.at(-1)?.role === 'tool';
-  const list = body.tools?.find((t) => t.function.name.startsWith('list_'))?.function.name;
+  const tool = (name) =>
+    body.tools?.find((t) => t.function.name.startsWith(name + '_'))?.function.name;
+  const list = tool('list');
   if (text === 'Too long') {
     res.writeHead(400, { 'Content-Type': 'application/json', ...cors });
     res.end(
@@ -69,6 +71,22 @@ function reply(res, body) {
       chunk({ tool_calls: [{ index: 0, function: { arguments: '"/workspace"}' } }] }),
       chunk({}, { finish_reason: 'tool_calls' }),
       usage(2100),
+    ]);
+  if (text === 'Custom, remember that I like coral' && !answered)
+    return stream(res, [
+      chunk({ role: 'assistant', content: null }),
+      chunk({
+        tool_calls: [
+          {
+            index: 0,
+            id: 'call_2',
+            type: 'function',
+            function: { name: tool('remember'), arguments: '{"text":"Likes coral."}' },
+          },
+        ],
+      }),
+      chunk({}, { finish_reason: 'tool_calls' }),
+      usage(2000),
     ]);
   const answer = answered
     ? 'The custom model looked at your workspace.'
