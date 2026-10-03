@@ -1,3 +1,4 @@
+import { approvalsKey } from '../src/core/approvals';
 import { loadChat, updateChat } from './chat';
 import { expect, test, vi } from 'vitest';
 import { Runtime } from '../src/core/runtime';
@@ -41,6 +42,7 @@ function withPublish(runtime: Runtime, ran: unknown[]) {
 
 test('bug 1: a tool that needs approval cannot be started as a background job', async () => {
   const store = new Store(crypto.randomUUID());
+  await store.put(approvalsKey, true);
   const ran: unknown[] = [];
   const { model, seen } = scripted([
     () => ({
@@ -63,6 +65,7 @@ test('bug 1: a tool that needs approval cannot be started as a background job', 
 
 test('bug 1: a widget cannot call a tool that needs approval without the user approving', async () => {
   const store = new Store(crypto.randomUUID());
+  await store.put(approvalsKey, true);
   const runtime = new Runtime(store);
   const c = await runtime.create();
   const installed = {

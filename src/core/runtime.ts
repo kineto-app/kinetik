@@ -23,6 +23,7 @@ import { conversationKeys, sweepDaily } from './cleanup';
 import { recoverWork, waitForConnection } from './recovery';
 import { cutOff, endTurn, withCall, withTurn } from './turn';
 import { traced } from './trace';
+import { approvalsOn } from './approvals';
 import { partialKey } from './cleanup';
 import { buildInstructions, builtinSkill, modelVisible, toolDefinitions } from './prompt';
 import { createFilesystem } from '../browser/filesystem';
@@ -630,7 +631,9 @@ export class Runtime {
       };
     if (!resumed) await this.journal(turn, output, binding);
     const ask =
-      resumed?.state === 'approved' ? undefined : this.askFor(output.name, output.input, binding);
+      resumed?.state === 'approved'
+        ? undefined
+        : this.askFor(output.name, output.input, binding, await approvalsOn(this.store));
     if (ask) {
       // The turn pauses here; answer() resumes it. Nothing has run, so a restart is safe.
       await this.chats.update(id, (value) => ({
@@ -823,13 +826,19 @@ export class Runtime {
     }
   }
   /** The question a call needs answered before it may run, if any. */
-  private askFor(name: string, input: Record<string, unknown>, binding: Binding): Ask | undefined {
+  private askFor(
+    name: string,
+    input: Record<string, unknown>,
+    binding: Binding,
+    approvals: boolean,
+  ): Ask | undefined {
     if (binding.provider === 'local' && name === 'ask')
       return {
         kind: 'choice',
         question: String(input.question),
         options: (input.options as unknown[]).map(String),
       };
+    if (!approvals) return;
     if (binding.provider === 'local' && name === 'remember')
       return { kind: 'memory', question: 'Save this to your memory?', text: String(input.text) };
     if (needsApproval(binding.tool, input))

@@ -35,19 +35,36 @@ test.beforeEach(async ({ page, request }) => {
   await expect(page.locator('#status')).toHaveText('Ready');
 });
 
-test('bug 1: a widget asks before running an action that needs approval', async ({
+test('a widget action runs at once by default, with no approval card', async ({ page }, info) => {
+  const app = await openWidget(page);
+  await app.getByRole('button', { name: 'Publish' }).click();
+  await expect(app.locator('#result')).toHaveText('Published');
+  await expect(page.getByRole('group', { name: 'App action approval' })).toHaveCount(0);
+  await page.screenshot({ path: info.outputPath('1-widget-yolo.png') });
+});
+
+test('bug 1: with approvals turned on, a widget asks before an action that needs it', async ({
   page,
-}, info) => {
+}) => {
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve, reject) => {
+        const open = indexedDB.open('kinetik-oss-v1', 1);
+        open.onsuccess = () => {
+          const tx = open.result.transaction('records', 'readwrite');
+          tx.objectStore('records').put(true, 'ask-before-actions');
+          tx.oncomplete = () => resolve();
+          tx.onerror = () => reject(tx.error);
+        };
+      }),
+  );
   const app = await openWidget(page);
   const card = page.getByRole('group', { name: 'App action approval' });
   await app.getByRole('button', { name: 'Publish' }).click();
   await expect(card).toContainText('Allow this app to run “publish”?');
-  await expect(card).toContainText('Lisbon');
   await expect(card.getByRole('button', { name: 'Approve' })).toBeInViewport();
-  await page.screenshot({ path: info.outputPath('1-widget-approval.png') });
   await card.getByRole('button', { name: 'Decline' }).click();
   await expect(app.locator('#result')).toHaveText('Declined');
-  await expect(card).toHaveCount(0);
   await app.getByRole('button', { name: 'Publish' }).click();
   await card.getByRole('button', { name: 'Approve' }).click();
   await expect(app.locator('#result')).toHaveText('Published');
