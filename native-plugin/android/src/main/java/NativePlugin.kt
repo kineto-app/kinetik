@@ -90,6 +90,42 @@ class NativePlugin(private val activity: Activity): Plugin(activity) {
             invoke.resolve(JSObject().put("value", info.toString()))
         } catch (e: Exception) { invoke.reject("Could not read the selected file.") }
     }
+    /** A finished-work alert while the app is in the background. key = title, value = text. */
+    @Command
+    fun notify(invoke: Invoke) {
+        try {
+            val args = invoke.parseArgs(NativeArgs::class.java)
+            // active = true only asks for permission, from the Settings switch.
+            if (args.active == true) {
+                if (android.os.Build.VERSION.SDK_INT >= 33 &&
+                    ContextCompat.checkSelfPermission(activity, android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED)
+                    requestPermissionForAlias("notifications", invoke, "notifyPermission")
+                else invoke.resolve(JSObject().put("value", "granted"))
+                return
+            }
+            val title = requireNotNull(args.key).take(80)
+            val text = requireNotNull(args.value).take(240)
+            if (android.os.Build.VERSION.SDK_INT >= 33 &&
+                ContextCompat.checkSelfPermission(activity, android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                invoke.resolve(JSObject().put("value", "denied"))
+                return
+            }
+            val manager = activity.getSystemService(android.app.NotificationManager::class.java)
+            if (android.os.Build.VERSION.SDK_INT >= 26)
+                manager.createNotificationChannel(android.app.NotificationChannel(
+                    "kinetik-results", "Finished work", android.app.NotificationManager.IMPORTANCE_DEFAULT))
+            val launch = activity.packageManager.getLaunchIntentForPackage(activity.packageName)
+            val open = android.app.PendingIntent.getActivity(activity, 2, launch,
+                android.app.PendingIntent.FLAG_IMMUTABLE or android.app.PendingIntent.FLAG_UPDATE_CURRENT)
+            val notification = androidx.core.app.NotificationCompat.Builder(activity, "kinetik-results")
+                .setSmallIcon(android.R.drawable.ic_dialog_info)
+                .setContentTitle(title).setContentText(text)
+                .setStyle(androidx.core.app.NotificationCompat.BigTextStyle().bigText(text))
+                .setContentIntent(open).setAutoCancel(true).build()
+            manager.notify(48, notification)
+            invoke.resolve(JSObject().put("value", "shown"))
+        } catch (e: Exception) { invoke.reject("Could not show the notification.") }
+    }
     @Command
     fun background(invoke: Invoke) {
         val active = invoke.parseArgs(NativeArgs::class.java).active == true
@@ -102,6 +138,12 @@ class NativePlugin(private val activity: Activity): Plugin(activity) {
             return
         }
         startBackground(invoke)
+    }
+    @PermissionCallback
+    fun notifyPermission(invoke: Invoke) {
+        val granted = android.os.Build.VERSION.SDK_INT < 33 ||
+            ContextCompat.checkSelfPermission(activity, android.Manifest.permission.POST_NOTIFICATIONS) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        invoke.resolve(JSObject().put("value", if (granted) "granted" else "denied"))
     }
     @PermissionCallback
     fun backgroundPermission(invoke: Invoke) {

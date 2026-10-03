@@ -187,6 +187,7 @@ export class McpClient {
             ui?: { resourceUri?: string; visibility?: ('model' | 'app')[] };
             'ui/resourceUri'?: string;
           };
+          annotations?: { destructiveHint?: boolean };
         }[];
         nextCursor?: string;
       };
@@ -196,6 +197,8 @@ export class McpClient {
         tools[tool.name] = {
           description: tool.description ?? tool.name,
           visibility: tool._meta?.ui?.visibility,
+          // A server's hint only adds a confirmation, so trusting it cannot weaken safety.
+          approval: tool.annotations?.destructiveHint === true,
           app:
             (tool._meta?.ui?.resourceUri ?? tool._meta?.['ui/resourceUri'])
               ? {

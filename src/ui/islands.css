@@ -623,3 +623,62 @@ dialog::backdrop,
   width: 13px;
   height: 13px;
 }
+
+/* A message queued to run after the current work. */
+.message[data-queued] > .message-content {
+  opacity: 0.7;
+}
+.message[data-queued]::after {
+  content: 'Queued · runs after the current work';
+  display: block;
+  text-align: right;
+  margin: var(--space-inline) var(--space-inline) 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+.message[data-queued] > .message-time {
+  display: none;
+}
+
+/* A paused call waiting for the user: approve, choose, or confirm a memory edit. */
+.ask-card {
+  margin: 0 0 var(--space-inline);
+  padding: var(--space-content) var(--space-section);
+  border: 1px solid var(--control-line);
+  border-radius: var(--radius);
+  background: var(--glass-panel);
+  box-shadow: var(--chat-shadow);
+}
+.ask-card[hidden] {
+  display: none;
+}
+.ask-question {
+  margin: 0 0 var(--space-inline);
+  font-size: 15px;
+  font-weight: 600;
+}
+.ask-details .json-view {
+  max-height: 160px;
+  margin-bottom: var(--space-inline);
+}
+.ask-memory {
+  margin: 0 0 var(--space-inline);
+  padding: var(--space-inline) var(--space-content);
+  border-radius: var(--radius-inner);
+  background: var(--hover);
+  white-space: pre-wrap;
+  font-size: 13px;
+}
+.ask-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-inline);
+}
+.ask-actions.ask-options {
+  flex-wrap: wrap;
+  justify-content: flex-start;
+}
+.ask-actions button {
+  min-height: var(--target);
+  padding-inline: var(--space-section);
+}

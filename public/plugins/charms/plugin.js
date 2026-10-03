@@ -43,6 +43,9 @@ return (async () => {
   const tools = Object.fromEntries(Object.entries(remote).map(([name, tool]) => [name, { ...tool, timeoutMs: 60000 }]));
   delete tools.charms_skill_find;
   delete tools.charms_skill_load;
+  // Charms marks every sandbox command and file change destructive. In the user's own sandbox
+  // only deleting a file cannot be undone, so only that asks first.
+  for (const [name, tool] of Object.entries(tools)) tools[name] = { ...tool, approval: name === 'charms_files_delete' };
   const exec = tools.charms_exec;
   tools.charms_exec = {
     ...exec,

@@ -37,6 +37,8 @@
   --tile-chatgpt: rgb(14, 135, 105);
   --tile-charms: rgb(196, 64, 146);
   --tile-plugin: rgb(119, 101, 226);
+  --tile-memory: rgb(176, 96, 34);
+  --tile-notify: rgb(196, 60, 60);
   --frame-fill: light-dark(var(--panel), transparent);
   --group-fill: light-dark(transparent, color-mix(in srgb, var(--ground) 97%, var(--accent)));
   --sidebar-fill: color-mix(in srgb, var(--ground) 97%, var(--accent));

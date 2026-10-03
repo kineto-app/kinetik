@@ -77,6 +77,12 @@ const server = createServer(async (req, res) => {
             _meta: { ui: { visibility: ['app'] } },
           },
           {
+            name: 'publish',
+            description: 'Publish a post',
+            inputSchema: { type: 'object', properties: { title: { type: 'string' } } },
+            annotations: { destructiveHint: true },
+          },
+          {
             name: 'placeholder-token',
             description: 'Model only',
             inputSchema: { type: 'object' },

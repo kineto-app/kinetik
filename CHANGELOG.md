@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Send attached photos to the model as images. Queue a message to run after the current work. Let the agent ask a question with answer buttons, ask for approval before an MCP action marked destructive, and propose memory you confirm; memory is editable in Settings and read by every chat. Notify on finished work or a question while the app is in the background (web and Android).
+
 - Show token usage per reply; summarise earlier messages automatically near the context limit, on `/compact`, and once after a context overflow. Return errors from calls that changed nothing to the agent instead of stopping. Raise the step limit to 60 with a guard against repeated identical calls.
 
 - Rebuild Settings as an inset grouped list: a ChatGPT account row on top, Appearance as an in-row Light / Dark / Auto switch, and Export / Import in the data row. Connections become a page inside Settings with one page per service (status, version, Update, Turn on or off, Disconnect, Advanced) and an Add a connection page, replacing the separate connections dialog and the Manage / Disconnect buttons. The sidebar Connections button opens that page once setup is complete instead of the guided setup's last step.

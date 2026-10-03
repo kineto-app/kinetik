@@ -35,6 +35,8 @@ export interface Message {
   /** Marks the notice that replaced earlier model input with a summary. */
   compaction?: { items: number; tokens: number };
   attachments?: Attachment[];
+  /** Queued to run after the current work instead of steering it; cleared once it starts. */
+  queue?: 'after';
   visibility?: 'internal';
   source?: 'background';
   tool?: string;
@@ -49,13 +51,29 @@ export interface Message {
   app?: AppView;
   file?: { path: string; name: string; snapshotId?: string };
 }
-export type RunStatus = 'idle' | 'running' | 'stopped' | 'needs_review' | 'queued' | 'waiting';
+export type Ask =
+  | { kind: 'approval'; question: string }
+  | { kind: 'choice'; question: string; options: string[] }
+  | { kind: 'memory'; question: string; text: string };
+export type RunStatus =
+  | 'idle'
+  | 'running'
+  | 'stopped'
+  | 'needs_review'
+  | 'queued'
+  | 'waiting'
+  /** Paused on a question to the user: an approval, a choice, or a memory edit. */
+  | 'asking';
 export interface ToolCall {
   id: string;
   name: string;
   input: Record<string, unknown>;
   provider: string;
-  state: 'pending' | 'completed' | 'unknown';
+  state: 'pending' | 'completed' | 'unknown' | 'awaiting';
+  /** What the user is asked while the call waits; set only in the awaiting state. */
+  ask?: Ask;
+  /** The user approved this call; it may now run. */
+  approved?: boolean;
   result?: string;
   operationId?: string;
   callId?: string;
@@ -114,6 +132,8 @@ export interface ToolDefinition {
   /** Foreground request budget, clamped to 1–60 seconds. Defaults to 30 seconds. */
   timeoutMs?: number;
   visibility?: ('model' | 'app')[];
+  /** Ask the user before running: for actions that publish, send, pay or delete. */
+  approval?: boolean | ((input: Record<string, unknown>) => boolean);
   app?: {
     resource(signal: AbortSignal): Promise<AppResource>;
     call(name: string, input: Record<string, unknown>, signal: AbortSignal): Promise<unknown>;

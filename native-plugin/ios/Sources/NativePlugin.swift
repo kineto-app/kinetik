@@ -121,6 +121,10 @@ class NativePlugin: Plugin, ASWebAuthenticationPresentationContextProviding {
         // iOS uses durable resume-on-return; it does not pretend to run indefinitely.
         invoke.resolve([:])
     }
+    @objc public func notify(_ invoke: Invoke) throws {
+        // Not yet on iOS: resume-on-return shows the result when the app is opened.
+        invoke.resolve(["value": "unsupported"])
+    }
 }
 @_cdecl("init_plugin_native")
 func initPlugin() -> Plugin { NativePlugin() }

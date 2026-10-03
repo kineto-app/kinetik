@@ -7,7 +7,14 @@ export const compactPrompt =
   'Summarise the conversation so far for your own future reference. Keep the user’s goals and preferences, decisions, facts and names, file paths and URLs, what was done and what remains. Write plain notes, at most 400 words. Do not call tools.';
 
 /** Rough size for requests that report no usage; JSON overstates encrypted blobs, which is safe. */
-export const estimateTokens = (input: unknown) => Math.ceil(JSON.stringify(input ?? []).length / 4);
+export const estimateTokens = (input: unknown) =>
+  Math.ceil(
+    // An image costs roughly a thousand tokens, not its base64 length.
+    JSON.stringify(input ?? []).replace(
+      /data:image\/[a-z]+;base64,[A-Za-z0-9+/=]+/g,
+      'x'.repeat(4000),
+    ).length / 4,
+  );
 
 /**
  * Where the kept tail starts: the latest user item, so the current request and every call
