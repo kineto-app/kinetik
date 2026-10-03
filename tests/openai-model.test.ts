@@ -1,5 +1,5 @@
 import { expect, test, vi } from 'vitest';
-import { OpenAIModel, readResponse } from '../src/models/openai';
+import { httpTransport, OpenAIModel, readResponse } from '../src/models/openai';
 const event = (value: unknown) => 'data: ' + JSON.stringify(value) + '\n\n';
 test('a usage failure after streamed text is a failed request', async () => {
   const onText = vi.fn();
@@ -51,10 +51,10 @@ test('model request uses subscription route requirements and maps namespaced too
     );
   });
   try {
-    const model = new OpenAIModel('https://local.test/api/responses', async () => ({
-      account: 'account',
-      model: 'available-model',
-    }));
+    const model = new OpenAIModel(
+      async () => ({ account: 'account', model: 'available-model' }),
+      httpTransport('https://local.test/api/responses'),
+    );
     const result = await model.next(
       {
         message: 'read note',
