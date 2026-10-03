@@ -1,5 +1,8 @@
 /** A write resolves on commit, never just on request success. Updaters are synchronous. */
-export class Store {
+import type { Store as StorePort } from '../core/ports';
+
+/** The app's Store: one IndexedDB object store. */
+export class Store implements StorePort {
   private database?: Promise<IDBDatabase>;
   constructor(private name = 'kinetik-oss-v1') {}
   private open(): Promise<IDBDatabase> {

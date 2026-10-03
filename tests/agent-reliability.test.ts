@@ -1,3 +1,4 @@
+import { loadChat } from './chat';
 import { expect, test } from 'vitest';
 import { Runtime } from '../src/core/runtime';
 import { Store } from '../src/browser/store';
@@ -6,10 +7,9 @@ import { ContextOverflow } from '../src/core/connection-error';
 import { compactPrompt, summaryPrefix } from '../src/core/compaction';
 import { readResponse } from '../src/models/openai';
 import { latestImages } from '../src/models/model-http';
-import type { Conversation, Model, ModelRequest, ModelStep } from '../src/core/types';
+import type { Model, ModelRequest, ModelStep } from '../src/core/types';
 
-const read = async (store: Store, id: string) =>
-  (await store.get<Conversation>('conversation:' + id))!;
+const read = async (store: Store, id: string) => (await loadChat(store, id))!;
 const sse = (...events: unknown[]) =>
   new Response(events.map((event) => 'data: ' + JSON.stringify(event) + '\n\n').join(''));
 

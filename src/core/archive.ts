@@ -1,6 +1,7 @@
 import Ajv from 'ajv';
+import { ConversationStore } from './conversation-store';
 import { recentTrace, type TraceEntry } from './trace';
-import { Store } from '../browser/store';
+import type { Store } from './ports';
 import { createFilesystem } from '../browser/filesystem';
 import { modelMessageText, type Conversation, type InstalledPlugin } from './types';
 import type { Automation } from './automation';
@@ -34,6 +35,7 @@ const schema = new Ajv({ strict: false }).compile({
                 text: { type: 'string', maxLength: 2000000 },
                 createdAt: { type: 'number' },
                 durationMs: { type: 'number', minimum: 0 },
+                aborted: { const: true },
                 attachments: {
                   type: 'array',
                   maxItems: 10,
@@ -204,6 +206,7 @@ function conversation(value: Conversation): Conversation {
           }
         : {}),
       ...(typeof m.durationMs === 'number' ? { durationMs: m.durationMs } : {}),
+      ...(m.aborted ? { aborted: true } : {}),
       ...(m.visibility === 'internal' ? { visibility: 'internal' as const } : {}),
       ...(m.source === 'background' ? { source: 'background' as const } : {}),
       ...(typeof m.tool === 'string' ? { tool: m.tool } : {}),
@@ -277,6 +280,7 @@ function automation(value: Automation): Automation {
   };
 }
 export async function exportArchive(store: Store): Promise<string> {
+  const reader = new ConversationStore(store, () => {});
   const filesystem = await store.get<{ entries: FileEntry[] }>('filesystem');
   const sharedFiles = Object.fromEntries(
     (await store.entries<Uint8Array>('shared-file:')).map(([key, bytes]) => [
@@ -288,8 +292,10 @@ export async function exportArchive(store: Store): Promise<string> {
     sharedFiles,
     format: 'kinetik-workspace',
     version: 1,
-    conversations: (await store.entries<Conversation>('conversation:')).map(([, c]) =>
-      conversation(c),
+    conversations: await Promise.all(
+      (await store.entries<Conversation>('conversation:')).map(async ([, c]) =>
+        conversation((await reader.load(c.id)) ?? c),
+      ),
     ),
     filesystem: {
       entries: (

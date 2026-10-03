@@ -1,5 +1,5 @@
 import { InMemoryFs, type IFileSystem } from 'just-bash/browser';
-import { Store } from './store';
+import type { Store } from '../core/ports';
 
 type Entry = {
   path: string;

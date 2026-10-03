@@ -1,4 +1,11 @@
-import type { Conversation, RunStatus, ToolCall, Turn } from './types';
+import {
+  message,
+  type Conversation,
+  type Message,
+  type RunStatus,
+  type ToolCall,
+  type Turn,
+} from './types';
 
 /** Clears what belongs to one turn. Pinned plugins stay until the chat goes idle. */
 export const endTurn = (c: Conversation, status: RunStatus): Conversation => ({
@@ -22,3 +29,10 @@ export const withCall = (c: Conversation, change: Partial<ToolCall> | undefined)
 /** A call that has not produced its outcome yet. */
 export const openCall = (call: ToolCall | undefined) =>
   call && ['proposed', 'approved', 'started'].includes(call.state) ? call : undefined;
+
+/** An answer that stopped before it finished, kept for the user and left out of the model input. */
+export const cutOff = (c: Conversation, text: string): Message => ({
+  ...message('assistant', text),
+  aborted: true,
+  visibility: c.turn?.kind === 'background' ? 'internal' : undefined,
+});

@@ -1,4 +1,4 @@
-import type { Store } from '../browser/store';
+import type { Store } from './ports';
 import type { createFilesystem } from '../browser/filesystem';
 import { digest, type Plugins } from '../plugins/loader';
 import { abortable } from './abortable';

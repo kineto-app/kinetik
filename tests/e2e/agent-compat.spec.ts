@@ -96,3 +96,18 @@ test('a wrong key opens the custom model settings, and a fixed key continues the
   await page.getByRole('button', { name: 'Close settings' }).click();
   await expect(replies(page).last()).toContainText('Hello from the custom model.');
 });
+
+test('Stop keeps the answer written so far, marked as cut off', async ({ page, request }, info) => {
+  await open(page, request);
+  await setUp(page, Boolean(info.project.use.isMobile), 'placeholder-compat-key');
+  await page.getByRole('button', { name: 'Close settings' }).click();
+  await pick(page, 'fixture-model');
+  await send(page, 'Custom, tell me a long story');
+  await expect(page.locator('[data-draft]')).toContainText('Lisbon a tram');
+  await page.getByRole('button', { name: 'Stop', exact: true }).click();
+  const kept = page.locator('[data-role=assistant][data-aborted]');
+  await expect(kept).toContainText('Once upon a time in Lisbon');
+  await expect(kept).not.toContainText('another bright morning');
+  await kept.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: info.outputPath('cut-off.png') });
+});

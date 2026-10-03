@@ -1,4 +1,4 @@
-import type { Store } from '../browser/store';
+import type { Store } from './ports';
 
 /** One model request or tool call, kept on this device to explain what a turn did. */
 export type TraceEntry = {

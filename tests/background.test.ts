@@ -1,3 +1,4 @@
+import { loadChat, updateChat } from './chat';
 import { expect, test, vi } from 'vitest';
 import { Store } from '../src/browser/store';
 import { Runtime } from '../src/core/runtime';
@@ -5,8 +6,7 @@ import { MockModel } from '../src/models/mock';
 import { BackgroundProcesses, type BackgroundProcess } from '../src/core/background';
 import type { Conversation, InstalledPlugin, ModelRequest } from '../src/core/types';
 
-const read = async (store: Store, id: string) =>
-  (await store.get<Conversation>('conversation:' + id))!;
+const read = async (store: Store, id: string) => (await loadChat(store, id))!;
 const completion = (c: Conversation) => c.messages.filter((m) => m.source === 'background').at(-1);
 const plugin = (code: string): InstalledPlugin => ({
   manifest: { id: 'remote', name: 'Remote', version: '1', apiVersion: 1, entry: 'plugin.js' },
@@ -144,7 +144,7 @@ test('a crash before the start receipt is saved recovers the existing job and de
   const { c, job } = await seed(store, runtime, 'completed');
   await store.put('background:job', { ...job, result: 'already done' });
   await runtime.submit(c.id, '/bg echo duplicate');
-  await store.update<Conversation>('conversation:' + c.id, (value) => ({
+  await updateChat(store, c.id, (value) => ({
     ...value!,
     pending: [],
     turn: {
@@ -510,7 +510,7 @@ test('opening an older chat repairs the known pre-dispatch background rejection'
   });
   const c = await runtime.create();
   await runtime.submit(c.id, 'Create slides');
-  await store.update<Conversation>('conversation:' + c.id, (value) => ({
+  await updateChat(store, c.id, (value) => ({
     ...value!,
     status: 'needs_review',
     activeMessage: value!.pending[0],

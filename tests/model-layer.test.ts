@@ -1,3 +1,4 @@
+import { loadChat } from './chat';
 import { expect, test } from 'vitest';
 import { Runtime } from '../src/core/runtime';
 import { Store } from '../src/browser/store';
@@ -10,7 +11,7 @@ import {
 import { OpenAIModel, readResponse } from '../src/models/openai';
 import { CompatModel } from '../src/models/compat';
 import { modelInput } from './model-input';
-import type { Conversation, Model, ModelRequest } from '../src/core/types';
+import type { Model, ModelRequest } from '../src/core/types';
 
 const sse = (...events: unknown[]) =>
   new Response(events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join(''));
@@ -144,7 +145,7 @@ test('a malformed reply right after a provider compaction keeps the compaction',
   await runtime.run(c.id);
   await runtime.submit(c.id, 'Two');
   await runtime.run(c.id);
-  const saved = (await store.get<Conversation>('conversation:' + c.id))!;
+  const saved = (await loadChat(store, c.id))!;
   expect(saved.messages.at(-1)?.text).toBe('Invalid tool arguments.');
   expect((await modelInput(store, c.id))!.some((item) => item.type === 'compaction')).toBe(true);
   expect(await store.get('no-server-compact:chatgpt:')).toBeUndefined();

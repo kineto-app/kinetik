@@ -1,4 +1,4 @@
-import type { Store } from '../browser/store';
+import type { Store } from './ports';
 import type { createFilesystem } from '../browser/filesystem';
 import type { Plugins } from '../plugins/loader';
 import { localTools } from './tools';

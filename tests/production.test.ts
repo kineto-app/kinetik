@@ -1,3 +1,4 @@
+import { loadChat } from './chat';
 import { expect, test } from 'vitest';
 import { Runtime } from '../src/core/runtime';
 import { Store } from '../src/browser/store';
@@ -11,7 +12,7 @@ import type { Conversation } from '../src/core/types';
 test('a chat whose saved history lost a part says so instead of retrying forever', async () => {
   const store = new Store(crypto.randomUUID());
   const c = await new Runtime(store).create();
-  await store.update<Conversation>('conversation:' + c.id, (value) => ({
+  await store.update<Record<string, unknown>>('conversation:' + c.id, (value) => ({
     ...value!,
     input: { generation: 'g', segments: 2 },
   }));
@@ -32,7 +33,7 @@ test('a send retried with the same id is saved once, attachments included', asyn
   );
   await runtime.submit(c.id, 'Look', 'send-0001', [photo.id]);
   await runtime.submit(c.id, 'Look', 'send-0001', [photo.id]);
-  const saved = (await store.get<Conversation>('conversation:' + c.id))!;
+  const saved = (await loadChat(store, c.id))!;
   expect(saved.messages.filter((m) => m.role === 'user')).toHaveLength(1);
   expect(saved.pending).toEqual(['send-0001']);
 });

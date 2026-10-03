@@ -88,6 +88,19 @@ function reply(res, body) {
       chunk({}, { finish_reason: 'tool_calls' }),
       usage(2000),
     ]);
+  if (text === 'Custom, tell me a long story')
+    return stream(
+      res,
+      [
+        chunk({ role: 'assistant', content: '' }),
+        ...words(
+          'Once upon a time in Lisbon a tram climbed the hill past the old castle while the river shone below and the bakeries opened their doors to the smell of custard tarts and coffee drifting through the narrow streets of Alfama as the city slowly woke up to another bright morning',
+        ).map((w) => chunk({ content: w })),
+        chunk({}, { finish_reason: 'stop' }),
+        usage(1800),
+      ],
+      250,
+    );
   const answer = answered
     ? 'The custom model looked at your workspace.'
     : 'Hello from the custom model. How can I help with your carousel?';

@@ -127,7 +127,7 @@ export class RuntimeHost {
         case 'archiveExport':
         case 'archiveImport': {
           const busy =
-            (await runtime.conversations()).some((c) =>
+            (await runtime.conversations(() => false)).some((c) =>
               ['running', 'queued', 'waiting'].includes(c.status),
             ) ||
             (await store.entries<BackgroundProcess>('background:')).some(([, job]) =>
@@ -224,12 +224,16 @@ export class RuntimeHost {
                 startedAt,
               })),
             // A window names the chat it shows; the others come without their messages.
-            conversations: (await runtime.conversations()).map((c) => ({
+            conversations: (
+              await runtime.conversations(
+                (id) => data.conversation === undefined || id === data.conversation,
+              )
+            ).map((c) => ({
               ...c,
               plugins: undefined,
               ...(data.conversation === undefined || c.id === data.conversation
                 ? {}
-                : { messages: [], attachments: undefined, draft: undefined }),
+                : { attachments: undefined, draft: undefined }),
             })),
             plugins: (await runtime.plugins.list()).map((p) => ({
               manifest: p.manifest,
@@ -392,7 +396,7 @@ export class RuntimeHost {
         await runtime.automations.tick();
       if (data.op === 'state' || data.op === 'resume')
         await Promise.all(
-          (await runtime.conversations())
+          (await runtime.conversations(() => false))
             .filter((c) => c.status === 'queued' || c.status === 'running')
             .map((c) => runtime.run(c.id)),
         );

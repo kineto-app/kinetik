@@ -1,5 +1,7 @@
 import { test, expect } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
+import { rpc } from './rpc';
+import type { Conversation } from '../../src/core/types';
 
 const reply =
   '# A weekend plan\n\nStart with **one small thing**.\n\n- Pack a bag\n- Book a train\n\n[Details](https://example.org)\n\n```text\nhello world\n```\n\n| Day | Plan |\n| --- | --- |\n| Saturday | Explore |\n\n<script>window.untrusted = true</script>\n\n[Unsafe](javascript:alert(1))';
@@ -161,7 +163,9 @@ test('returning online resumes a persisted reply without rerunning its tool', as
   await expect(page.locator('#status')).toHaveText('Ready');
   await send(page, '/exec echo original');
   await expect(page.locator('[data-role=assistant]')).toHaveText(/original/);
-  await page.evaluate(async () => {
+  const state = await rpc<{ conversations: Conversation[] }>(page, 'state');
+  const userMessage = state.conversations[0].messages.find((m) => m.role === 'user')!.id;
+  await page.evaluate(async (userMessage) => {
     const db = await new Promise<IDBDatabase>((resolve, reject) => {
       const request = indexedDB.open('kinetik-oss-v1', 1);
       request.onsuccess = () => resolve(request.result);
@@ -179,7 +183,7 @@ test('returning online resumes a persisted reply without rerunning its tool', as
           c.status = 'waiting';
           c.waitingFor = 'connection';
           c.turn = {
-            message: c.messages.find((m: { role: string }) => m.role === 'user').id,
+            message: userMessage,
             call: {
               id: 'completed',
               name: 'exec',
@@ -198,7 +202,7 @@ test('returning online resumes a persisted reply without rerunning its tool', as
     });
     db.close();
     window.dispatchEvent(new Event('online'));
-  });
+  }, userMessage);
   await expect(page.locator('[data-role=assistant]').last()).toContainText(
     'Recovered saved result',
   );

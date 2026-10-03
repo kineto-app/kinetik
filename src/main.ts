@@ -1,6 +1,5 @@
 import { MessageBubble } from './ui/message';
 import { makePreview, trayItem } from './ui/attachments';
-import { jsonView } from './ui/json-view';
 import { ModelPicker } from './ui/model-picker';
 import { setupDataTransfer } from './ui/data-transfer';
 import { createSignal } from 'solid-js';
@@ -37,6 +36,10 @@ import {
   refreshSettingsData,
 } from './ui/settings';
 import type { SetupState } from './connections/manager';
+import { byId } from './ui/dom';
+import { renderAsk } from './ui/ask-panel';
+import { latestThought, renderThought } from './ui/thought';
+import { closeDrawer, setupDrawer } from './ui/drawer';
 
 type State = {
   background: {
@@ -53,7 +56,6 @@ type State = {
 const root = document.querySelector<HTMLDivElement>('#app')!;
 renderSolid(Shell, root);
 setupViewport();
-const byId = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 let state: State = { conversations: [], plugins: [], automations: [], background: [] };
 let connectionState: SetupState | undefined;
 const [modelState, setModelState] = createSignal({ chatgpt: false, hostChatgpt: false, model: '' });
@@ -238,7 +240,7 @@ function render() {
   renderThought(thought);
   updateElapsed();
   byId('recovery').hidden = c?.status !== 'needs_review';
-  renderAsk(c);
+  renderAsk(c, (id, value) => rpc('answer', { id, value }).then(refresh).catch(showError));
   const serialized = JSON.stringify([selected, c?.messages, c?.draft, c?.turn?.call, c?.status]);
   if (serialized !== lastMessages) {
     const forceScroll = !lastMessages || followNextMessage;
@@ -309,6 +311,7 @@ function render() {
       article.dataset.messageId = item.id;
       article.toggleAttribute('data-queued', Boolean(item.queue));
       article.toggleAttribute('data-unsent', Boolean(item.unsent));
+      article.toggleAttribute('data-aborted', Boolean(item.aborted));
       timeline.insertBefore(article, timeline.querySelector('[data-draft]'));
       disposeContent.push(
         renderSolid(
@@ -355,82 +358,6 @@ async function refresh() {
   state = next;
   uiStorage.setItem('kinetik-conversation', selected);
   render();
-}
-/** The newest part of a reasoning summary: its bold heading and the text after it. */
-function latestThought(text: string) {
-  const headings = [...text.matchAll(/\*\*(.+?)\*\*/g)];
-  const last = headings.at(-1);
-  const body = (last ? text.slice(last.index! + last[0].length) : text).trim();
-  return {
-    heading: last?.[1].trim() || 'Thinking',
-    body: body.length > 280 ? '…' + body.slice(-280).replace(/^\S*\s/, '') : body,
-  };
-}
-function renderThought(thought: { heading: string; body: string } | undefined) {
-  const timeline = byId('timeline');
-  let note = timeline.querySelector<HTMLElement>('[data-thinking]');
-  if (!thought) return note?.remove();
-  if (!note) {
-    note = document.createElement('div');
-    note.className = 'thinking-note';
-    note.dataset.thinking = 'true';
-    note.innerHTML = `<div class="thinking-heading">${icon('spark')}<span></span></div><p></p>`;
-    timeline.insertBefore(note, timeline.querySelector('[data-draft]'));
-    if (timeline.scrollHeight - timeline.scrollTop - timeline.clientHeight < 160)
-      timeline.scrollTop = timeline.scrollHeight;
-  }
-  note.querySelector('span')!.textContent = thought.heading;
-  note.querySelector('p')!.textContent = thought.body;
-}
-let askShown = '';
-/** The question a paused call is waiting on, answered with buttons. */
-function renderAsk(c: Conversation | undefined) {
-  const panel = byId('ask');
-  const call = c?.turn?.call;
-  const ask = c?.status === 'asking' && call?.state === 'awaiting' ? call.ask : undefined;
-  const signature = ask ? c!.id + call!.id : '';
-  panel.hidden = !ask;
-  if (signature === askShown) return;
-  askShown = signature;
-  if (!ask) return panel.replaceChildren();
-  const conversationId = c!.id;
-  const button = (label: string, value: string, primary = false) => {
-    const node = document.createElement('button');
-    node.type = 'button';
-    node.className = primary ? 'primary' : 'secondary';
-    node.textContent = label;
-    node.onclick = () => {
-      for (const other of panel.querySelectorAll('button')) other.disabled = true;
-      void rpc('answer', { id: conversationId, value }).then(refresh).catch(showError);
-    };
-    return node;
-  };
-  const title = document.createElement('p');
-  title.className = 'ask-question';
-  title.textContent = ask.question;
-  const actions = document.createElement('div');
-  actions.className = 'ask-actions';
-  const parts: Node[] = [title];
-  if (ask.kind === 'approval') {
-    const details = document.createElement('div');
-    details.className = 'ask-details';
-    details.append(jsonView(call!.input));
-    parts.push(details);
-    actions.append(button('Decline', 'decline'), button('Approve', 'approve', true));
-  } else if (ask.kind === 'choice') {
-    actions.classList.add('ask-options');
-    actions.append(...ask.options.map((option) => button(option, option)));
-  } else {
-    const text = document.createElement('p');
-    text.className = 'ask-memory';
-    text.textContent = ask.text;
-    parts.push(text);
-    actions.append(button('Not now', 'dismiss'), button('Save to memory', 'save', true));
-  }
-  panel.replaceChildren(...parts, actions);
-  panel
-    .querySelector<HTMLElement>('.ask-actions button:last-child')
-    ?.focus({ preventScroll: true });
 }
 let submitting = false;
 let pickingFile = false;
@@ -491,51 +418,7 @@ function updateComposer() {
   byId('composer').classList.toggle('expanded', hasAttachments || input.scrollHeight > 48);
 }
 byId('prompt').addEventListener('input', updateComposer);
-const narrow = matchMedia('(max-width: 700px)');
-function closeDrawer(restoreFocus = true) {
-  const wasOpen = byId('sidebar').classList.contains('open');
-  byId('sidebar').classList.remove('open');
-  byId('sidebar').removeAttribute('role');
-  byId('sidebar').removeAttribute('aria-modal');
-  byId('sidebar').inert = narrow.matches;
-  byId('main').inert = false;
-  byId('drawer-scrim').hidden = true;
-  byId('menu').setAttribute('aria-expanded', 'false');
-  if (wasOpen && restoreFocus) byId('menu').focus();
-}
-function openDrawer() {
-  byId('sidebar').inert = false;
-  byId('sidebar').classList.add('open');
-  byId('sidebar').setAttribute('role', 'dialog');
-  byId('sidebar').setAttribute('aria-modal', 'true');
-  byId('main').inert = true;
-  byId('drawer-scrim').hidden = false;
-  byId('menu').setAttribute('aria-expanded', 'true');
-  byId('menu-close').focus();
-}
-narrow.addEventListener('change', () => closeDrawer(false));
-closeDrawer(false);
-byId('sidebar').addEventListener('keydown', (event) => {
-  if (!narrow.matches || !byId('sidebar').classList.contains('open')) return;
-  if (event.key === 'Escape') {
-    event.preventDefault();
-    closeDrawer();
-  }
-  if (event.key === 'Tab') {
-    const items = [
-      ...byId('sidebar').querySelectorAll<HTMLElement>('button:not([disabled]),select'),
-    ].filter((item) => item.getClientRects().length > 0);
-    const first = items[0],
-      last = items.at(-1)!;
-    if (event.shiftKey && document.activeElement === first) {
-      event.preventDefault();
-      last.focus();
-    } else if (!event.shiftKey && document.activeElement === last) {
-      event.preventDefault();
-      first.focus();
-    }
-  }
-});
+setupDrawer();
 byId('new-chat').onclick = () => {
   void (async () => {
     const c = await rpc<Conversation>('create');
@@ -641,9 +524,6 @@ byId('attach').onclick = () => {
 };
 for (const close of document.querySelectorAll<HTMLButtonElement>('[data-close]'))
   close.onclick = () => byId<HTMLDialogElement>(close.dataset.close!).close();
-byId('menu').onclick = openDrawer;
-byId('menu-close').onclick = () => closeDrawer();
-byId('drawer-scrim').onclick = () => closeDrawer();
 byId('example').onclick = () => {
   byId<HTMLInputElement>('plugin-source').value = new URL(
     'plugins/example/plugin.json',
@@ -693,6 +573,7 @@ byId('jump-latest').onclick = () => {
   });
 };
 let refreshTimer: ReturnType<typeof setTimeout>;
+let sidebarTimer: ReturnType<typeof setTimeout>;
 function updateElapsed() {
   const c = current();
   const now = Date.now();
@@ -765,6 +646,12 @@ function changed(event: RuntimeEvent | undefined) {
   if (c && event?.type === 'reasoning' && c.status === 'running') {
     c.live = { step: c.live?.step ?? 1, reasoning: event.text };
     render();
+    return;
+  }
+  // A change in a chat that is not open only moves the sidebar, so it can wait a little.
+  if (event?.type === 'changed' && event.conversationId && event.conversationId !== selected) {
+    clearTimeout(sidebarTimer);
+    sidebarTimer = setTimeout(() => void refresh().catch(showError), 500);
     return;
   }
   clearTimeout(refreshTimer);

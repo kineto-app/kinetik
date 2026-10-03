@@ -1,3 +1,4 @@
+import { loadChat } from './chat';
 import { expect, test } from 'vitest';
 import { Runtime } from '../src/core/runtime';
 import { Store } from '../src/browser/store';
@@ -21,7 +22,7 @@ test('attachments survive reopening and reach model context with readable bytes'
   });
   await reopened.submit(chat.id, '', undefined, [file.id]);
   await reopened.run(chat.id);
-  const saved = (await store.get<Conversation>('conversation:' + chat.id))!;
+  const saved = (await loadChat(store, chat.id))!;
   expect(saved.attachments).toEqual([]);
   expect(saved.messages[0].attachments?.[0].name).toBe('notes.txt');
   const path = saved.messages[0].attachments![0].path;

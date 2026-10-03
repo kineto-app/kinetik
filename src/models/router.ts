@@ -1,4 +1,4 @@
-import type { Store } from '../browser/store';
+import type { Store } from '../core/ports';
 import type { Model, ModelRequest, ModelStep, TurnPin } from '../core/types';
 
 type Settings = () => Promise<{ model?: string; effort?: string }>;
