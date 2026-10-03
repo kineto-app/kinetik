@@ -9,7 +9,7 @@ npx playwright install chromium
 npm run check
 ```
 
-Keep the loop in `src/core`, browser persistence in `src/browser`, plugin/MCP plumbing in `src/plugins`, and UI styles in `src/ui`. Change behavior with a focused regression test. Do not add live credentials or require a paid provider in tests. Tests use a mock model, fake IndexedDB for unit tests, and actual browser storage/workers in Playwright.
+Keep the agent core in `src/core` (the turn loop in `runtime.ts`, with storage, compaction, attachments, read-only tools, app calls and prompts in their own modules), model adapters in `src/models`, sign-ins and their settings in `src/connections`, browser persistence in `src/browser`, plugin/MCP plumbing in `src/plugins`, and UI in `src/ui`. Change behavior with a focused regression test. Do not add live credentials or require a paid provider in tests. Tests use a mock model, fake IndexedDB for unit tests, and actual browser storage/workers in Playwright.
 
 Use design tokens in `src/ui/tokens.css`; these track the Kinetik Charms visual language. Only contribute source and assets that you have permission to distribute under this project's license. Include screenshots for visible UI changes and identify which browsers you tested.
 

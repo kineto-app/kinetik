@@ -1,16 +1,7 @@
-import { ConnectionError, ContextOverflow, SignInRequired } from './connection-error';
-import { latestImages, overflow, toolName, withoutImages } from './openai-model';
-import type { Model, ModelRequest, ModelStep, Usage } from './types';
-
-/** Stored under the `connection-token:` prefix: kept out of exports, and in secure storage on devices. */
-export const customModelKey = 'connection-token:custom-model';
-export type CustomModel = {
-  baseUrl: string;
-  apiKey?: string;
-  model: string;
-  contextWindow?: number;
-  images?: boolean;
-};
+import { ConnectionError, ContextOverflow, SignInRequired } from '../core/connection-error';
+import { latestImages, overflow, toolName, withoutImages } from './openai';
+import type { Model, ModelRequest, ModelStep, Usage } from '../core/types';
+import type { CustomModel } from '../connections/custom-model';
 
 type Item = Record<string, unknown>;
 type ChatMessage = Record<string, unknown>;

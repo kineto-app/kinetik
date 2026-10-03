@@ -90,6 +90,10 @@ Files live in a virtual filesystem, not arbitrary host folders. Import/export ha
 
 The shell exposes a selected set of file/text commands, pipes, and shell syntax. Network commands, Python, JavaScript execution, SQLite, gzip, and native processes are excluded. Commands are bounded to 15 seconds; plugin calls receive a 30-second timeout. Trusted JavaScript can ignore cancellation or block its worker, so this is not a hard sandbox guarantee.
 
+## Architecture
+
+The agent core, model adapters, connections, plugins and UI live in separate folders under `src/`. The runtime coordinates model requests, tool calls and conversation storage.
+
 ## Long tasks and long chats
 
 Each reply shows how long the agent worked and how many tokens it used. When a chat fills about three quarters of the model's context window (the window comes from the ChatGPT model catalog; 200k tokens otherwise), the agent summarises everything before your latest request into short notes and keeps the latest request and its tool calls word for word. While it summarises, the activity line reads "Summarising earlier messages…". A quiet "Earlier messages summarised" line marks the spot; the older input is archived on the device. If the model still reports that a request is too long, the agent summarises once and retries; a second failure stops the turn and suggests a new chat. Type `/compact` to summarise on demand. When the chat runs on ChatGPT with browser sign-in, Kinetik first asks ChatGPT's own compaction endpoint (`/responses/compact`, through the relay when one is configured) and keeps its opaque result; the divider then reads "Earlier messages summarised by ChatGPT", and a custom model will not see those earlier messages. Any error falls back to the local summary, and if the first request after a ChatGPT compaction is rejected, the archived input is restored and that model goes back to local summaries.
