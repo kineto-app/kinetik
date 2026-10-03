@@ -539,8 +539,6 @@ byId('sidebar').addEventListener('keydown', (event) => {
 byId('new-chat').onclick = () => {
   void (async () => {
     const c = await rpc<Conversation>('create');
-    selected = c.id;
-    await refresh();
     choose(c.id);
     byId('prompt').focus();
   })().catch(showError);
@@ -743,9 +741,10 @@ navigator.serviceWorker?.addEventListener('message', (event) => {
 });
 /** Streamed text and step progress patch the open state; anything else reloads it. */
 function changed(event: RuntimeEvent | undefined) {
+  // A running chat has messages; one without them is a summary, so it is fetched instead.
   const c =
     event && ['text', 'progress', 'reasoning'].includes(event.type)
-      ? state.conversations.find((item) => item.id === event.conversationId)
+      ? state.conversations.find((item) => item.id === event.conversationId && item.messages.length)
       : undefined;
   if (c && event?.type === 'text' && c.status === 'running') {
     c.draft = event.text;

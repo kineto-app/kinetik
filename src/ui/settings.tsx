@@ -233,7 +233,7 @@ function ActivityLog() {
           </div>
         </div>
         <Show when={entries().length} fallback={<p class="trace-empty">Nothing recorded yet.</p>}>
-          <ol class="trace-list" aria-label="Recent model requests and tool calls">
+          <ol class="trace-list" tabIndex={0} aria-label="Recent model requests and tool calls">
             <For each={entries()}>
               {(entry) => (
                 <li classList={{ failed: !entry.ok }}>

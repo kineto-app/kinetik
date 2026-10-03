@@ -4,7 +4,7 @@ import { Store } from '../src/browser/store';
 import { ConversationStore } from '../src/core/conversation-store';
 import { RuntimeHost } from '../src/core/host';
 import { protocolVersion, reloadHint } from '../src/core/protocol';
-import { recentTrace } from '../src/core/trace';
+import { recentTrace, traced } from '../src/core/trace';
 import { exportArchive } from '../src/core/archive';
 import type { Conversation } from '../src/core/types';
 
@@ -69,7 +69,13 @@ test('state sends messages only for the chat the window shows', async () => {
   const a = await ask<Conversation>({ op: 'create' });
   const b = await ask<Conversation>({ op: 'create' });
   for (const id of [a.id, b.id]) await ask({ op: 'submit', id, text: '/write /workspace/x\nhi' });
-  await new Promise((resolve) => setTimeout(resolve, 200));
+  await expect
+    .poll(async () =>
+      (await ask<{ conversations: Conversation[] }>({ op: 'state' })).conversations.every(
+        (c) => c.status === 'idle',
+      ),
+    )
+    .toBe(true);
   const state = await ask<{ conversations: Conversation[] }>({ op: 'state', conversation: a.id });
   const byId = Object.fromEntries(state.conversations.map((c) => [c.id, c]));
   expect(byId[a.id].messages.length).toBeGreaterThan(0);
@@ -104,4 +110,14 @@ test('a failed tool call is traced with its error', async () => {
   const failed = (await recentTrace(store)).find((e) => !e.ok);
   expect(failed).toMatchObject({ kind: 'tool', name: 'read' });
   expect(failed?.error).toBeTruthy();
+});
+
+test('an error that echoes an API key is masked in the trace', async () => {
+  const store = new Store(crypto.randomUUID());
+  await expect(
+    traced(store, { conversationId: 'c', kind: 'model', name: 'm' }, async () => {
+      throw new Error('Invalid key sk-proj-abcdef1234567890 for this model');
+    }),
+  ).rejects.toThrow('sk-proj');
+  expect((await recentTrace(store))[0].error).toBe('Invalid key [key] for this model');
 });

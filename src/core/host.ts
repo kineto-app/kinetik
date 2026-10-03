@@ -224,17 +224,13 @@ export class RuntimeHost {
                 startedAt,
               })),
             // A window names the chat it shows; the others come without their messages.
-            conversations: (await runtime.conversations()).map((c) =>
-              data.conversation === undefined || c.id === data.conversation
-                ? { ...c, plugins: undefined }
-                : {
-                    ...c,
-                    plugins: undefined,
-                    messages: [],
-                    attachments: undefined,
-                    draft: undefined,
-                  },
-            ),
+            conversations: (await runtime.conversations()).map((c) => ({
+              ...c,
+              plugins: undefined,
+              ...(data.conversation === undefined || c.id === data.conversation
+                ? {}
+                : { messages: [], attachments: undefined, draft: undefined }),
+            })),
             plugins: (await runtime.plugins.list()).map((p) => ({
               manifest: p.manifest,
               enabledAt: p.enabledAt,

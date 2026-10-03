@@ -43,8 +43,11 @@ export async function traced<T>(
     await trace(store, { ...entry, at, ok: true, ms: Date.now() - at });
     return result;
   } catch (error) {
-    const text = error instanceof Error ? error.message : String(error);
-    await trace(store, { ...entry, at, ok: false, ms: Date.now() - at, error: text.slice(0, 300) });
+    const text = (error instanceof Error ? error.message : String(error))
+      // An export leaves the device, so anything shaped like an API key is masked.
+      .replace(/\b(sk|rk|pk)-[\w-]{8,}/g, '[key]')
+      .slice(0, 300);
+    await trace(store, { ...entry, at, ok: false, ms: Date.now() - at, error: text });
     throw error;
   }
 }
