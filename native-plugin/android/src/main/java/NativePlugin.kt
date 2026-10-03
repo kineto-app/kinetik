@@ -33,18 +33,30 @@ class NativeArgs {
 @TauriPlugin(permissions = [Permission(strings = [android.Manifest.permission.POST_NOTIFICATIONS], alias = "notifications")])
 class NativePlugin(private val activity: Activity): Plugin(activity) {
     private val preferences by lazy { activity.getSharedPreferences("kinetik-credentials", 0) }
-    // A notification tapped while the app was closed waits until the page listens for it.
+    // A tapped notification can arrive before the page listens (a cold start delivers it to
+    // onCreate or onNewIntent); it waits until the page registers for it.
     private var pendingChat: String? = null
+    private var listening = false
+    private fun openChat(id: String) {
+        if (listening) trigger("open-chat", JSObject().put("id", id)) else pendingChat = id
+    }
     override fun load(webView: android.webkit.WebView) {
         super.load(webView)
-        pendingChat = activity.intent?.getStringExtra(chatExtra)
+        activity.intent?.getStringExtra(chatExtra)?.let {
+            activity.intent.removeExtra(chatExtra)
+            openChat(it)
+        }
     }
     override fun onNewIntent(intent: Intent) {
-        intent.getStringExtra(chatExtra)?.let { trigger("open-chat", JSObject().put("id", it)) }
+        intent.getStringExtra(chatExtra)?.let {
+            intent.removeExtra(chatExtra)
+            openChat(it)
+        }
     }
     override fun registerListener(invoke: Invoke) {
         super.registerListener(invoke)
         if (invoke.getArgs().getString("event") != "open-chat") return
+        listening = true
         pendingChat?.let { trigger("open-chat", JSObject().put("id", it)) }
         pendingChat = null
     }
@@ -131,8 +143,13 @@ class NativePlugin(private val activity: Activity): Plugin(activity) {
             if (android.os.Build.VERSION.SDK_INT >= 26)
                 manager.createNotificationChannel(android.app.NotificationChannel(
                     "kinetik-results", "Finished work", android.app.NotificationManager.IMPORTANCE_DEFAULT))
-            val launch = activity.packageManager.getLaunchIntentForPackage(activity.packageName)
-                ?.apply { args.url?.let { putExtra(chatExtra, it.take(64)) } }
+            // Not the launcher intent: Android drops that one when the task already exists,
+            // even after the process died, and the chat id with it.
+            val launch = Intent(activity, activity.javaClass).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or
+                    Intent.FLAG_ACTIVITY_CLEAR_TOP
+                args.url?.let { putExtra(chatExtra, it.take(64)) }
+            }
             val open = android.app.PendingIntent.getActivity(activity, 2, launch,
                 android.app.PendingIntent.FLAG_IMMUTABLE or android.app.PendingIntent.FLAG_UPDATE_CURRENT)
             val notification = androidx.core.app.NotificationCompat.Builder(activity, "kinetik-results")

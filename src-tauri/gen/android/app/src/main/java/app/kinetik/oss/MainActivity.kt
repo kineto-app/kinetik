@@ -1,5 +1,6 @@
 package app.kinetik.oss
 
+import android.content.Intent
 import android.os.Bundle
 import android.view.View
 import android.webkit.WebView
@@ -73,6 +74,13 @@ class MainActivity : TauriActivity() {
         message.data?.let { data -> ipcExecutor.execute { Rust.ipc(id, url, data) } }
       }
     }
+  }
+
+  // A notification tap on a restarted process arrives here before any plugin has loaded;
+  // keeping it as the activity's intent lets the native plugin read it once it does.
+  override fun onNewIntent(intent: Intent) {
+    super.onNewIntent(intent)
+    setIntent(intent)
   }
 
   override fun onDestroy() {

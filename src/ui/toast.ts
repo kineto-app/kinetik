@@ -13,7 +13,9 @@ export interface Toast {
 export function toast({ text, action, done, key, ms = 6000 }: Toast) {
   const area = byId('toasts');
   if (key)
-    area.querySelector<HTMLElement & { leave?: () => void }>(`[data-key="${key}"]`)?.leave?.();
+    area
+      .querySelector<HTMLElement & { leave?: () => void }>(`[data-key="${CSS.escape(key)}"]`)
+      ?.leave?.();
   const node = document.createElement('div') as HTMLDivElement & { leave?: () => void };
   node.className = 'toast';
   if (key) node.dataset.key = key;
@@ -21,6 +23,7 @@ export function toast({ text, action, done, key, ms = 6000 }: Toast) {
   label.textContent = text;
   node.append(label);
   let finished = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
   const leave = (acted = false) => {
     if (finished) return;
     finished = true;
@@ -46,6 +49,14 @@ export function toast({ text, action, done, key, ms = 6000 }: Toast) {
   close.onclick = () => leave();
   node.append(close);
   area.append(node);
-  const timer = setTimeout(() => leave(), ms);
-  return leave;
+  // A pointer or keyboard on the toast holds it, so Undo is not a race (WCAG 2.2.1).
+  const release = () => {
+    clearTimeout(timer);
+    if (!finished && !node.matches(':hover, :focus-within')) timer = setTimeout(() => leave(), ms);
+  };
+  node.addEventListener('pointerenter', () => clearTimeout(timer));
+  node.addEventListener('focusin', () => clearTimeout(timer));
+  node.addEventListener('pointerleave', release);
+  node.addEventListener('focusout', () => setTimeout(release));
+  release();
 }

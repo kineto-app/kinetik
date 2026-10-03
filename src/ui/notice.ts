@@ -6,12 +6,13 @@ export function plainNotice(text: string): { title: string; detail?: string; fai
       /rate.?limit|too many requests|overloaded|busy/i,
       'ChatGPT is busy right now. Try again in a minute.',
     ],
+    [/API key/i, 'The API key was not accepted. Check it in Settings.'],
     [/usage limit|quota|insufficient|billing/i, 'You’ve reached your ChatGPT limit for now.'],
     [
       /context|too long|too many (input )?tokens/i,
       'This chat got too long. Start a new chat to continue.',
     ],
-    [/sign in|401|403|unauthori[sz]ed|forbidden/i, 'Kinetik needs you to sign in again.'],
+    [/sign in|\b40[13]\b|unauthori[sz]ed|forbidden/i, 'Kinetik needs you to sign in again.'],
     [/^Model |tool (call|arguments)|stopped early/i, 'The answer didn’t come through.'],
     [/fetch|network|unreachable|ECONN|timed? ?out|interrupted/i, 'The connection dropped.'],
   ];

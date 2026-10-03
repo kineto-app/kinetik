@@ -181,15 +181,27 @@ function choose(id: string, focus = true) {
 }
 const [view, setView] = createSignal({ state, selected });
 /** Chats that finished or asked something while another chat was open. */
-const [unread, setUnread] = createSignal(
-  new Set<string>(JSON.parse(localStorage.getItem('kinetik-unread') ?? '[]') as string[]),
-);
+function storedUnread() {
+  try {
+    const value = JSON.parse(localStorage.getItem('kinetik-unread') ?? '[]');
+    return new Set<string>(
+      Array.isArray(value) ? value.filter((id) => typeof id === 'string') : [],
+    );
+  } catch {
+    return new Set<string>();
+  }
+}
+const [unread, setUnread] = createSignal(storedUnread());
 function markRead(id: string, read = true) {
   const next = new Set(unread());
   if (read) next.delete(id);
   else next.add(id);
   setUnread(next);
-  localStorage.setItem('kinetik-unread', JSON.stringify([...next]));
+  try {
+    localStorage.setItem('kinetik-unread', JSON.stringify([...next]));
+  } catch {
+    /* Without storage the dots last until the app closes. */
+  }
 }
 const working = ['running', 'queued', 'waiting'];
 /** Tells about work that ended in another chat, and offers notifications after a long task here. */
@@ -228,8 +240,15 @@ function noticeFinished(before: Conversation[], after: Conversation[]) {
   }
 }
 async function offerNotifications() {
-  if (localStorage.getItem('kinetik-notify-offered') || !(isNative || 'Notification' in window))
+  try {
+    if (
+      localStorage.getItem('kinetik-notify-offered') ||
+      !(isNative || ('Notification' in window && Notification.permission !== 'denied'))
+    )
+      return;
+  } catch {
     return;
+  }
   if (await rpc<boolean>('notifications')) return;
   localStorage.setItem('kinetik-notify-offered', '1');
   toast({
@@ -246,7 +265,8 @@ async function offerNotifications() {
 }
 window.addEventListener('kinetik-open-chat', (event) => {
   const id = (event as CustomEvent<string>).detail;
-  if (!state.conversations.some((c) => c.id === id)) return;
+  // A tap from a cold start arrives before the chats load; refresh falls back if the id is gone.
+  if (typeof id !== 'string' || !id) return;
   // The composer may still hold focus from before the app was left; the keyboard would cover the reply.
   (document.activeElement as HTMLElement | null)?.blur();
   choose(id, false);
@@ -398,7 +418,15 @@ function render() {
             label: 'Undo',
             run: () =>
               void rpc('memory', { undo: true })
-                .then(() => toast({ key: 'memory', text: 'Memory restored', ms: 3000 }))
+                .then(() => rpc<unknown>('memoryChange'))
+                .then((left) => {
+                  toast({
+                    key: 'memory',
+                    text: left ? 'Memory changed since, so it was kept' : 'Memory restored',
+                    ms: 3000,
+                  });
+                  return refreshSettingsData();
+                })
                 .catch(showError),
           },
         });
@@ -486,6 +514,7 @@ async function refresh() {
   }
   noticeFinished(state.conversations, next.conversations);
   state = next;
+  if (unread().has(selected)) markRead(selected);
   uiStorage.setItem('kinetik-conversation', selected);
   render();
 }
@@ -637,8 +666,12 @@ byId('delete-chat').onclick = () => {
     done: () => deleting.get(id)?.(),
   });
 };
-// Leaving the app ends the chance to undo.
-addEventListener('pagehide', () => [...deleting.values()].forEach((remove) => remove()));
+// Leaving the app ends the chance to undo; Android's WebView only reports it as hidden.
+const commitDeletes = () => [...deleting.values()].forEach((remove) => remove());
+addEventListener('pagehide', commitDeletes);
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') commitDeletes();
+});
 function openDialog(name: string) {
   closeDrawer();
   for (const dialog of document.querySelectorAll<HTMLDialogElement>('dialog:modal')) dialog.close();
@@ -849,7 +882,9 @@ async function start() {
   if (opened) {
     selected = opened;
     markRead(opened);
-    history.replaceState(null, '', location.pathname);
+    const url = new URL(location.href);
+    url.searchParams.delete('chat');
+    history.replaceState(null, '', url);
   }
   await refresh();
   await refreshCustomModel().catch(() => {});

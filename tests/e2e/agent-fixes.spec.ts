@@ -99,6 +99,10 @@ test('bug 6: a deleted chat can be undone, and is removed with everything stored
   await expect(toastNode).toBeVisible();
   await expect(page.locator('#title')).toHaveText('New chat');
   await page.screenshot({ path: info.outputPath('3-delete-undo.png') });
+  // A pointer on the toast holds it past its 8 seconds.
+  await toastNode.hover();
+  await page.waitForTimeout(9000);
+  await expect(toastNode).toBeVisible();
   await toastNode.getByRole('button', { name: 'Undo' }).click();
   await expect(page.locator('#title')).toHaveText(title!);
   await page.getByRole('button', { name: 'Delete chat' }).click();
