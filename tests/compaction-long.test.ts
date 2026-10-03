@@ -94,7 +94,8 @@ test('a summary runs in the background and keeps the steps the turn added meanwh
     30,
     16_000,
     () => {
-      summaries++;
+      // Steps added while the first summary waits can bring the turn back over the threshold.
+      if (summaries++) return Promise.resolve('Notes so far.');
       atStart = requests.length;
       return new Promise<string>((resolve) => (finish = resolve));
     },
@@ -105,7 +106,7 @@ test('a summary runs in the background and keeps the steps the turn added meanwh
   const c = await runtime.create();
   await runtime.submit(c.id, 'Do the long task');
   const turn = runtime.run(c.id);
-  await expect.poll(() => summaries).toBe(1);
+  await expect.poll(() => summaries).toBeGreaterThan(0);
   // The turn kept making requests while the summary was still being written.
   await expect.poll(() => seen.length).toBeGreaterThan(atStart + 1);
   finish('Notes so far.');
