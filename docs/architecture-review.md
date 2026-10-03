@@ -190,6 +190,6 @@ Each step is small enough for one PR. The order puts risk first.
     - a lost connection in a batch or in the helper pauses the turn instead of failing the reads or asking for review;
     - the Charms adapter keeps sharing a file and rendering out of reads, because both publish a link.
   - Left on purpose by step 2:
-    - An existing Charms install keeps its pinned adapter until the next Connect, because a link never replaces pinned code. Until then a failed Charms command shows as done in the activity list; the model still sees the exit code.
+    - An existing Charms install keeps its pinned adapter until the next Connect, because a link never replaces pinned code. Until then a failed Charms command shows as done in the activity list (the model still sees the exit code), and `charms_files_read` with `share` counts as a read.
     - Error-as-result and replay stay local-only, as the plan says.
 - **Open:** steps 3 to 6.
