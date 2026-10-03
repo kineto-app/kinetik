@@ -1,34 +1,13 @@
+import { CountingStore } from './counting-store';
+import { loadChat } from './chat';
 import { expect, test } from 'vitest';
 import { Runtime } from '../src/core/runtime';
 import { Store } from '../src/browser/store';
 import { compactPrompt } from '../src/core/compaction';
 import { modelInput } from './model-input';
-import type { Conversation, Model, ModelStep } from '../src/core/types';
+import type { Model, ModelStep } from '../src/core/types';
 
 /** Counts the bytes each write puts into storage, by key prefix. */
-class CountingStore extends Store {
-  writes: { key: string; bytes: number }[] = [];
-  private count(key: string, value: unknown) {
-    if (value !== undefined) this.writes.push({ key, bytes: JSON.stringify(value).length });
-  }
-  override async update<T>(key: string, update: (previous: T | undefined) => T): Promise<T> {
-    return super.update<T>(key, (previous) => {
-      const value = update(previous);
-      this.count(key, value);
-      return value;
-    });
-  }
-  override async updateMany(keys: string[], update: (values: unknown[]) => [string, unknown][]) {
-    return super.updateMany(keys, (values) => {
-      const writes = update(values);
-      for (const [key, value] of writes) this.count(key, value);
-      return writes;
-    });
-  }
-  bytes(prefix: string) {
-    return this.writes.filter((w) => w.key.startsWith(prefix)).reduce((n, w) => n + w.bytes, 0);
-  }
-}
 
 const blob = 'x'.repeat(200_000);
 /** A first step carrying a large encrypted reasoning item, then nine small tool steps. */
@@ -72,9 +51,11 @@ test('a step writes only its new model input; a large item is written once', asy
   const c = await runtime.create();
   await runtime.submit(c.id, 'Do ten things');
   await runtime.run(c.id);
-  const saved = (await store.get<Conversation>('conversation:' + c.id))!;
+  const saved = (await loadChat(store, c.id))!;
   expect(saved.messages.at(-1)?.text).toBe('Done.');
-  expect(saved.modelInput).toBeUndefined();
+  expect(
+    (await store.get<{ modelInput?: unknown }>('conversation:' + c.id))?.modelInput,
+  ).toBeUndefined();
 
   const blobWrites = store.writes.filter((w) => w.bytes >= blob.length);
   expect(blobWrites).toHaveLength(1);
@@ -103,14 +84,16 @@ test('an older chat with inline input moves into segments on its next write', as
     },
   });
   const c = await runtime.create();
-  await store.update<Conversation>('conversation:' + c.id, (value) => ({
+  await store.update<Record<string, unknown>>('conversation:' + c.id, (value) => ({
     ...value!,
     modelInput: [{ role: 'user', content: 'Earlier' }],
   }));
   await runtime.submit(c.id, 'Hi');
   await runtime.run(c.id);
-  const saved = (await store.get<Conversation>('conversation:' + c.id))!;
-  expect(saved.modelInput).toBeUndefined();
+  const saved = (await loadChat(store, c.id))!;
+  expect(
+    (await store.get<{ modelInput?: unknown }>('conversation:' + c.id))?.modelInput,
+  ).toBeUndefined();
   expect(saved.input?.segments).toBeGreaterThan(0);
   expect((await modelInput(store, c.id))?.slice(0, 2)).toEqual([
     { role: 'user', content: 'Earlier' },
@@ -141,10 +124,10 @@ test('a summary replaces the input with a new generation and removes the old seg
   const c = await runtime.create();
   await runtime.submit(c.id, 'One');
   await runtime.run(c.id);
-  const first = (await store.get<Conversation>('conversation:' + c.id))!.input!;
+  const first = (await loadChat(store, c.id))!.input!;
   await runtime.submit(c.id, 'Two');
   await runtime.run(c.id);
-  const second = (await store.get<Conversation>('conversation:' + c.id))!.input!;
+  const second = (await loadChat(store, c.id))!.input!;
   expect(second.generation).not.toBe(first.generation);
   const keys = (await store.entries('model-input:' + c.id)).map(([key]) => key);
   expect(keys.every((key) => key.includes(second.generation))).toBe(true);

@@ -1,12 +1,12 @@
+import { loadChat } from './chat';
 import { expect, test } from 'vitest';
 import { Runtime } from '../src/core/runtime';
 import { ModelRejected } from '../src/core/connection-error';
 import { Store } from '../src/browser/store';
 import { modelInput } from './model-input';
-import type { Conversation, Model, ModelRequest, ModelStep } from '../src/core/types';
+import type { Model, ModelRequest, ModelStep } from '../src/core/types';
 
-const read = async (store: Store, id: string) =>
-  (await store.get<Conversation>('conversation:' + id))!;
+const read = async (store: Store, id: string) => (await loadChat(store, id))!;
 function scripted(steps: ((request: ModelRequest) => ModelStep)[]) {
   const seen: ModelRequest[] = [];
   const model: Model = {

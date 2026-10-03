@@ -1,5 +1,5 @@
 import { isNative } from '../platform/environment';
-import { Store } from '../browser/store';
+import type { Store } from '../core/ports';
 import {
   errorText,
   type Binding,

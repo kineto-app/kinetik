@@ -1,4 +1,4 @@
-import type { Store } from '../browser/store';
+import type { Store } from './ports';
 import { openCall } from './turn';
 import { abortable } from './abortable';
 import { ContextOverflow } from './connection-error';
@@ -10,12 +10,19 @@ import {
   type ModelRequest,
   type ModelStep,
   type TurnPin,
+  type Conversation,
 } from './types';
 
 /** Context limits and the summary that replaces older model input. */
 export const defaultContextWindow = 200_000;
-/** Compact once the latest request used this share of the usable window. */
+/** Compact before the next request once the latest one used this share of the usable window. */
 export const compactAt = 0.75;
+/** From this share a local summary starts in the background while the turn goes on. */
+export const backgroundAt = 0.6;
+/** The newest model input kept verbatim, as a share of the window. */
+const keepShare = 0.25;
+/** Old tool outputs longer than this keep only their start and end. */
+const longOutput = 2000;
 export const summaryPrefix = 'Summary of the earlier conversation:\n';
 export const compactPrompt =
   'Summarise the conversation so far for your own future reference. Keep the user’s goals and preferences, decisions, facts and names, file paths and URLs, what was done and what remains. Write plain notes, at most 400 words. Do not call tools.';
@@ -30,16 +37,45 @@ export const estimateTokens = (input: unknown) =>
     ).length / 4,
   );
 
-/**
- * Where the kept tail starts: the latest user item, so the current request and every call
- * made for it stay verbatim and no function call is separated from its output.
- */
-export function splitPoint(input: Record<string, unknown>[]): number {
+const lastUser = (input: Record<string, unknown>[]) => {
   for (let i = input.length - 1; i > 0; i--) if (input[i].role === 'user') return i;
   return 0;
+};
+/** A model step begins here: never between a function call and its output. */
+const stepStart = (input: Record<string, unknown>[], i: number) =>
+  input[i].type !== 'function_call_output' && input[i - 1]?.type === 'function_call_output';
+
+/**
+ * Where the kept tail starts. Normally the latest user item, so the current request stays
+ * verbatim. A turn too long for `keepTokens` is cut at the oldest step that leaves a tail that fits.
+ */
+export function splitPoint(input: Record<string, unknown>[], keepTokens = Infinity): number {
+  const user = lastUser(input);
+  if (estimateTokens(input.slice(user)) <= keepTokens) return user;
+  for (let i = user + 1; i < input.length; i++)
+    if (stepStart(input, i) && estimateTokens(input.slice(i)) <= keepTokens) return i;
+  return user;
+}
+
+/** Keeps the start and end of long tool outputs before `keepFrom`; the rest of the turn is untouched. */
+export function shortenOutputs(input: Record<string, unknown>[], keepFrom: number) {
+  return input.map((item, i) => {
+    const output = item.output;
+    if (i >= keepFrom || item.type !== 'function_call_output' || typeof output !== 'string')
+      return item;
+    if (output.length <= longOutput) return item;
+    const left = output.length - 1600;
+    return {
+      ...item,
+      output: `${output.slice(0, 1200)}\n[… ${left} characters left out to save room …]\n${output.slice(-400)}`,
+    };
+  });
 }
 
 type Item = Record<string, unknown>;
+/** Another compaction, or the undo of one, replaced the input since `before` was read. */
+const changed = (now: Conversation, before: Conversation) =>
+  now.compactions !== before.compactions || now.serverCompaction?.n !== before.serverCompaction?.n;
 const noServerCompact = (pin?: TurnPin) =>
   `no-server-compact:${pin?.provider ?? 'chatgpt'}:${pin?.model ?? ''}`;
 type CompactorDeps = {
@@ -95,11 +131,51 @@ export class Compactor {
     );
     return true;
   }
+  private running = new Map<string, Promise<boolean>>();
+  /**
+   * Before a request: long old tool outputs are shortened first, which costs no model call. A
+   * summary then starts in the background, and the request waits for one only near the limit.
+   */
   async compactIfNeeded(id: string, signal: AbortSignal) {
     const c = await this.deps.chats.load(id);
     const window = c?.context?.window ?? defaultContextWindow;
-    const tokens = c?.context?.tokens ?? estimateTokens(c?.modelInput);
-    if (tokens >= window * compactAt) await this.compactInput(id, signal);
+    let tokens = c?.context?.tokens ?? estimateTokens(c?.modelInput);
+    if (tokens < window * backgroundAt) return;
+    if (await this.shorten(id, window)) {
+      tokens = estimateTokens((await this.deps.chats.load(id))?.modelInput);
+      if (tokens < window * backgroundAt) return;
+    }
+    const pending = this.running.get(id);
+    if (tokens >= window * compactAt) {
+      await (pending ?? this.compactInput(id, signal));
+      return;
+    }
+    if (pending) return;
+    const summary = this.summarise(id, signal, true)
+      .catch(() => false)
+      .finally(() => this.running.delete(id));
+    this.running.set(id, summary);
+  }
+  /** Shortens old tool outputs in one write; false when nothing was long enough. */
+  private async shorten(id: string, window: number): Promise<boolean> {
+    const c = await this.deps.chats.load(id);
+    const input = c?.modelInput ?? [];
+    const keepFrom = splitPoint(input, window * keepShare);
+    const shortened = shortenOutputs(input, keepFrom);
+    if (shortened.every((item, i) => item === input[i])) return false;
+    let applied = false;
+    await this.deps.chats.update(id, (value) => {
+      const current = value.modelInput ?? [];
+      if (current.length < input.length || changed(value, c!)) return value;
+      applied = true;
+      const next = [...shortened, ...current.slice(input.length)];
+      return {
+        ...value,
+        modelInput: next,
+        context: value.context && { ...value.context, tokens: estimateTokens(next) },
+      };
+    });
+    return applied;
   }
   /**
    * Replaces model input before the latest user request with a model-written summary. The older
@@ -118,14 +194,19 @@ export class Compactor {
       }
     }
   }
-  private async summarise(id: string, signal: AbortSignal): Promise<boolean> {
+  /** In the background only a local summary is used: ChatGPT's needs the very next request. */
+  private async summarise(id: string, signal: AbortSignal, background = false): Promise<boolean> {
     const c = await this.deps.chats.load(id);
     const input = c?.modelInput ?? [];
     if (!c || openCall(c.turn?.call)) return false;
-    let cut = splitPoint(input);
+    const window = c.context?.window ?? defaultContextWindow;
+    let cut = splitPoint(input, window * keepShare);
     if (cut < 2) return false;
+    // Cut inside one long turn: its request stays verbatim right after the summary.
+    const user = lastUser(input);
+    const request = cut > user ? [input[user]] : [];
     const pin = await this.deps.pin(id);
-    let head = await this.serverCompact(input.slice(0, cut), pin, signal);
+    let head = background ? undefined : await this.serverCompact(input.slice(0, cut), pin, signal);
     const server = Boolean(head);
     let summary: string | undefined;
     // An older part that itself overflows is shortened from the start until it fits.
@@ -162,14 +243,14 @@ export class Compactor {
     await this.deps.chats.update(id, (value) => {
       const current = value.modelInput ?? [];
       // Only append-only growth is expected; anything else means another writer replaced it.
-      if (current.length < input.length || value.compactions !== c.compactions) return value;
+      if (current.length < input.length || changed(value, c)) return value;
       applied = true;
-      const next = [...head!, ...current.slice(cut)];
+      const next = [...head!, ...request, ...current.slice(cut)];
       return {
         ...value,
         modelInput: next,
         compactions: n,
-        serverCompaction: server ? { n, head: head!.length } : undefined,
+        serverCompaction: server ? { n, head: head!.length + request.length } : undefined,
         context: {
           tokens: estimateTokens(next),
           window: value.context?.window ?? defaultContextWindow,

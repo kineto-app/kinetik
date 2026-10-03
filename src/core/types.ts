@@ -39,6 +39,8 @@ export interface Message {
   queue?: 'after';
   /** Stopped before the model saw it. */
   unsent?: boolean;
+  /** An answer cut off by Stop, an error or a restart; shown, but not part of the model input. */
+  aborted?: boolean;
   visibility?: 'internal';
   source?: 'background';
   tool?: string;
@@ -72,7 +74,9 @@ export type LiveProgress = {
 export type RuntimeEvent =
   | { type: 'text'; conversationId: string; text: string }
   | { type: 'reasoning'; conversationId: string; text: string }
-  | ({ type: 'progress'; conversationId: string } & LiveProgress);
+  | ({ type: 'progress'; conversationId: string } & LiveProgress)
+  /** Stored state changed; it names the chat when only one chat changed. */
+  | { type: 'changed'; conversationId?: string };
 /** Segment `i` of generation `g` lives at `model-input:<conversation>:<g>:<i>`. */
 export type InputSegments = { generation: string; segments: number };
 export type TurnPin = { provider: 'chatgpt' | 'custom'; model?: string; effort?: string };
@@ -136,6 +140,8 @@ export interface Conversation {
    */
   modelInput?: Record<string, unknown>[];
   input?: InputSegments;
+  /** Where `messages` are stored, like `input` for model input. */
+  log?: InputSegments;
   /** Input tokens of the latest model request and the model's usable context. */
   context?: { tokens: number; window: number };
   /** Number of earlier model-input segments archived by compaction. */

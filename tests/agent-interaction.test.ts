@@ -1,3 +1,4 @@
+import { loadChat } from './chat';
 import { expect, test } from 'vitest';
 import { Runtime } from '../src/core/runtime';
 import { Store } from '../src/browser/store';
@@ -11,8 +12,7 @@ import type {
   RuntimeEvent,
 } from '../src/core/types';
 
-const read = async (store: Store, id: string) =>
-  (await store.get<Conversation>('conversation:' + id))!;
+const read = async (store: Store, id: string) => (await loadChat(store, id))!;
 function scripted(steps: ((request: ModelRequest) => ModelStep)[]) {
   const seen: ModelRequest[] = [];
   const model: Model = {

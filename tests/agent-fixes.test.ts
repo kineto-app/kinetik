@@ -1,19 +1,13 @@
+import { loadChat, updateChat } from './chat';
 import { expect, test, vi } from 'vitest';
 import { Runtime } from '../src/core/runtime';
 import { Store } from '../src/browser/store';
 import { ModelRouter } from '../src/models/router';
 import { OpenAIModel } from '../src/models/openai';
 import { schemaVersion } from '../src/core/migrations';
-import type {
-  Conversation,
-  Model,
-  ModelRequest,
-  ModelStep,
-  ToolDefinition,
-} from '../src/core/types';
+import type { Model, ModelRequest, ModelStep, ToolDefinition } from '../src/core/types';
 
-const read = async (store: Store, id: string) =>
-  (await store.get<Conversation>('conversation:' + id))!;
+const read = async (store: Store, id: string) => (await loadChat(store, id))!;
 function scripted(steps: ((request: ModelRequest) => ModelStep | Promise<ModelStep>)[]) {
   const seen: ModelRequest[] = [];
   const model: Model = {
@@ -225,7 +219,7 @@ test('bug 7: stored data is migrated once and versioned', async () => {
   const store = new Store(crypto.randomUUID());
   const runtime = new Runtime(store);
   const c = await runtime.create();
-  await store.update<Conversation>('conversation:' + c.id, (value) => ({
+  await store.update<Record<string, unknown>>('conversation:' + c.id, (value) => ({
     ...value!,
     modelInput: [{ role: 'user', content: 'Earlier' }],
     turnModel: 'custom' as never,
@@ -234,7 +228,9 @@ test('bug 7: stored data is migrated once and versioned', async () => {
   await runtime.recover();
   const migrated = await read(store, c.id);
   expect(await store.get('meta:schema')).toBeGreaterThan(0);
-  expect(migrated.modelInput).toBeUndefined();
+  expect(
+    (await store.get<{ modelInput?: unknown }>('conversation:' + c.id))?.modelInput,
+  ).toBeUndefined();
   expect(migrated.input?.segments).toBe(1);
   expect(migrated.turn?.model).toEqual({ provider: 'custom' });
   expect(migrated.plugins?.[0].code).toBe('');
@@ -289,7 +285,7 @@ test('bug 6: startup removes records nothing refers to any more', async () => {
   const runtime = new Runtime(store);
   const c = await runtime.create();
   const old = Date.now() - 8 * 24 * 3600 * 1000;
-  await store.update<Conversation>('conversation:' + c.id, (value) => ({
+  await updateChat(store, c.id, (value) => ({
     ...value!,
     compactions: 2,
     messages: [
@@ -359,7 +355,7 @@ test('bug 7: migrations interrupted by a restart run again without changing the 
   const store = new Store(crypto.randomUUID());
   const runtime = new Runtime(store);
   const c = await runtime.create();
-  await store.update<Conversation>('conversation:' + c.id, (value) => ({
+  await store.update<Record<string, unknown>>('conversation:' + c.id, (value) => ({
     ...value!,
     modelInput: [{ role: 'user', content: 'Earlier' }],
     plugins: [plugin('code')],
@@ -407,7 +403,7 @@ test('bug 7: a failing migration lets the app start and runs again on the next s
   const store = new Store(crypto.randomUUID());
   const runtime = new Runtime(store);
   const c = await runtime.create();
-  await store.update<Conversation>('conversation:' + c.id, (value) => ({
+  await store.update<Record<string, unknown>>('conversation:' + c.id, (value) => ({
     ...value!,
     modelInput: [{ role: 'user', content: 'Earlier' }],
   }));
@@ -428,11 +424,11 @@ test('bug 7: a migration stopped halfway finishes the records it had not reached
   const done = await runtime.create();
   const left = await runtime.create();
   await store.put('plugin-code:digest-1', 'code');
-  await store.update<Conversation>('conversation:' + done.id, (value) => ({
+  await store.update<Record<string, unknown>>('conversation:' + done.id, (value) => ({
     ...value!,
     plugins: [plugin('', 'digest-1')],
   }));
-  await store.update<Conversation>('conversation:' + left.id, (value) => ({
+  await store.update<Record<string, unknown>>('conversation:' + left.id, (value) => ({
     ...value!,
     plugins: [plugin('code', 'digest-1')],
   }));

@@ -1,6 +1,6 @@
 import Ajv from 'ajv';
 import { isConnectionError, SignInRequired } from './connection-error';
-import { Store } from '../browser/store';
+import type { Store } from './ports';
 import {
   errorText,
   needsApproval,

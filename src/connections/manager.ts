@@ -1,4 +1,4 @@
-import type { Store } from '../browser/store';
+import type { Store } from '../core/ports';
 import { allowedURL, Plugins } from '../plugins/loader';
 import type { Configuration, ConnectionPreset } from './config';
 import { credentialKey, usable, type Credential } from './credentials';

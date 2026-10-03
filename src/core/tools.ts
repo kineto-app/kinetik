@@ -1,7 +1,7 @@
 import { Bash, type CommandName } from 'just-bash/browser';
 import type { createFilesystem } from '../browser/filesystem';
 import type { Binding, Skill } from './types';
-import type { Store } from '../browser/store';
+import type { Store } from './ports';
 const text = { type: 'string' };
 const schema = (properties: Record<string, unknown>, required: string[]) => ({
   type: 'object',

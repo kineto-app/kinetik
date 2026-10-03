@@ -1,12 +1,15 @@
-import type { Store } from '../browser/store';
+import type { Store } from './ports';
 import type { BackgroundProcess } from './background';
 import { traceKey } from './trace';
+import { ConversationStore } from './conversation-store';
 import type { Conversation, InstalledPlugin } from './types';
 
 const day = 24 * 3600 * 1000;
 const keepFinishedJobs = 7 * day;
 const finished = new Set(['completed', 'interrupted', 'cancelled']);
 const sweptKey = 'meta:swept-at';
+/** The answer a turn is streaming, saved now and then until it completes. */
+export const partialKey = (conversationId: string) => 'partial:' + conversationId;
 
 /** Files stored for a conversation: its staged attachments and what its messages show. */
 const fileKeys = (c: Conversation) => [
@@ -31,10 +34,14 @@ export async function sweepDaily(store: Store, now = Date.now()) {
 export async function sweep(store: Store, now = Date.now()) {
   const used = new Set<string>();
   const chats = new Set<string>();
+  const helpers = new Set<string>();
   const usePlugins = (plugins?: InstalledPlugin[]) =>
     plugins?.forEach((plugin) => used.add('plugin-code:' + plugin.digest));
-  for (const [, c] of await store.entries<Conversation>('conversation:')) {
+  const reader = new ConversationStore(store, () => {});
+  for (const [, record] of await store.entries<Conversation>('conversation:')) {
+    const c = (await reader.load(record.id)) ?? record;
     chats.add(c.id);
+    if (c.turn?.call) helpers.add(`helper:${c.id}:${c.turn.call.id}`);
     used.add(`model-archive:${c.id}:${c.compactions ?? 0}`);
     usePlugins(c.plugins);
     fileKeys(c).forEach((key) => used.add(key));
@@ -53,8 +60,11 @@ export async function sweep(store: Store, now = Date.now()) {
     else usePlugins(app.plugins);
   for (const [key, call] of await store.entries<{ state: string }>('app-call:'))
     if (call.state !== 'pending') stale.push(key);
-  for (const key of await store.keys('trace:'))
-    if (!chats.has(key.slice('trace:'.length))) stale.push(key);
+  // A helper's progress is kept only while its delegate call is the chat's current call.
+  for (const key of await store.keys('helper:')) if (!helpers.has(key)) stale.push(key);
+  for (const prefix of ['trace:', 'partial:'])
+    for (const key of await store.keys(prefix))
+      if (!chats.has(key.slice(prefix.length))) stale.push(key);
   for (const prefix of [
     'model-archive:',
     'shared-file:',
@@ -75,10 +85,13 @@ export async function conversationKeys(store: Store, id: string) {
   const keys = [
     'conversation:' + id,
     traceKey(id),
+    partialKey(id),
+    ...(await store.keys(`helper:${id}:`)),
     ...(await store.keys(`model-input:${id}:`)),
+    ...(await store.keys(`messages:${id}:`)),
     ...(await store.keys(`model-archive:${id}:`)),
   ];
-  const c = await store.get<Conversation>('conversation:' + id);
+  const c = await new ConversationStore(store, () => {}).load(id);
   if (c) keys.push(...fileKeys(c));
   const apps = new Set<string>();
   for (const [key, app] of await store.entries<{ conversationId?: string }>('app:'))

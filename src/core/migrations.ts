@@ -1,4 +1,4 @@
-import type { Store } from '../browser/store';
+import type { Store } from './ports';
 import type { Plugins } from '../plugins/loader';
 import type { ConversationStore } from './conversation-store';
 import { withOutput } from './model-input';
@@ -58,7 +58,8 @@ const migrations: ((context: Context) => Promise<void>)[] = [
   },
   // Older builds sent a background tool rejected before it ran to review; let the model continue.
   async ({ store, chats }) => {
-    for (const [, c] of await store.entries<Legacy>('conversation:')) {
+    for (const [, record] of await store.entries<Legacy>('conversation:')) {
+      const c = ((await chats.load(record.id)) ?? record) as Legacy;
       const last = c.messages.at(-1);
       if (
         c.status !== 'needs_review' ||
@@ -101,6 +102,11 @@ const migrations: ((context: Context) => Promise<void>)[] = [
           for (const field of flatFields) delete rest[field];
           return { ...rest, turn: turnOf(value!) };
         });
+  },
+  // Schema 6 stores messages in append-only segments, as model input already is.
+  async ({ store, chats }) => {
+    for (const [, c] of await store.entries<Conversation & { log?: unknown }>('conversation:'))
+      if (!c.log) await chats.update(c.id, (value) => value);
   },
 ];
 

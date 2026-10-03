@@ -118,6 +118,8 @@ src/
     migrations.ts, cleanup.ts  schema versions; the startup sweep and chat deletion
     trace.ts                 the local activity log of model requests and tool calls
     protocol.ts              RPC op names and the window–worker protocol version
+    ports.ts, memory-store.ts  the Store the core needs; an in-memory one for Node and evals
+  ui/drawer.ts, ask-panel.ts, thought.ts  the chat list drawer, the question card, the thinking note
     conversation-store.ts    conversation records; model input in append-only segments
     attachments.ts           staged files, uploads, photo previews for the model
     compaction.ts            context limits, local summaries, ChatGPT compaction and its undo
@@ -218,4 +220,15 @@ Each step is small enough for one PR. The order puts risk first.
     - the composer sends one message id per draft, so a send retried after a failure is saved once;
     - a missing history part in an unchanged chat is reported instead of retried forever.
   - Left on purpose by step 5: change events still do not name the conversation. A refresh is now cheap, and no window would use the name; a second refresh path is not worth it.
-- **Open:** step 6.
+  - Step 6, later work (#38):
+    - the core runs in plain Node: `core/ports.ts` types its storage, IndexedDB implements it in the app and `MemoryStore` in `tests/node`, which runs with no browser globals. Node 24 has Web Locks, and the workspace is built on the store, so no other port is needed;
+    - long turns compact: old tool outputs over 2,000 characters keep their start and end, the kept tail is a quarter of the window cut at a step boundary (so one long task shrinks, its request kept after the summary), and from 60% of the window a local summary runs in the background; the request waits only at 75%;
+    - an answer cut off by Stop, an error or a restart is kept, marked, and left out of the model input; the streaming text is saved at most once a second for that;
+    - change events name their chat, and a chat that is not open refreshes the sidebar on a slower timer;
+    - chat messages are stored append-only, like model input (migration 6); the chat list reads no messages for chats the window does not show;
+    - the `delegate` helper keeps its history per call, so a restart continues it without repeating steps;
+    - `main.ts` keeps the chat screen; the drawer, the question card and the thinking note moved to `ui/`.
+  - Left on purpose by step 6:
+    - streamed tool output: no tool can stream today (just-bash and Charms return at the end), so the event would have no producer;
+    - the full text of a shortened tool output is not saved to a file; the model can read the source again.
+- **Open:** nothing.

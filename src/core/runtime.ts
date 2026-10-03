@@ -10,7 +10,7 @@ import { Compactor, defaultContextWindow, estimateTokens } from './compaction';
 import { localSkills } from './skills';
 import { Automations } from './automation';
 import { BackgroundProcesses, type BackgroundProcess } from './background';
-import { Store } from '../browser/store';
+import type { Store } from './ports';
 import { ConversationStore, conversationKey as key } from './conversation-store';
 import { Attachments, attachmentLock } from './attachments';
 import { abortable } from './abortable';
@@ -21,8 +21,9 @@ import { WorkspaceFiles } from './workspace-files';
 import { migrate } from './migrations';
 import { conversationKeys, sweepDaily } from './cleanup';
 import { recoverWork, waitForConnection } from './recovery';
-import { endTurn, withCall, withTurn } from './turn';
+import { cutOff, endTurn, withCall, withTurn } from './turn';
 import { traced } from './trace';
+import { partialKey } from './cleanup';
 import { buildInstructions, builtinSkill, modelVisible, toolDefinitions } from './prompt';
 import { createFilesystem } from '../browser/filesystem';
 import { Plugins } from '../plugins/loader';
@@ -91,11 +92,13 @@ export class Runtime {
   private workspaceFiles: WorkspaceFiles;
   private workspace: ReturnType<typeof createFilesystem>;
   constructor(
-    readonly store = new Store(),
+    readonly store: Store,
     private changed: (event?: RuntimeEvent) => void = () => {},
     private model: Model = new MockModel(),
   ) {
-    this.chats = new ConversationStore(store, () => this.changed());
+    this.chats = new ConversationStore(store, (conversationId) =>
+      this.changed({ type: 'changed', conversationId }),
+    );
     this.plugins = new Plugins(store, (name, text, id) => this.automations.emit(name, text, id));
     this.automations = new Automations(store, this, changed);
     this.workspace = createFilesystem(store);
@@ -105,6 +108,7 @@ export class Runtime {
       this.changed(),
     );
     this.readOnly = new ReadOnlyTools({
+      store,
       chats: this.chats,
       ask: (id, request, signal) => this.modelNext(id, request, signal),
       live: this.live,
@@ -136,10 +140,19 @@ export class Runtime {
     });
   }
   /** Conversations without their model input, which only the runtime reads. */
-  async conversations(): Promise<Conversation[]> {
-    return (await this.store.entries<Conversation>('conversation:'))
-      .map(([, c]) => ({
+  async conversations(withMessages: (id: string) => boolean = () => true): Promise<Conversation[]> {
+    const records = await this.store.entries<Conversation>('conversation:');
+    const chats = await Promise.all(
+      records.map(async ([, c]) =>
+        withMessages(c.id) ? ((await this.chats.load(c.id)) ?? c) : { ...c, messages: [] },
+      ),
+    );
+    return chats
+      .map((c) => ({
         ...c,
+        // Where the lists are stored stays inside the core.
+        input: undefined,
+        log: undefined,
         modelInput: undefined,
         draft: this.drafts.get(c.id),
         live: this.live.get(c.id),
@@ -196,15 +209,12 @@ export class Runtime {
     }
     await attachmentLock(id, async () => {
       // A retried send arrives with the same id; it was saved already, attachments included.
-      if (
-        messageId &&
-        (await this.store.get<Conversation>(key(id)))?.messages.some((m) => m.id === messageId)
-      )
+      if (messageId && (await this.chats.load(id))?.messages.some((m) => m.id === messageId))
         return;
       const entry = message('user', text);
       if (messageId) entry.id = messageId;
       // Queuing only matters while work is in progress.
-      const current = await this.store.get<Conversation>(key(id));
+      const current = await this.chats.load(id);
       if (queue === 'after' && ['running', 'queued', 'waiting'].includes(current?.status ?? ''))
         entry.queue = 'after';
       const prepared = attachmentIds.length
@@ -285,7 +295,9 @@ export class Runtime {
     this.active.set(id, controller);
     let acquired = true;
     const work = async () => {
-      let c = await this.store.get<Conversation>(key(id));
+      // A cut-off answer left from an earlier turn was already kept, or belonged to a retried request.
+      await this.store.delete(partialKey(id));
+      let c = await this.chats.load(id);
       if (!c || c.status === 'needs_review' || c.status === 'stopped') return;
       const pinned = c.plugins ?? (await this.plugins.pin(await this.plugins.list()));
       const choice = await this.model.pin?.();
@@ -312,12 +324,20 @@ export class Runtime {
           provider: 'local',
           tool: {
             ...bindings.delegate.tool,
-            execute: (input, context) =>
-              this.readOnly.helper(id, String(input.task), bindings, context.signal),
+            execute: async (input, context) => {
+              const call = (await this.chats.load(id))?.turn?.call;
+              return this.readOnly.helper(
+                id,
+                String(input.task),
+                bindings,
+                context.signal,
+                call?.id,
+              );
+            },
           },
         };
       while (!controller.signal.aborted) {
-        c = await this.store.get<Conversation>(key(id));
+        c = await this.chats.load(id);
         if (!c || c.status === 'needs_review') break;
         if (!c.turn?.message || c.pending.length) {
           if (!c.pending.length) {
@@ -403,7 +423,7 @@ export class Runtime {
         for (let step = 0; step < maxSteps; step++) {
           this.progress(id, { step: step + 1 });
           // A call recorded but never run continues as proposed, without asking the model again.
-          const call = (await this.store.get<Conversation>(key(id)))?.turn?.call;
+          const call = (await this.chats.load(id))?.turn?.call;
           const resumed =
             call?.state === 'proposed' || call?.state === 'approved' ? call : undefined;
           let output: ModelStep;
@@ -430,6 +450,7 @@ export class Runtime {
                     definitions: toolDefinitions(bindings),
                     onText: (text) => {
                       this.drafts.set(id, text);
+                      this.savePartial(id, text);
                       this.changed({ type: 'text', conversationId: id, text });
                     },
                     onReasoning: (text) => {
@@ -441,13 +462,13 @@ export class Runtime {
                 ),
               );
             } catch (error) {
-              this.drafts.delete(id);
               // Only a request the provider rejected can blame the compaction before it.
               if (
                 !controller.signal.aborted &&
                 error instanceof ModelRejected &&
                 (await this.compactor.undoServerCompaction(id))
               ) {
+                await this.dropPartial(id);
                 step--;
                 continue;
               }
@@ -457,15 +478,16 @@ export class Runtime {
                 throw new Error(
                   'This chat no longer fits the model, even after summarising earlier messages. Start a new chat to continue.',
                 );
+              await this.dropPartial(id);
               overflowRetried = true;
               step--;
               continue;
             }
             overflowRetried = false;
-            this.drafts.delete(id);
+            await this.dropPartial(id);
             // Steering received during inference takes precedence over an unexecuted tool
             // or stale answer. The old request remains in model history.
-            if (steering(await this.store.get<Conversation>(key(id))).length) {
+            if (steering(await this.chats.load(id)).length) {
               await this.chats.update(id, (value) =>
                 withTurn(value, { message: undefined, call: undefined }),
               );
@@ -527,7 +549,7 @@ export class Runtime {
           result = called.result;
           if (called.retry) continue;
           // Steering joins at a tool boundary, before any further model/tool calls.
-          const latest = await this.store.get<Conversation>(key(id));
+          const latest = await this.chats.load(id);
           if (steering(latest).length) {
             await this.chats.update(id, (value) =>
               withTurn(value, { message: undefined, call: undefined }),
@@ -560,24 +582,29 @@ export class Runtime {
         !controller.signal.aborted &&
         (isConnectionError(error) || error instanceof SignInRequired)
       ) {
+        // The request is sent again once online, so its partial answer is not kept.
+        await this.dropPartial(id);
         await waitForConnection(this.chats, id, error);
         return;
       }
+      const partial = this.drafts.get(id);
       await this.chats.update(id, (c) => ({
         ...endTurn(c, 'stopped'),
         plugins: undefined,
         messages: [
           ...c.messages,
+          ...(partial ? [cutOff(c, partial)] : []),
           message('notice', controller.signal.aborted ? 'Stopped.' : errorText(error)),
         ],
       }));
+      await this.store.delete(partialKey(id));
     } finally {
       this.drafts.delete(id);
       this.live.delete(id);
       this.active.delete(id);
     }
     if (!acquired) return;
-    const next = await this.store.get<Conversation>(key(id));
+    const next = await this.chats.load(id);
     if (
       next &&
       ['running', 'queued', 'idle'].includes(next.status) &&
@@ -739,7 +766,7 @@ export class Runtime {
     binding: Binding,
     error: unknown,
   ): Promise<'paused' | { result: string; retry: true }> {
-    const call = (await this.store.get<Conversation>(key(id)))?.turn?.call;
+    const call = (await this.chats.load(id))?.turn?.call;
     const rerunnable = localReadOnly(binding, output.input);
     const offline = isConnectionError(error) || error instanceof SignInRequired;
     if (!controller.signal.aborted && rerunnable && !offline) {
@@ -775,8 +802,20 @@ export class Runtime {
     if (controller.signal.aborted) await this.requestCancellation(binding, id);
     return 'paused';
   }
+  private partialSaved = new Map<string, number>();
+  /** Keeps the streaming answer at most once a second, so a restart can show what was written. */
+  private savePartial(id: string, text: string) {
+    if (Date.now() - (this.partialSaved.get(id) ?? 0) < 1000) return;
+    this.partialSaved.set(id, Date.now());
+    void this.store.put(partialKey(id), text).catch(() => {});
+  }
+  private async dropPartial(id: string) {
+    this.drafts.delete(id);
+    this.partialSaved.delete(id);
+    await this.store.delete(partialKey(id));
+  }
   private async alert(id: string, body: string) {
-    const c = await this.store.get<Conversation>(key(id));
+    const c = await this.chats.load(id);
     try {
       await this.notify({ conversationId: id, title: c?.title || 'Kinetik', body });
     } catch {
@@ -806,7 +845,7 @@ export class Runtime {
   async answer(id: string, value: string): Promise<void> {
     if (typeof value !== 'string' || !value || value.length > 500)
       throw new Error('Invalid answer.');
-    const c = await this.store.get<Conversation>(key(id));
+    const c = await this.chats.load(id);
     const call = c?.turn?.call;
     const ask = call?.state === 'awaiting' ? call.ask : undefined;
     if (!c || c.status !== 'asking' || !ask) throw new Error('There is no question to answer.');
@@ -844,7 +883,7 @@ export class Runtime {
     }
   }
   private async pinFor(id: string) {
-    const c = await this.store.get<Conversation>(key(id));
+    const c = await this.chats.load(id);
     return c?.turn?.startedAt !== undefined ? c.turn.model : await this.model.pin?.();
   }
   /** A model request with the provider and model pinned for this conversation's turn. */
@@ -862,6 +901,7 @@ export class Runtime {
     signal: AbortSignal,
     request: () => Promise<ModelStep>,
   ): Promise<ModelStep> {
+    const sent = (await this.chats.load(id))?.compactions;
     const output = await abortable(request(), signal);
     const c = await this.chats.load(id);
     const window = output.contextWindow ?? c?.context?.window ?? defaultContextWindow;
@@ -870,10 +910,12 @@ export class Runtime {
       : estimateTokens(c?.modelInput) + estimateTokens(output.items);
     await this.chats.update(id, (value) => ({
       ...value,
-      context: { tokens, window },
       turn: { ...value.turn, usage: addUsage(value.turn?.usage, output.usage) },
-      // A request that worked accepts any provider compaction before it.
-      serverCompaction: undefined,
+      // A summary applied while this request ran already set the size, and the request never saw it.
+      ...(value.compactions === sent
+        ? // A request that worked accepts any provider compaction before it.
+          { context: { tokens, window }, serverCompaction: undefined }
+        : {}),
     }));
     return output;
   }
@@ -935,7 +977,7 @@ export class Runtime {
     }
   }
   private async requestCancellation(binding: Binding, id: string): Promise<void> {
-    const c = await this.store.get<Conversation>(key(id));
+    const c = await this.chats.load(id);
     const operationId = c?.turn?.call?.operationId;
     if (operationId && binding.tool.cancel) {
       try {

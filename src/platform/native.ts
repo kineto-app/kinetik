@@ -59,7 +59,7 @@ async function boot() {
           .filter(([, job]) => ['running', 'waiting'].includes(job.state))
           .map(([, job]) => job.conversationId),
       );
-      for (const conversation of await host.runtime.conversations())
+      for (const conversation of await host.runtime.conversations(() => false))
         if (
           working.has(conversation.id) ||
           ['queued', 'running', 'waiting'].includes(conversation.status)
@@ -81,7 +81,7 @@ async function synchronizeBackground(heartbeat = false) {
   if (!host?.runtime) return;
   if (syncing) return syncing;
   syncing = (async () => {
-    const conversations = await host.runtime.conversations();
+    const conversations = await host.runtime.conversations(() => false);
     const jobs = await host.store.entries<{ state: string }>('background:');
     const active =
       authenticating ||
