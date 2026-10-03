@@ -15,6 +15,7 @@ import { AppCalls } from './apps';
 import { WorkspaceFiles } from './workspace-files';
 import { migrate } from './migrations';
 import { conversationKeys, sweepDaily } from './cleanup';
+import { recoverWork, waitForConnection } from './recovery';
 import { buildInstructions, builtinSkill, modelVisible, toolDefinitions } from './prompt';
 import { createFilesystem } from '../browser/filesystem';
 import { Plugins } from '../plugins/loader';
@@ -657,7 +658,7 @@ export class Runtime {
               offline &&
               (rerunnable || (call?.operationId && binding.tool.recover))
             ) {
-              await this.waitForConnection(id, error);
+              await waitForConnection(this.chats, id, error);
               return;
             }
             await this.chats.update(id, (value) => ({
@@ -711,7 +712,7 @@ export class Runtime {
         !controller.signal.aborted &&
         (isConnectionError(error) || error instanceof SignInRequired)
       ) {
-        await this.waitForConnection(id, error);
+        await waitForConnection(this.chats, id, error);
         return;
       }
       await this.chats.update(id, (c) => ({
@@ -893,22 +894,6 @@ export class Runtime {
       this.active.delete(id);
     }
   }
-  private waitForConnection(id: string, error?: unknown) {
-    return this.chats.update(id, (c) =>
-      c.status === 'stopped' || c.status === 'needs_review'
-        ? c
-        : {
-            ...c,
-            status: 'waiting',
-            waitingFor: error instanceof SignInRequired ? 'signin' : 'connection',
-            retryAttempts: error instanceof SignInRequired ? undefined : (c.retryAttempts ?? 0) + 1,
-            retryAt:
-              error instanceof SignInRequired
-                ? undefined
-                : Date.now() + Math.min(30000, 2000 * 2 ** Math.min(c.retryAttempts ?? 0, 4)),
-          },
-    );
-  }
   private async requestCancellation(binding: Binding, id: string): Promise<void> {
     const c = await this.store.get<Conversation>(key(id));
     if (c?.call?.operationId && binding.tool.cancel) {
@@ -953,7 +938,19 @@ export class Runtime {
   }
   recover(): Promise<void> {
     return (this.recovery ??= this.prepare()
-      .then(() => this.recoverWork())
+      .then(() =>
+        recoverWork({
+          store: this.store,
+          chats: this.chats,
+          plugins: this.plugins,
+          apps: this.apps,
+          background: this.background,
+          active: this.active,
+          conversations: () => this.conversations(),
+          localTools: async () =>
+            localTools(await this.workspace, () => [builtinSkill], this.store),
+        }),
+      )
       .finally(() => {
         this.recovery = undefined;
       }));
@@ -964,149 +961,6 @@ export class Runtime {
     const keys = await conversationKeys(this.store, id);
     await this.store.updateMany([], () => keys.map((key) => [key, undefined]));
     this.changed();
-  }
-  private async recoverWork(): Promise<void> {
-    for (const [callKey, call] of await this.store.entries<{
-      state: string;
-      conversationId: string;
-      name: string;
-    }>('app-call:')) {
-      if (call.state !== 'pending' || this.apps.running(callKey)) continue;
-      if (await this.store.get(key(call.conversationId)))
-        await this.chats.update(call.conversationId, (value) => ({
-          ...value,
-          messages: [
-            ...value.messages,
-            message(
-              'notice',
-              `The worker stopped during app tool ${call.name}. Check its effects before trying again.`,
-            ),
-          ],
-        }));
-      await this.store.put(callKey, { ...call, state: 'unknown' });
-    }
-    const local = localTools(await this.workspace, () => [builtinSkill], this.store);
-    for (const c of await this.conversations()) {
-      if (this.active.has(c.id)) continue;
-      if (
-        !['running', 'queued', 'waiting'].includes(c.status) &&
-        !(c.status === 'stopped' && c.call?.state === 'pending')
-      )
-        continue;
-      const recover = async () => {
-        if (
-          c.call?.state === 'pending' &&
-          c.call.provider === 'local' &&
-          localReadOnly(local[c.call.name], c.call.input) &&
-          !c.call.approved
-        ) {
-          // It changed nothing, so running it again is safe; the approved path runs it as proposed.
-          await this.chats.update(c.id, (value) => ({
-            ...value,
-            status: value.status === 'stopped' ? 'stopped' : 'queued',
-            call: { ...value.call!, approved: true },
-          }));
-          return;
-        }
-        if (c.call?.state === 'pending' && c.call.approved) {
-          // Approved but never started: running it now is its first and only run.
-          if (c.status !== 'stopped')
-            await this.chats.update(c.id, (value) => ({ ...value, status: 'queued' }));
-          return;
-        }
-        if (c.call?.state === 'pending') {
-          // A crash between starting a job and saving its receipt must not start it twice.
-          const job =
-            c.call.name === 'background'
-              ? await this.store.get<BackgroundProcess>('background:' + c.call.id)
-              : undefined;
-          if (job) {
-            const result = JSON.stringify({ id: job.id, state: job.state });
-            await this.chats.update(c.id, (value) => ({
-              ...value,
-              status: c.status === 'stopped' ? 'stopped' : 'queued',
-              call: { ...value.call!, state: 'completed', result },
-              modelInput: withOutput(value.modelInput, value.call?.callId, result),
-            }));
-            return;
-          }
-          try {
-            const snapshot = await this.plugins.snapshot(local, c.plugins ?? []);
-            const tool = snapshot.bindings[c.call.name]?.tool;
-            if (c.status !== 'stopped' && tool?.recover && c.call.operationId) {
-              const signal = AbortSignal.timeout(10000);
-              let status;
-              try {
-                status = await abortable(tool.recover(c.call.operationId, signal), signal);
-              } catch (error) {
-                if (isConnectionError(error) || error instanceof SignInRequired) {
-                  await this.waitForConnection(c.id, error);
-                  return;
-                }
-                throw error;
-              }
-              if (status.done) {
-                await this.chats.update(c.id, (value) => ({
-                  ...value,
-                  status: value.status === 'stopped' ? 'stopped' : 'queued',
-                  retryAt: undefined,
-                  retryAttempts: undefined,
-                  waitingFor: undefined,
-                  messages: [
-                    ...value.messages,
-                    {
-                      ...message(
-                        'tool',
-                        printable(status.result),
-                        `${value.call!.name} · ${value.call!.provider}`,
-                      ),
-                      id: value.call!.id,
-                      activity: {
-                        input: value.call!.input,
-                        outcome: toolOutcome(status.result, tool.command),
-                      },
-                      visibility: value.turn === 'background' ? 'internal' : undefined,
-                    },
-                  ],
-                  call: { ...value.call!, state: 'completed', result: printable(status.result) },
-                  modelInput: withOutput(
-                    value.modelInput,
-                    value.call?.callId,
-                    printable(status.result),
-                  ),
-                }));
-                return;
-              }
-              // The saved operation is still running. Check it again, never re-execute it.
-              await this.waitForConnection(c.id);
-              return;
-            }
-          } catch {
-            /* Unavailable plugins or reconciliation failures leave an explicit unknown outcome. */
-          }
-          await this.chats.update(c.id, (value) => ({
-            ...value,
-            status: 'needs_review',
-            call: { ...value.call!, state: 'unknown' },
-            messages: [
-              ...value.messages,
-              message(
-                'notice',
-                'The worker stopped during a tool call. Review its outcome before continuing.',
-              ),
-            ],
-          }));
-        } else await this.chats.update(c.id, (value) => ({ ...value, status: 'queued' }));
-      };
-      if (globalThis.navigator?.locks)
-        await navigator.locks.request(
-          'kinetik-conversation:' + c.id,
-          { ifAvailable: true },
-          (lock) => (lock ? recover() : undefined),
-        );
-      else await recover();
-    }
-    await this.background.recover();
   }
   async resolve(id: string, retry: boolean): Promise<void> {
     await this.chats.update(id, (c) => {
