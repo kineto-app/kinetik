@@ -6,9 +6,11 @@ import solid from 'vite-plugin-solid';
 export default defineConfig({
   plugins: [solid()],
   define: {
-    __NATIVE_CONFIG__: process.env.KINETIK_NATIVE_CONFIG
-      ? readFileSync(process.env.KINETIK_NATIVE_CONFIG, 'utf8')
-      : JSON.stringify({ connections: {} }),
+    // Native apps ship with Charms; a distributor's file replaces the whole configuration.
+    __NATIVE_CONFIG__: readFileSync(
+      process.env.KINETIK_NATIVE_CONFIG ?? 'native.config.json',
+      'utf8',
+    ),
   },
   resolve: {
     alias: { 'node:zlib': fileURLToPath(new URL('./src/browser/no-zlib.ts', import.meta.url)) },
