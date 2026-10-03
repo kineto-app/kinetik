@@ -7,6 +7,7 @@ import { mountApp } from './mcp-app';
 import { mountFile } from './files';
 import { attachmentCarousel } from './attachments';
 import { isInternalActivity } from './activity-data';
+import { plainNotice } from './notice';
 
 /** A message mounts once. Widget adapters retain their iframe through streaming and fullscreen. */
 export function MessageBubble(props: {
@@ -49,6 +50,42 @@ export function MessageBubble(props: {
             : 'Earlier messages summarised'}
         </span>
       </p>
+    );
+  }
+  if (item.role === 'notice' && item.text === 'Stopped.') {
+    props.article.classList.add('compaction-note');
+    return (
+      <p>
+        <span class="icon-slot" innerHTML={icon('stop')} />
+        <span>Stopped</span>
+      </p>
+    );
+  }
+  if (item.role === 'notice') {
+    const notice = plainNotice(item.text);
+    props.article.toggleAttribute('data-failed', notice.failed);
+    return (
+      <>
+        <p class="notice-title">{notice.title}</p>
+        <Show when={notice.detail}>
+          <details class="notice-detail">
+            <summary>Details</summary>
+            <p>{notice.detail}</p>
+          </details>
+        </Show>
+        <Show when={notice.failed}>
+          <button
+            class="secondary notice-retry"
+            onClick={() =>
+              window.dispatchEvent(
+                new CustomEvent('kinetik-retry', { detail: props.conversationId }),
+              )
+            }
+          >
+            Try again
+          </button>
+        </Show>
+      </>
     );
   }
   return (

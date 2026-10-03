@@ -30,10 +30,6 @@ export function Shell() {
             <nav id="conversations" aria-label="Recent chats"></nav>
           </div>
           <div class="sidebar-footer">
-            <button id="install-open" class="secondary" hidden>
-              <Icon name="download" />
-              <span>Install Kinetik</span>
-            </button>
             <div class="nav-tools">
               <button id="connections-open">
                 <Icon name="plug" />
@@ -50,6 +46,10 @@ export function Shell() {
               <button id="settings-open">
                 <Icon name="settings" />
                 <span>Settings</span>
+              </button>
+              <button id="install-open" hidden>
+                <Icon name="download" />
+                <span>Install Kinetik</span>
               </button>
             </div>
             <div class="storage-note">
@@ -139,7 +139,8 @@ export function Shell() {
                 <span class="spinner" aria-hidden="true"></span>
                 <span id="background-label"></span>
               </div>
-              <div id="activity" class="activity" role="status" hidden>
+              {/* The reply block in the chat shows the work; this line is for screen readers. */}
+              <div id="activity" class="sr-only" role="status" hidden>
                 <span class="thinking-dots" aria-hidden="true">
                   <i></i>
                   <i></i>

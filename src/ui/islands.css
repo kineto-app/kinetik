@@ -136,7 +136,6 @@ dialog:not(.connection-setup) {
   flex: none;
   min-width: var(--target);
 }
-#connection-status,
 #connections-dot[data-attention='true'] {
   color: var(--bad);
 }
@@ -727,4 +726,80 @@ dialog::backdrop,
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+
+/* A notice in plain words; the original text waits under Details, retry only on the newest one. */
+.message[data-role='notice'] .notice-title {
+  margin: 0;
+  color: var(--ink);
+}
+.notice-detail {
+  margin-top: 6px;
+  font-size: 12px;
+}
+.notice-detail summary {
+  cursor: pointer;
+  color: var(--muted);
+}
+.notice-detail p {
+  margin: 6px 0 0;
+  overflow-wrap: anywhere;
+}
+.notice-retry {
+  margin-top: 10px;
+  min-height: var(--target);
+}
+#timeline[data-busy] .notice-retry,
+.message[data-role='notice']:not(:last-of-type) .notice-retry {
+  display: none;
+}
+
+/* Only the newest reply keeps its copy button and time; others show them on hover, focus or a tap. */
+@media (prefers-reduced-motion: no-preference) {
+  .message-actions,
+  .message[data-role='user'] > .message-time {
+    transition: opacity var(--duration);
+  }
+}
+.message[data-role='assistant']:not([data-latest]) > .message-actions,
+.message[data-role='user'] > .message-time {
+  opacity: 0;
+}
+.message:hover > .message-actions,
+.message:hover > .message-time,
+.message:focus-within > .message-actions,
+.message[data-show-actions] > .message-actions,
+.message[data-show-actions] > .message-time {
+  opacity: 1;
+}
+/* A connection that needs attention says so in a word, not only a red plug. */
+.topbar #connection-status {
+  gap: 6px;
+  padding: 0 12px;
+  font-size: 13px;
+  font-weight: 600;
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  border: 0;
+}
+.topbar #connection-status .icon {
+  width: 15px;
+  height: 15px;
+}
+.connect-start {
+  min-height: var(--target);
+  padding-inline: var(--space-section);
+}
+.empty > .preview-note:has(.connect-start) {
+  font-size: 15px !important;
+}
+#install-open {
+  justify-content: flex-start;
+  background: transparent;
+  color: var(--muted);
+  font-weight: 400;
+}
+/* The empty chat's own button already offers the connection. */
+.main:has(.connect-start) #connection-status {
+  display: none;
 }

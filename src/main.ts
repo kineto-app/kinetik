@@ -229,17 +229,24 @@ function render() {
     foreground && c?.live?.reasoning && !c.draft && !openCall(c.turn?.call)
       ? latestThought(c.live.reasoning)
       : undefined;
-  byId('activity-label').textContent =
-    (openCall(c?.turn?.call)
-      ? taskLabel(c!.turn!.call!.name)
-      : c?.live?.activity === 'summarising'
-        ? 'Summarising earlier messages…'
-        : (thought?.heading ?? 'Working')) +
-    (c?.live && c.live.step > 1 ? ` · step ${c.live.step}` : '') +
-    (c?.live?.helperStep ? ` · helper step ${c.live.helperStep}` : '');
+  byId('activity-label').textContent = openCall(c?.turn?.call)
+    ? taskLabel(c!.turn!.call!.name)
+    : c?.live?.activity === 'summarising'
+      ? 'Summarising earlier messages…'
+      : (thought?.heading ?? 'Working');
+  byId('activity-label').title = [
+    c?.live && c.live.step > 1 ? `Step ${c.live.step}` : '',
+    c?.live?.helperStep ? `helper step ${c.live.helperStep}` : '',
+  ]
+    .filter(Boolean)
+    .join(' · ');
   renderThought(thought);
   updateElapsed();
   byId('recovery').hidden = c?.status !== 'needs_review';
+  byId('timeline').toggleAttribute(
+    'data-busy',
+    ['running', 'queued', 'waiting', 'asking', 'needs_review'].includes(c?.status ?? ''),
+  );
   renderAsk(c, (id, value) => rpc('answer', { id, value }).then(refresh).catch(showError));
   const serialized = JSON.stringify([selected, c?.messages, c?.draft, c?.turn?.call, c?.status]);
   if (serialized !== lastMessages) {
@@ -258,7 +265,7 @@ function render() {
     }
     if (c?.messages.length) timeline.querySelector('.empty')?.remove();
     let replacesDraft = false;
-    if (!c?.draft || isBackgroundTurn(c)) {
+    if (!foreground) {
       const draft = timeline.querySelector('[data-draft]');
       replacesDraft = Boolean(draft);
       draft?.remove();
@@ -268,10 +275,10 @@ function render() {
       empty.className = 'empty';
       empty.innerHTML = `<div class="welcome-mark" aria-hidden="true">${icon('spark')}</div><h2>What can we get done today?</h2><div class="starter"><div class="suggestions"></div></div><p class="preview-note">Preview uses sample replies. ChatGPT is not connected.</p>`;
       if (connectionState?.chatgpt.available) {
-        empty.querySelector('.preview-note')!.textContent =
-          connectionState.chatgpt.connected || customModel().chosen
-            ? ''
-            : 'Connect ChatGPT to start a conversation.';
+        const note = empty.querySelector('.preview-note')!;
+        note.replaceChildren();
+        if (!connectionState.chatgpt.connected && !customModel().chosen)
+          note.append(button('Connect ChatGPT to start', openSetup, 'primary connect-start'));
       }
       const examples: [string, IconName, string][] = [
         ...demoTasks.map((task): [string, IconName, string] => [task.title, 'file', task.prompt]),
@@ -320,7 +327,8 @@ function render() {
         ),
       );
     }
-    if (c?.draft && !isBackgroundTurn(c)) {
+    // While Kinetik works, its reply block is already there and says what it is doing.
+    if (foreground) {
       let draft = timeline.querySelector<HTMLElement>('[data-draft]');
       if (!draft) {
         draft = document.createElement('article');
@@ -329,18 +337,31 @@ function render() {
         // Re-rendered content would otherwise be re-announced in full on every frame.
         draft.setAttribute('aria-busy', 'true');
         // Holds the line the final reply's "Worked for" takes, so the swap does not shift text.
-        draft.innerHTML = `<div class="work-duration">${icon('clock')}Working…</div><div class="message-label"><img src="./icon.svg" width="24" height="24" alt="" />Kinetik<span class="streaming-label">Writing</span></div><div class="message-content streaming-content"></div>`;
+        draft.innerHTML = `<div class="work-duration">${icon('clock')}<span>Working…</span></div><div class="message-label"><img src="./icon.svg" width="24" height="24" alt="" />Kinetik<span class="streaming-label">Writing</span></div><div class="message-content streaming-content"></div>`;
         timeline.append(draft);
       }
-      draftText = c.draft;
+      draftText = c!.draft ?? '';
       draftFrame ||= requestAnimationFrame(renderDraft);
     }
+    const replies = timeline.querySelectorAll('.message[data-role=assistant]:not([data-draft])');
+    replies.forEach((reply, index) =>
+      reply.toggleAttribute('data-latest', index === replies.length - 1),
+    );
     renderToolActivity(timeline, c);
     timeline.scrollTop = !c?.messages.length
       ? 0
       : forceScroll || nearBottom
         ? timeline.scrollHeight
         : oldScroll;
+  }
+  const pending = byId('timeline').querySelector<HTMLElement>('[data-draft] .streaming-label');
+  // Steps and the thinking note above already say what is happening; this only shows it is alive.
+  if (pending && pending.dataset.writing !== String(Boolean(c?.draft))) {
+    pending.dataset.writing = String(Boolean(c?.draft));
+    pending.innerHTML = c?.draft
+      ? 'Writing'
+      : '<span class="thinking-dots" aria-hidden="true"><i></i><i></i><i></i></span>';
+    updateElapsed();
   }
   updateJumpButton();
   renderAutomations(state.automations, refresh, choose);
@@ -563,8 +584,32 @@ function updateJumpButton() {
     !timeline.querySelector('.message') ||
     timeline.scrollHeight - timeline.scrollTop - timeline.clientHeight < 100;
 }
-byId('timeline').addEventListener('scroll', updateJumpButton, { passive: true });
-new ResizeObserver(updateJumpButton).observe(byId('timeline'));
+let pinned = true;
+byId('timeline').addEventListener(
+  'scroll',
+  () => {
+    const timeline = byId('timeline');
+    pinned = timeline.scrollHeight - timeline.scrollTop - timeline.clientHeight < 80;
+    updateJumpButton();
+  },
+  { passive: true },
+);
+// The keyboard opening shrinks the chat; one that was at its end stays there.
+new ResizeObserver(() => {
+  if (pinned) byId('timeline').scrollTop = byId('timeline').scrollHeight;
+  updateJumpButton();
+}).observe(byId('timeline'));
+byId('timeline').addEventListener('click', (event) => {
+  const target = event.target as HTMLElement;
+  if (target.closest('a, button, summary, details, iframe')) return;
+  const message = target.closest<HTMLElement>(
+    '.message[data-role=assistant], .message[data-role=user]',
+  );
+  if (!message || getSelection()?.toString()) return;
+  for (const shown of byId('timeline').querySelectorAll('[data-show-actions]'))
+    if (shown !== message) shown.removeAttribute('data-show-actions');
+  message.toggleAttribute('data-show-actions');
+});
 byId('jump-latest').onclick = () => {
   const timeline = byId('timeline');
   timeline.scrollTo({
@@ -577,6 +622,9 @@ let sidebarTimer: ReturnType<typeof setTimeout>;
 function updateElapsed() {
   const c = current();
   const now = Date.now();
+  const working = byId('timeline').querySelector('[data-draft] .work-duration span');
+  if (working && c?.turn?.startedAt !== undefined)
+    working.textContent = 'Working for ' + elapsed(now - c.turn.startedAt);
   for (const id of ['activity', 'connection-wait', 'background-activity']) {
     const parent = byId(id);
     let timer = parent.querySelector<HTMLElement>('.elapsed-time');
@@ -609,6 +657,14 @@ setInterval(() => {
 }, 1000);
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden) updateElapsed();
+});
+window.addEventListener('kinetik-retry', (event) => {
+  const id = (event as CustomEvent<string>).detail;
+  if (id !== selected) return;
+  followNextMessage = true;
+  void rpc('submit', { id, text: 'Try again.', messageId: crypto.randomUUID() })
+    .then(refresh)
+    .catch(showError);
 });
 window.addEventListener('kinetik-changed', (event) =>
   changed((event as CustomEvent<RuntimeEvent | undefined>).detail),
@@ -733,8 +789,9 @@ const connectionSetup = setupConnections((value) => {
   byId('connections-summary').textContent = attention
     ? 'Needs attention'
     : connected.join(' · ') || (configured ? 'Not connected' : 'Manage services');
-  byId('connection-status').innerHTML = icon('plug');
-  byId('connection-status').classList.add('icon-button');
+  byId('connection-status').innerHTML =
+    icon('plug') +
+    `<span>${value.chatgpt.available && !value.chatgpt.connected ? 'Connect' : 'Reconnect'}</span>`;
   byId('connection-status').title =
     value.chatgpt.available && !value.chatgpt.connected ? 'Connect ChatGPT' : 'Reconnect Charms';
   if (value.chatgpt.available) {

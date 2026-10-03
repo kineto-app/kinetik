@@ -33,12 +33,14 @@ test('live step progress and streamed text arrive as events', async ({ page, req
   const label = page.locator('#activity-label');
 
   await send(page, 'Build the slides');
-  await expect(label).toHaveText('Running a command · step 3');
+  await expect(label).toHaveText('Running a command');
+  await expect(label).toHaveAttribute('title', 'Step 3');
   await shot('1-step');
 
   // A reload mid-turn shows the same progress from stored state alone.
   await page.reload();
-  await expect(label).toHaveText('Running a command · step 3');
+  await expect(label).toHaveText('Running a command');
+  await expect(label).toHaveAttribute('title', 'Step 3');
   await shot('2-after-reload');
 
   const draft = page.locator('[data-draft]');

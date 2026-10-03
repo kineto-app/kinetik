@@ -23,6 +23,7 @@ import { conversationKeys, sweepDaily } from './cleanup';
 import { recoverWork, waitForConnection } from './recovery';
 import { cutOff, endTurn, withCall, withTurn } from './turn';
 import { traced } from './trace';
+import { chatTitle } from './title';
 import { approvalsOn } from './approvals';
 import { partialKey } from './cleanup';
 import { buildInstructions, builtinSkill, modelVisible, toolDefinitions } from './prompt';
@@ -255,10 +256,7 @@ export class Runtime {
         title:
           c.messages.length || entry.role !== 'user'
             ? c.title
-            : (entry.text.split('\n')[0] || entry.attachments?.[0]?.name || 'New chat').slice(
-                0,
-                50,
-              ),
+            : chatTitle(entry.text, entry.attachments?.[0]?.name.slice(0, 40) || 'New chat'),
         messages: [...c.messages, entry],
         pending: wake ? [...c.pending, entry.id] : c.pending,
         status:
@@ -595,7 +593,10 @@ export class Runtime {
         messages: [
           ...c.messages,
           ...(partial ? [cutOff(c, partial)] : []),
-          message('notice', controller.signal.aborted ? 'Stopped.' : errorText(error)),
+          // A kept answer already says it was cut off.
+          ...(controller.signal.aborted && partial
+            ? []
+            : [message('notice', controller.signal.aborted ? 'Stopped.' : errorText(error))]),
         ],
       }));
       await this.store.delete(partialKey(id));

@@ -40,7 +40,8 @@ test('parallel read-only tools and a helper agent', async ({ page, request }, in
 
   // A helper agent reads on its own and reports back.
   await send(page, 'Ask a helper about my slides');
-  await expect(page.locator('#activity-label')).toHaveText('Asking a helper · helper step 2');
+  await expect(page.locator('#activity-label')).toHaveText('Asking a helper');
+  await expect(page.locator('#activity-label')).toHaveAttribute('title', /helper step 2/);
   await shot('3-helper-working');
   await expect(replies(page).last()).toContainText('The helper reports: There are two slides');
   const helper = (await (await request.get(base + 'agent-requests')).json()).filter(

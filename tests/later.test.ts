@@ -37,6 +37,8 @@ test('Stop keeps the answer written so far, marked, and out of the model input',
   const saved = await read(store, c.id);
   const kept = saved.messages.find((m) => m.aborted);
   expect(kept).toMatchObject({ role: 'assistant', text: 'Lisbon has ' });
+  // The kept answer already says it was cut off, so no second "Stopped." notice.
+  expect(saved.messages.filter((m) => m.role === 'notice')).toEqual([]);
   expect(JSON.stringify(await modelInput(store, c.id))).not.toContain('Lisbon has');
   expect(await store.get('partial:' + c.id)).toBeUndefined();
 });

@@ -23,7 +23,8 @@ test('usage, self-correction, automatic summaries and overflow recovery', async 
   // 1.1 Usage is shown on the reply.
   await send(page, 'Hi');
   await expect(replies(page)).toHaveCount(1);
-  await expect(page.locator('.work-duration').last()).toContainText(/· [\d.]+k tokens/);
+  await expect(page.locator('.work-duration').last()).not.toContainText('tokens');
+  await expect(page.locator('.work-duration').last()).toHaveAttribute('title', /Tokens: \d+ in/);
   await shot('1-usage');
 
   // 1.4 Bad arguments and a missing file go back to the model, which finishes the job.
