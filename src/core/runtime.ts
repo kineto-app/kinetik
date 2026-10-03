@@ -300,15 +300,24 @@ export class Runtime {
             // Steering joins now; a queued follow-up waits until no steering is left, one at a time.
             const steer = steering(value);
             const taken = steer.length ? steer : value.pending.slice(0, 1);
-            const unanswered =
-              value.call?.state === 'awaiting' && value.call.callId
+            // A pending local call never ran or only read, so the new message replaces it.
+            const unanswered = !value.call?.callId
+              ? []
+              : value.call.state === 'awaiting'
                 ? [
                     functionOutput(
                       value.call.callId,
                       'The user did not answer and sent a new message instead.',
                     ),
                   ]
-                : [];
+                : value.call.state === 'pending' && value.call.provider === 'local'
+                  ? [
+                      functionOutput(
+                        value.call.callId,
+                        'Not finished: the user sent a new message.',
+                      ),
+                    ]
+                  : [];
             return {
               ...value,
               activeMessage: taken.at(-1),

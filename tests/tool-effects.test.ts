@@ -164,6 +164,38 @@ test('a lost connection inside the helper pauses the turn instead of asking for 
   expect(saved.call).toMatchObject({ name: 'delegate', state: 'pending' });
 });
 
+test('a message sent while the helper waits for a connection answers its call first', async () => {
+  const store = new Store(crypto.randomUUID());
+  const { model } = scripted([
+    () => ({
+      ...call('delegate', { task: 'Read the brief' }),
+      items: [{ type: 'function_call', call_id: 'c', name: 'delegate', arguments: '{}' }],
+    }),
+    () => call('charms__files_read', { path: 'brief.md' }),
+    () => say('Here is what I can say without the brief.'),
+  ]);
+  const runtime = new Runtime(store, undefined, model);
+  withTools(runtime, {
+    charms__files_read: remote({
+      readOnly: true,
+      execute: async () => {
+        throw new ConnectionError('offline');
+      },
+    }),
+  });
+  const c = await runtime.create();
+  await runtime.submit(c.id, 'Research');
+  await runtime.run(c.id);
+  await runtime.submit(c.id, 'Never mind, answer now');
+  await runtime.run(c.id);
+  const input = (await modelInput(store, c.id))!;
+  const calls = input.filter((i) => i.type === 'function_call').map((i) => i.call_id);
+  const outputs = input.filter((i) => i.type === 'function_call_output').map((i) => i.call_id);
+  expect(calls).toEqual(['c']);
+  expect(outputs).toEqual(calls);
+  expect((await read(store, c.id)).status).toBe('idle');
+});
+
 test('a lost connection during a batch pauses the turn and records nothing', async () => {
   const store = new Store(crypto.randomUUID());
   const { model } = scripted([() => batch(['charms__files_read', {}], ['list', { path: '/' }])]);
