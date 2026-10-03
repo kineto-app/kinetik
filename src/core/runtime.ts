@@ -295,6 +295,8 @@ export class Runtime {
     this.active.set(id, controller);
     let acquired = true;
     const work = async () => {
+      // A cut-off answer left from an earlier turn was already kept, or belonged to a retried request.
+      await this.store.delete(partialKey(id));
       let c = await this.chats.load(id);
       if (!c || c.status === 'needs_review' || c.status === 'stopped') return;
       const pinned = c.plugins ?? (await this.plugins.pin(await this.plugins.list()));
@@ -899,6 +901,7 @@ export class Runtime {
     signal: AbortSignal,
     request: () => Promise<ModelStep>,
   ): Promise<ModelStep> {
+    const sent = (await this.chats.load(id))?.compactions;
     const output = await abortable(request(), signal);
     const c = await this.chats.load(id);
     const window = output.contextWindow ?? c?.context?.window ?? defaultContextWindow;
@@ -907,10 +910,12 @@ export class Runtime {
       : estimateTokens(c?.modelInput) + estimateTokens(output.items);
     await this.chats.update(id, (value) => ({
       ...value,
-      context: { tokens, window },
       turn: { ...value.turn, usage: addUsage(value.turn?.usage, output.usage) },
-      // A request that worked accepts any provider compaction before it.
-      serverCompaction: undefined,
+      // A summary applied while this request ran already set the size, and the request never saw it.
+      ...(value.compactions === sent
+        ? // A request that worked accepts any provider compaction before it.
+          { context: { tokens, window }, serverCompaction: undefined }
+        : {}),
     }));
     return output;
   }

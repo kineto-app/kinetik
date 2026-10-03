@@ -3,6 +3,7 @@ import { Runtime } from '../src/core/runtime';
 import { Store } from '../src/browser/store';
 import { estimateTokens, shortenOutputs, splitPoint } from '../src/core/compaction';
 import { modelInput } from './model-input';
+import { loadChat, updateChat } from './chat';
 import type { Model, ModelRequest, ModelStep } from '../src/core/types';
 
 type Item = Record<string, unknown>;
@@ -140,11 +141,68 @@ test('a worker killed while a summary is written loses nothing; the next worker 
     if (locks) Object.defineProperty(globalThis.navigator, 'locks', locks);
   }
   const after = (await modelInput(store, c.id))!;
-  // Either untouched or summarised by the new worker; the request and every call/output pair survive.
-  expect(after.length >= before.length || String(after[0].content).startsWith('Summary of')).toBe(
-    true,
-  );
+  // The new worker wrote the summary the first one never finished; the request and pairs survive.
+  expect(String(after[0].content)).toMatch(/^Summary of/);
+  expect(before.length).toBeGreaterThan(after.length);
   expect(after.some((item) => item.content === 'Do the long task')).toBe(true);
   expect(paired(after)).toBe(true);
   expect((await store.get<{ status: string }>('conversation:' + c.id))?.status).toBe('idle');
+});
+
+test('a request that ends after a summary keeps the size the summary set', async () => {
+  const store = new Store(crypto.randomUUID());
+  let id = '';
+  const model: Model = {
+    async next() {
+      // A summary lands while this request is out: it rewrites the input and sets a small size.
+      await updateChat(store, id, (value) => ({
+        ...value,
+        compactions: (value.compactions ?? 0) + 1,
+        context: { tokens: 1000, window: 16_000 },
+      }));
+      return {
+        type: 'text',
+        text: 'Done.',
+        usage: { input: 12_000, output: 10 },
+        contextWindow: 16_000,
+      };
+    },
+  };
+  const runtime = new Runtime(store, undefined, model);
+  id = (await runtime.create()).id;
+  await runtime.submit(id, 'Hello');
+  await runtime.run(id);
+  expect((await loadChat(store, id)).context?.tokens).toBe(1000);
+});
+
+test('a summary started before a ChatGPT compaction is undone is not applied over the restored input', async () => {
+  const store = new Store(crypto.randomUUID());
+  let id = '';
+  const restored = [
+    { role: 'user', content: 'First' },
+    { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'A' }] },
+    { role: 'user', content: 'Second' },
+    { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'B' }] },
+    { role: 'user', content: 'Third' },
+  ];
+  const model: Model = {
+    async next() {
+      // While the summary is written, the provider compaction before it is undone.
+      await updateChat(store, id, (value) => ({
+        ...value,
+        modelInput: restored,
+        serverCompaction: undefined,
+      }));
+      return { type: 'text', text: 'Notes so far.' };
+    },
+  };
+  const runtime = new Runtime(store, undefined, model);
+  id = (await runtime.create()).id;
+  await updateChat(store, id, (value) => ({
+    ...value,
+    modelInput: [{ type: 'compaction', encrypted_content: 'opaque' }, ...restored.slice(2)],
+    serverCompaction: { n: 1, head: 1 },
+  }));
+  await runtime.submit(id, '/compact');
+  expect(await modelInput(store, id)).toEqual(restored);
 });

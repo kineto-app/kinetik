@@ -20,7 +20,10 @@ import {
 
 type Item = Record<string, unknown>;
 type HelperRecord = { task: string; history: Item[]; result?: string; step: number };
-/** A delegate call's helper, owned by that call: `helper:<conversation>:<call>`. */
+/**
+ * A delegate call's helper, owned by that call: `helper:<conversation>:<call>`. Retrying the call
+ * after a review continues the same helper.
+ */
 export const helperKey = (conversationId: string, callId: string) =>
   `helper:${conversationId}:${callId}`;
 type ReadOnlyResult = { text: string; response?: unknown; failed?: boolean };

@@ -76,10 +76,12 @@ export async function recoverWork(deps: RecoveryDeps): Promise<void> {
     const recover = async () => {
       const partial = await store.get<string>(partialKey(c.id));
       if (partial) {
-        await chats.update(c.id, (value) => ({
-          ...value,
-          messages: [...value.messages, cutOff(value, partial)],
-        }));
+        // A kill after the answer was kept but before the draft was dropped must not keep it twice.
+        await chats.update(c.id, (value) =>
+          value.messages.at(-1)?.aborted && value.messages.at(-1)?.text === partial
+            ? value
+            : { ...value, messages: [...value.messages, cutOff(value, partial)] },
+        );
         await store.delete(partialKey(c.id));
       }
       if (call?.state === 'proposed' || call?.state === 'approved') {

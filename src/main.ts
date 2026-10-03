@@ -36,6 +36,10 @@ import {
   refreshSettingsData,
 } from './ui/settings';
 import type { SetupState } from './connections/manager';
+import { byId } from './ui/dom';
+import { renderAsk } from './ui/ask-panel';
+import { latestThought, renderThought } from './ui/thought';
+import { closeDrawer, setupDrawer } from './ui/drawer';
 
 type State = {
   background: {
@@ -49,10 +53,6 @@ type State = {
   conversations: Conversation[];
   plugins: Pick<InstalledPlugin, 'manifest' | 'source' | 'enabledAt' | 'digest'>[];
 };
-import { byId } from './ui/dom';
-import { renderAsk } from './ui/ask-panel';
-import { latestThought, renderThought } from './ui/thought';
-import { closeDrawer, setupDrawer } from './ui/drawer';
 const root = document.querySelector<HTMLDivElement>('#app')!;
 renderSolid(Shell, root);
 setupViewport();

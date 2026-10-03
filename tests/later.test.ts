@@ -147,3 +147,34 @@ test('a worker killed inside the helper continues it after the restart without r
   expect((await read(store, c.id)).messages.at(-1)?.text).toBe('Main: Found the workspace.');
   expect(await store.keys('helper:')).toEqual([]);
 });
+
+test('a kept answer is never kept twice, and a stale draft is not shown by a later turn', async () => {
+  const store = new Store(crypto.randomUUID());
+  const runtime = new Runtime(
+    store,
+    undefined,
+    streaming([], async () => {}, new Error('Bad')),
+  );
+  const c = await runtime.create();
+  await runtime.submit(c.id, 'Tell me about Lisbon');
+  // Killed after the cut-off answer was kept but before its draft was dropped.
+  await updateChat(store, c.id, (value) => ({
+    ...value,
+    status: 'running',
+    pending: [],
+    turn: { message: value.pending[0], startedAt: Date.now() },
+    messages: [
+      ...value.messages,
+      { id: 'a', role: 'assistant', text: 'Lisbon is', createdAt: 1, aborted: true },
+    ],
+  }));
+  await store.put('partial:' + c.id, 'Lisbon is');
+  await runtime.recover();
+  expect((await loadChat(store, c.id)).messages.filter((m) => m.aborted)).toHaveLength(1);
+  // A draft left by an earlier turn is dropped when the next turn starts.
+  await store.put('partial:' + c.id, 'Old draft');
+  await runtime.submit(c.id, 'Again');
+  await runtime.run(c.id);
+  const kept = (await loadChat(store, c.id)).messages.filter((m) => m.aborted).map((m) => m.text);
+  expect(kept).toEqual(['Lisbon is']);
+});

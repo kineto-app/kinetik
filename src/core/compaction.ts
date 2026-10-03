@@ -10,6 +10,7 @@ import {
   type ModelRequest,
   type ModelStep,
   type TurnPin,
+  type Conversation,
 } from './types';
 
 /** Context limits and the summary that replaces older model input. */
@@ -72,6 +73,9 @@ export function shortenOutputs(input: Record<string, unknown>[], keepFrom: numbe
 }
 
 type Item = Record<string, unknown>;
+/** Another compaction, or the undo of one, replaced the input since `before` was read. */
+const changed = (now: Conversation, before: Conversation) =>
+  now.compactions !== before.compactions || now.serverCompaction?.n !== before.serverCompaction?.n;
 const noServerCompact = (pin?: TurnPin) =>
   `no-server-compact:${pin?.provider ?? 'chatgpt'}:${pin?.model ?? ''}`;
 type CompactorDeps = {
@@ -162,7 +166,7 @@ export class Compactor {
     let applied = false;
     await this.deps.chats.update(id, (value) => {
       const current = value.modelInput ?? [];
-      if (current.length < input.length || value.compactions !== c!.compactions) return value;
+      if (current.length < input.length || changed(value, c!)) return value;
       applied = true;
       const next = [...shortened, ...current.slice(input.length)];
       return {
@@ -239,7 +243,7 @@ export class Compactor {
     await this.deps.chats.update(id, (value) => {
       const current = value.modelInput ?? [];
       // Only append-only growth is expected; anything else means another writer replaced it.
-      if (current.length < input.length || value.compactions !== c.compactions) return value;
+      if (current.length < input.length || changed(value, c)) return value;
       applied = true;
       const next = [...head!, ...request, ...current.slice(cut)];
       return {
