@@ -810,7 +810,8 @@ dialog::backdrop,
   top: var(--space-inline);
   left: 50%;
   transform: translateX(-50%);
-  z-index: 5;
+  /* Above the chat, below the phone drawer and its scrim. */
+  z-index: 4;
   display: grid;
   gap: var(--space-inline);
   width: min(440px, calc(100% - 2 * var(--space-content)));
@@ -835,9 +836,13 @@ dialog::backdrop,
 .toast > span {
   flex: 1;
   min-width: 0;
+  padding-block: 6px;
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 .toast-action {
   min-height: var(--target);
@@ -860,4 +865,14 @@ dialog::backdrop,
     opacity: 0;
     transform: translateY(-8px);
   }
+}
+
+/* A chat that finished or asked something while you were elsewhere. */
+.conversation-dot.unread {
+  background: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.conversation-title.unread {
+  color: var(--ink);
+  font-weight: 600;
 }

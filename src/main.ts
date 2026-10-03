@@ -31,6 +31,7 @@ import {
   setSettingsActions,
   setSettingsPlugins,
   setSettingsChats,
+  toggleNotifications,
   setSettingsSetup,
   showAddedPlugin,
   showSettings,
@@ -167,6 +168,7 @@ function button(
   return result;
 }
 function choose(id: string) {
+  markRead(id);
   selected = id;
   uiStorage.setItem('kinetik-conversation', id);
   lastMessages = '';
@@ -176,6 +178,74 @@ function choose(id: string) {
   byId('prompt').focus();
 }
 const [view, setView] = createSignal({ state, selected });
+/** Chats that finished or asked something while another chat was open. */
+const [unread, setUnread] = createSignal(
+  new Set<string>(JSON.parse(localStorage.getItem('kinetik-unread') ?? '[]') as string[]),
+);
+function markRead(id: string, read = true) {
+  const next = new Set(unread());
+  if (read) next.delete(id);
+  else next.add(id);
+  setUnread(next);
+  localStorage.setItem('kinetik-unread', JSON.stringify([...next]));
+}
+const working = ['running', 'queued', 'waiting'];
+/** Tells about work that ended in another chat, and offers notifications after a long task here. */
+/** When the page first saw each chat at work; the turn record can be gone a moment before. */
+const workingSince = new Map<string, number>();
+function noticeFinished(before: Conversation[], after: Conversation[]) {
+  for (const c of after) {
+    const previous = before.find((item) => item.id === c.id);
+    if (working.includes(c.status)) {
+      if (!workingSince.has(c.id))
+        workingSince.set(c.id, Math.min(c.turn?.startedAt ?? Date.now(), Date.now()));
+      continue;
+    }
+    const since = workingSince.get(c.id);
+    workingSince.delete(c.id);
+    if (!previous || !working.includes(previous.status)) continue;
+    const verb =
+      c.status === 'asking'
+        ? 'has a question'
+        : c.status === 'needs_review'
+          ? 'needs a look'
+          : c.status === 'idle'
+            ? 'is ready'
+            : undefined;
+    if (!verb) continue;
+    if (c.id !== selected) {
+      markRead(c.id, false);
+      toast({
+        key: 'chat:' + c.id,
+        text: `“${c.title}” ${verb}`,
+        ms: 8000,
+        action: { label: 'Open', run: () => choose(c.id) },
+      });
+    } else if (c.status === 'idle' && since !== undefined && Date.now() - since > 15000)
+      void offerNotifications();
+  }
+}
+async function offerNotifications() {
+  if (localStorage.getItem('kinetik-notify-offered') || !(isNative || 'Notification' in window))
+    return;
+  if (await rpc<boolean>('notifications')) return;
+  localStorage.setItem('kinetik-notify-offered', '1');
+  toast({
+    text: 'Want a notification when work is done?',
+    ms: 15000,
+    action: {
+      label: 'Turn on',
+      run: () =>
+        void toggleNotifications(true)
+          .then(() => toast({ text: 'Notifications are on', ms: 3000 }))
+          .catch(showError),
+    },
+  });
+}
+window.addEventListener('kinetik-open-chat', (event) => {
+  const id = (event as CustomEvent<string>).detail;
+  if (state.conversations.some((c) => c.id === id)) choose(id);
+});
 renderSolid(
   () =>
     ConversationList({
@@ -186,6 +256,9 @@ renderSolid(
         return view().selected;
       },
       background: isBackgroundTurn,
+      get unread() {
+        return unread();
+      },
       choose,
     }),
   byId('conversations'),
@@ -406,6 +479,7 @@ async function refresh() {
     next = await load();
     if (generation !== refreshGeneration) return;
   }
+  noticeFinished(state.conversations, next.conversations);
   state = next;
   uiStorage.setItem('kinetik-conversation', selected);
   render();
@@ -719,6 +793,8 @@ window.addEventListener('kinetik-native-error', (event) =>
 );
 navigator.serviceWorker?.addEventListener('message', (event) => {
   if (event.data?.type === 'changed') changed(event.data.event);
+  if (event.data?.type === 'open-chat')
+    window.dispatchEvent(new CustomEvent('kinetik-open-chat', { detail: event.data.id }));
 });
 /** Streamed text and step progress patch the open state; anything else reloads it. */
 function changed(event: RuntimeEvent | undefined) {
@@ -763,6 +839,13 @@ async function start() {
   const updatesReady = registration
     ? setupUpdates(registration)
     : import('./platform/updates').then(({ setupNativeUpdates }) => setupNativeUpdates());
+  // Opened from a notification: show that chat.
+  const opened = new URL(location.href).searchParams.get('chat');
+  if (opened) {
+    selected = opened;
+    markRead(opened);
+    history.replaceState(null, '', location.pathname);
+  }
   await refresh();
   await refreshCustomModel().catch(() => {});
   await connectionSetup.initialize();

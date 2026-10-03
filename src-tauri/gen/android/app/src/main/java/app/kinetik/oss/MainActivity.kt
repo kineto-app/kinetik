@@ -6,6 +6,7 @@ import android.webkit.WebView
 import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AlertDialog
 import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsAnimationCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
@@ -19,10 +20,33 @@ class MainActivity : TauriActivity() {
     // Edge to edge, the keyboard no longer resizes the window: end the content at its top so the
     // composer stays visible.
     val content = findViewById<View>(android.R.id.content)
+    val ime = WindowInsetsCompat.Type.ime()
+    var animating = false
     ViewCompat.setOnApplyWindowInsetsListener(content) { view, insets ->
-      view.setPadding(0, 0, 0, insets.getInsets(WindowInsetsCompat.Type.ime()).bottom)
+      if (!animating) view.setPadding(0, 0, 0, insets.getInsets(ime).bottom)
       insets
     }
+    // Follow the keyboard frame by frame, so the composer slides with it instead of jumping.
+    ViewCompat.setWindowInsetsAnimationCallback(
+      content,
+      object : WindowInsetsAnimationCompat.Callback(DISPATCH_MODE_CONTINUE_ON_SUBTREE) {
+        override fun onPrepare(animation: WindowInsetsAnimationCompat) {
+          if (animation.typeMask and ime != 0) animating = true
+        }
+        override fun onProgress(
+          insets: WindowInsetsCompat,
+          running: MutableList<WindowInsetsAnimationCompat>,
+        ): WindowInsetsCompat {
+          if (animating) content.setPadding(0, 0, 0, insets.getInsets(ime).bottom)
+          return insets
+        }
+        override fun onEnd(animation: WindowInsetsAnimationCompat) {
+          if (animation.typeMask and ime == 0) return
+          animating = false
+          ViewCompat.requestApplyInsets(content)
+        }
+      },
+    )
   }
 
   override fun onWebViewCreate(webView: WebView) {

@@ -399,7 +399,7 @@ export async function refreshSettingsData() {
   setMemoryChange(await rpc<MemoryChange | null>('memoryChange'));
   setNotifying(await rpc<boolean>('notifications'));
 }
-async function toggleNotifications(enabled: boolean) {
+export async function toggleNotifications(enabled: boolean) {
   if (enabled) {
     // Ask for the permission at the moment the user turns the switch on.
     const granted = isNative

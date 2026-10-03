@@ -77,3 +77,50 @@ test('queue after the current work, and a notification when it finishes', async 
   });
   await checker.screenshot({ path: info.outputPath('8-notification.png') });
 });
+
+test('work that ends in another chat shows a notice and a dot until it is opened', async ({
+  page,
+  request,
+}, info) => {
+  await open(page, request);
+  await send(page, 'Slow task');
+  await expect(page.locator('#status')).toHaveText('Working…');
+  await page.locator('#top-new-chat').click();
+  const notice = page.locator('.toast').filter({ hasText: '“Slow task” is ready' });
+  await expect(notice).toBeVisible({ timeout: 15000 });
+  if (info.project.use.isMobile) await page.getByRole('button', { name: 'Toggle chats' }).click();
+  const row = page.locator('.conversation').filter({ hasText: 'Slow task' });
+  await expect(row.locator('.conversation-title.unread')).toBeVisible();
+  await page.screenshot({ path: info.outputPath('9-other-chat-ready.png') });
+  if (info.project.use.isMobile) await page.locator('#menu-close').click();
+  await notice.getByRole('button', { name: 'Open' }).click();
+  await expect(page.locator('#title')).toHaveText('Slow task');
+  await expect(replies(page).last()).toContainText('Slow task finished.');
+  await expect(row.locator('.conversation-title.unread')).toHaveCount(0);
+});
+
+test('a notification opens its chat, and a long task offers notifications once', async ({
+  page,
+  request,
+}, info) => {
+  await page.clock.install();
+  await open(page, request);
+  await send(page, 'Slow task');
+  await expect(page.locator('#status')).toHaveText('Working…');
+  // The page's clock stands still unless moved; a minute makes the task look long.
+  await page.clock.fastForward('01:00');
+  const offer = page.locator('.toast').filter({ hasText: 'Want a notification' });
+  await expect(offer).toBeVisible({ timeout: 15000 });
+  await page.screenshot({ path: info.outputPath('10-offer.png') });
+  await offer.getByRole('button', { name: 'Dismiss' }).click();
+  const id = await page.evaluate(() => sessionStorage.getItem('kinetik-conversation'));
+  await page.locator('#top-new-chat').click();
+  await expect(page.locator('#title')).toHaveText('New chat');
+  // A tapped notification opens the app on its chat.
+  await page.goto(base + '?chat=' + id);
+  await expect(page.locator('#title')).toHaveText('Slow task');
+  expect(new URL(page.url()).search).toBe('');
+  await send(page, 'Slow task');
+  await expect(replies(page)).toHaveCount(2);
+  await expect(page.locator('.toast').filter({ hasText: 'Want a notification' })).toHaveCount(0);
+});

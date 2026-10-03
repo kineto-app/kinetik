@@ -20,6 +20,8 @@ import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
+private const val chatExtra = "kinetik-chat"
+
 @InvokeArg
 class NativeArgs {
     var key: String? = null
@@ -31,6 +33,21 @@ class NativeArgs {
 @TauriPlugin(permissions = [Permission(strings = [android.Manifest.permission.POST_NOTIFICATIONS], alias = "notifications")])
 class NativePlugin(private val activity: Activity): Plugin(activity) {
     private val preferences by lazy { activity.getSharedPreferences("kinetik-credentials", 0) }
+    // A notification tapped while the app was closed waits until the page listens for it.
+    private var pendingChat: String? = null
+    override fun load(webView: android.webkit.WebView) {
+        super.load(webView)
+        pendingChat = activity.intent?.getStringExtra(chatExtra)
+    }
+    override fun onNewIntent(intent: Intent) {
+        intent.getStringExtra(chatExtra)?.let { trigger("open-chat", JSObject().put("id", it)) }
+    }
+    override fun registerListener(invoke: Invoke) {
+        super.registerListener(invoke)
+        if (invoke.getArgs().getString("event") != "open-chat") return
+        pendingChat?.let { trigger("open-chat", JSObject().put("id", it)) }
+        pendingChat = null
+    }
     private fun key(): SecretKey {
         val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
         val alias = "kinetik-credentials-v1"
@@ -115,6 +132,7 @@ class NativePlugin(private val activity: Activity): Plugin(activity) {
                 manager.createNotificationChannel(android.app.NotificationChannel(
                     "kinetik-results", "Finished work", android.app.NotificationManager.IMPORTANCE_DEFAULT))
             val launch = activity.packageManager.getLaunchIntentForPackage(activity.packageName)
+                ?.apply { args.url?.let { putExtra(chatExtra, it.take(64)) } }
             val open = android.app.PendingIntent.getActivity(activity, 2, launch,
                 android.app.PendingIntent.FLAG_IMMUTABLE or android.app.PendingIntent.FLAG_UPDATE_CURRENT)
             val notification = androidx.core.app.NotificationCompat.Builder(activity, "kinetik-results")

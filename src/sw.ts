@@ -155,14 +155,32 @@ sw.addEventListener('push', (event) => {
   );
 });
 // Only when no Kinetik window is in front; an open window already shows the result.
-host.notify = async ({ title, body }) => {
+host.notify = async ({ conversationId, title, body }) => {
   const windows = await sw.clients.matchAll({ type: 'window', includeUncontrolled: true });
   if (windows.some((client) => client.visibilityState === 'visible')) return;
-  await sw.registration.showNotification(title, { body, tag: 'kinetik-work' });
+  await sw.registration.showNotification(title, {
+    body,
+    tag: 'kinetik-work',
+    data: { conversationId },
+  });
 };
+// A tap opens the chat the notification is about, in a window already open if there is one.
 sw.addEventListener('notificationclick', (event) => {
   event.notification.close();
-  event.waitUntil(sw.clients.openWindow(scope.href));
+  const id = (event.notification.data as { conversationId?: string } | null)?.conversationId;
+  event.waitUntil(
+    (async () => {
+      const [window] = await sw.clients.matchAll({ type: 'window' });
+      if (window && id) {
+        window.postMessage({ type: 'open-chat', id });
+        await window.focus();
+        return;
+      }
+      const url = new URL(scope.href);
+      if (id) url.searchParams.set('chat', id);
+      await sw.clients.openWindow(url.href);
+    })(),
+  );
 });
 for (const type of ['sync', 'periodicsync']) {
   sw.addEventListener(type, ((event: ExtendableEvent) => {
