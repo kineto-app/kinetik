@@ -68,6 +68,16 @@ async function refreshCustomModel() {
   if (!current()?.messages.length) lastMessages = '';
   render();
 }
+window.addEventListener('kinetik-compose', (event) => {
+  const { conversationId, text } = (event as CustomEvent<{ conversationId: string; text: string }>)
+    .detail;
+  if (conversationId !== selected) return;
+  const prompt = byId<HTMLTextAreaElement>('prompt');
+  const draft = prompt.value.trim() ? prompt.value + '\n' + text : text;
+  prompt.value = draft.slice(0, 4000);
+  prompt.dispatchEvent(new Event('input', { bubbles: true }));
+  prompt.focus();
+});
 window.addEventListener('kinetik-custom-model', () => {
   void refreshCustomModel().catch(showError);
   // A turn waiting for a key continues once one is saved.
@@ -75,7 +85,7 @@ window.addEventListener('kinetik-custom-model', () => {
 });
 /** The turn runs on the custom model, which uses an API key instead of a sign-in. */
 function apiKeyTurn(c: Conversation) {
-  return c.turnModel === 'custom';
+  return c.turnModel?.provider === 'custom';
 }
 renderSolid(
   () =>
@@ -185,6 +195,7 @@ function render() {
     ? `${jobs.length} background ${jobs.length === 1 ? 'task' : 'tasks'} running`
     : 'Processing background result';
   byId('title').textContent = c?.title ?? 'New chat';
+  byId('delete-chat').hidden = !c?.messages.length || foreground;
   byId('status').textContent = foreground
     ? 'Working…'
     : c?.status === 'needs_review'
@@ -281,6 +292,9 @@ function render() {
       timeline
         .querySelector<HTMLElement>(`[data-message-id="${CSS.escape(item.id)}"]`)
         ?.toggleAttribute('data-queued', Boolean(item.queue));
+      timeline
+        .querySelector<HTMLElement>(`[data-message-id="${CSS.escape(item.id)}"]`)
+        ?.toggleAttribute('data-unsent', Boolean(item.unsent));
       const hiddenActivity = isInternalActivity(item);
       if ((hiddenActivity && !item.app && !item.file) || renderedMessages.has(item.id)) continue;
       renderedMessages.add(item.id);
@@ -292,6 +306,7 @@ function render() {
       article.dataset.role = item.role;
       article.dataset.messageId = item.id;
       article.toggleAttribute('data-queued', Boolean(item.queue));
+      article.toggleAttribute('data-unsent', Boolean(item.unsent));
       timeline.insertBefore(article, timeline.querySelector('[data-draft]'));
       disposeContent.push(
         renderSolid(
@@ -576,6 +591,17 @@ for (const [id, retry] of [
   byId(id).onclick = () => {
     void rpc('resolve', { id: selected, retry }).then(refresh).catch(showError);
   };
+byId('delete-chat').onclick = () => openDialog('delete');
+byId('delete-confirm').onclick = () => {
+  const id = selected;
+  byId<HTMLDialogElement>('delete-dialog').close();
+  void rpc('delete', { id })
+    .then(() => {
+      selected = state.conversations.find((c) => c.id !== id)?.id ?? '';
+      return refresh();
+    })
+    .catch(showError);
+};
 function openDialog(name: string) {
   closeDrawer();
   for (const dialog of document.querySelectorAll<HTMLDialogElement>('dialog:modal')) dialog.close();

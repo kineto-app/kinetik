@@ -629,3 +629,25 @@ test('provider compaction goes to the relay or the compact endpoint with the ses
   expect(output).toEqual([{ type: 'compaction', encrypted_content: 'x' }]);
   expect(urls).toEqual(['https://api.openai.com/v1/responses/compact']);
 });
+
+test('bug 3: a pinned model and level override the session for that request', async () => {
+  const request = fetcher.getMockImplementation()!;
+  const sent: { model?: string; reasoning?: unknown }[] = [];
+  fetcher.mockImplementation((input, init) => {
+    if (String(input).endsWith('/responses')) {
+      sent.push(JSON.parse(String(init?.body)));
+      return Promise.resolve(new Response('data: test\n\n'));
+    }
+    return request(input, init);
+  });
+  await begin();
+  await client.callback(callback());
+  const signal = new AbortController().signal;
+  await client.responses(
+    { account: 'person', request: {}, pin: { model: 'another-model', effort: 'high' } },
+    signal,
+  );
+  await client.responses({ account: 'person', request: {}, pin: { model: 'bad model!' } }, signal);
+  expect(sent.map((body) => body.model)).toEqual(['another-model', 'gpt-6.1-sol']);
+  expect(sent[0].reasoning).toEqual({ effort: 'high', summary: 'auto' });
+});

@@ -2,7 +2,14 @@ import type { Store } from '../browser/store';
 import { abortable } from './abortable';
 import { ContextOverflow } from './connection-error';
 import type { ConversationStore } from './conversation-store';
-import { message, type LiveProgress, type Model, type ModelRequest, type ModelStep } from './types';
+import {
+  message,
+  type LiveProgress,
+  type Model,
+  type ModelRequest,
+  type ModelStep,
+  type TurnPin,
+} from './types';
 
 /** Context limits and the summary that replaces older model input. */
 export const defaultContextWindow = 200_000;
@@ -32,11 +39,13 @@ export function splitPoint(input: Record<string, unknown>[]): number {
 }
 
 type Item = Record<string, unknown>;
+const noServerCompact = (pin?: TurnPin) =>
+  `no-server-compact:${pin?.provider ?? 'chatgpt'}:${pin?.model ?? ''}`;
 type CompactorDeps = {
   store: Store;
   chats: ConversationStore;
   model: Model;
-  pin: (id: string) => Promise<string | undefined>;
+  pin: (id: string) => Promise<TurnPin | undefined>;
   ask: (id: string, request: ModelRequest, signal: AbortSignal) => Promise<ModelStep>;
   live: Map<string, LiveProgress>;
   progress: (id: string, live: LiveProgress) => void;
@@ -47,11 +56,8 @@ type CompactorDeps = {
 export class Compactor {
   constructor(private deps: CompactorDeps) {}
   /** Provider compaction when available and not known to fail for this model; else undefined. */
-  private async serverCompact(input: Item[], pin: string | undefined, signal: AbortSignal) {
-    if (
-      !this.deps.model.compact ||
-      (await this.deps.store.get('no-server-compact:' + (pin ?? 'chatgpt')))
-    )
+  private async serverCompact(input: Item[], pin: TurnPin | undefined, signal: AbortSignal) {
+    if (!this.deps.model.compact || (await this.deps.store.get(noServerCompact(pin))))
       return undefined;
     try {
       const output = await abortable(this.deps.model.compact(input, pin, signal), signal);
@@ -75,7 +81,7 @@ export class Compactor {
     const { n, head } = c.serverCompaction;
     const archived = await this.deps.store.get<Item[]>(`model-archive:${id}:${n}`);
     if (!archived) return false;
-    await this.deps.store.put('no-server-compact:' + (c.turnModel ?? 'chatgpt'), true);
+    await this.deps.store.put(noServerCompact(c.turnModel), true);
     await this.deps.chats.update(id, (value) =>
       value.serverCompaction?.n !== n
         ? value

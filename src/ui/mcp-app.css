@@ -73,3 +73,7 @@ body:has(.mcp-app-panel:modal) {
 .mcp-app-panel .composer textarea {
   font-family: var(--font-sans);
 }
+
+.app-approval {
+  margin-top: var(--space-inline);
+}

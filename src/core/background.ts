@@ -1,7 +1,13 @@
 import Ajv from 'ajv';
 import { isConnectionError, SignInRequired } from './connection-error';
 import { Store } from '../browser/store';
-import { errorText, type Binding, type Conversation, type InstalledPlugin } from './types';
+import {
+  errorText,
+  needsApproval,
+  type Binding,
+  type Conversation,
+  type InstalledPlugin,
+} from './types';
 
 export interface BackgroundProcess {
   id: string;
@@ -104,9 +110,14 @@ export class BackgroundProcesses {
               error: 'Tool is unavailable for background execution.',
               availableTools,
             };
-          const args = input.input ?? {};
+          const args = (input.input ?? {}) as Record<string, unknown>;
           if (!new Ajv({ strict: false }).compile(binding.tool.inputSchema)(args))
             return { started: false, error: 'Invalid background tool arguments.' };
+          if (needsApproval(binding.tool, args))
+            return {
+              started: false,
+              error: 'This tool needs your approval. Call it directly, not in the background.',
+            };
           if (
             (await this.list(conversationId)).filter((job) =>
               ['running', 'waiting'].includes(job.state),
@@ -186,10 +197,10 @@ export class BackgroundProcesses {
               background: true,
               checkpoint: async (operationId) => {
                 job.operationId = operationId;
-                await this.store.update<BackgroundProcess>(key(job.id), (previous) => ({
-                  ...previous!,
-                  operationId,
-                }));
+                await this.store.update<BackgroundProcess | undefined>(
+                  key(job.id),
+                  (previous) => previous && { ...previous, operationId },
+                );
               },
             });
             // A provider that starts asynchronous remote work owns its completion transport.
@@ -242,31 +253,27 @@ export class BackgroundProcesses {
   }
 
   private async finish(job: BackgroundProcess, state: BackgroundProcess['state'], result: string) {
-    const saved = await this.store.update<BackgroundProcess>(key(job.id), (previous) =>
-      !['running', 'waiting'].includes(previous!.state)
-        ? previous!
-        : {
-            ...previous!,
-            state: previous!.cancelRequested ? 'cancelled' : state,
-            result,
-          },
+    const saved = await this.store.update<BackgroundProcess | undefined>(key(job.id), (previous) =>
+      !previous || !['running', 'waiting'].includes(previous.state)
+        ? previous
+        : { ...previous, state: previous.cancelRequested ? 'cancelled' : state, result },
     );
-    await this.deliver(saved);
+    if (saved) await this.deliver(saved);
   }
   private async deliver(job: BackgroundProcess) {
     if (job.delivered) return;
     await this.host.wake(job);
-    await this.store.update<BackgroundProcess>(key(job.id), (previous) => ({
-      ...previous!,
-      delivered: true,
-    }));
+    await this.store.update<BackgroundProcess | undefined>(
+      key(job.id),
+      (previous) => previous && { ...previous, delivered: true },
+    );
   }
   async cancel(job: BackgroundProcess) {
     if (!['running', 'waiting'].includes(job.state)) return;
-    await this.store.update<BackgroundProcess>(key(job.id), (previous) => ({
-      ...previous!,
-      cancelRequested: true,
-    }));
+    await this.store.update<BackgroundProcess | undefined>(
+      key(job.id),
+      (previous) => previous && { ...previous, cancelRequested: true },
+    );
     this.active.get(job.id)?.controller.abort(new Error('Background job cancelled.'));
     if (!this.active.has(job.id)) {
       try {

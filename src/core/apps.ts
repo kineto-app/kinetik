@@ -3,7 +3,7 @@ import type { Plugins } from '../plugins/loader';
 import type { ConversationStore } from './conversation-store';
 import { printable } from './model-input';
 import { toolOutcome } from './tool-outcome';
-import { message, type InstalledPlugin } from './types';
+import { message, needsApproval, type InstalledPlugin } from './types';
 
 /** Tool calls made by MCP App widgets, journaled like the agent's own calls. */
 export class AppCalls {
@@ -16,7 +16,8 @@ export class AppCalls {
   running(key: string) {
     return this.active.has(key);
   }
-  async call(id: string, name: string, input: Record<string, unknown>): Promise<unknown> {
+  /** The installed app tool and whether calling `name` with `input` needs the user's approval. */
+  private async resolve(id: string, name: string, input: Record<string, unknown>) {
     const record = await this.store.get<{
       plugins: InstalledPlugin[];
       tool: string;
@@ -40,6 +41,21 @@ export class AppCalls {
     );
     const tool = snapshot.bindings[record.tool]?.tool;
     if (!tool?.app) throw new Error('App tool unavailable.');
+    // A tool the plugin does not expose has no declared effects, so it is treated as risky.
+    const target = snapshot.bindings[`${record.provider}__${name}`]?.tool;
+    return { record, app: tool.app, approval: !target || needsApproval(target, input) };
+  }
+  async needsApproval(id: string, name: string, input: Record<string, unknown>) {
+    return (await this.resolve(id, name, input)).approval;
+  }
+  async call(
+    id: string,
+    name: string,
+    input: Record<string, unknown>,
+    approved = false,
+  ): Promise<unknown> {
+    const { record, app, approval } = await this.resolve(id, name, input);
+    if (approval && !approved) throw new Error('This action needs your approval.');
     const callId = crypto.randomUUID();
     this.active.add('app-call:' + callId);
     try {
@@ -50,7 +66,7 @@ export class AppCalls {
         input,
         state: 'pending',
       });
-      const result = await tool.app.call(name, input, AbortSignal.timeout(30000));
+      const result = await app.call(name, input, AbortSignal.timeout(30000));
       await this.store.put('app-call:' + callId, {
         appId: id,
         name,
