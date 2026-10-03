@@ -1,5 +1,5 @@
-import type { Model, ModelRequest, ModelStep, Usage } from './types';
-import { ConnectionError, ContextOverflow, SignInRequired } from './connection-error';
+import type { Model, ModelRequest, ModelStep, Usage } from '../core/types';
+import { ConnectionError, ContextOverflow, SignInRequired } from '../core/connection-error';
 
 export async function toolName(name: string): Promise<string> {
   const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(name));

@@ -25,7 +25,7 @@ import { setupFiles } from './ui/files';
 import { setupUpdates } from './browser/updates';
 import { connect, rpc } from './browser/client';
 import type { Conversation, InstalledPlugin, RuntimeEvent } from './core/types';
-import type { CustomModelState } from './core/model-router';
+import type { CustomModelState } from './connections/custom-model';
 import { setupConnections } from './ui/onboarding';
 import {
   setSettingsActions,

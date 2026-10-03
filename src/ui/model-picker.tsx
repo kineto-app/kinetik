@@ -2,7 +2,7 @@ import { Popover } from '@kobalte/core/popover';
 import { createEffect, createSignal, For, Index, onCleanup, Show } from 'solid-js';
 import { rpc } from '../browser/client';
 import type { ChatGPTModel, ReasoningLevel } from '../connections/chatgpt';
-import type { CustomModelState } from '../core/model-router';
+import type { CustomModelState } from '../connections/custom-model';
 import { icon } from './icons';
 import './model-picker.css';
 

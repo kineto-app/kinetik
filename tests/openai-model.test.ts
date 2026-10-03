@@ -1,5 +1,5 @@
 import { expect, test, vi } from 'vitest';
-import { OpenAIModel, readResponse } from '../src/core/openai-model';
+import { OpenAIModel, readResponse } from '../src/models/openai';
 const event = (value: unknown) => 'data: ' + JSON.stringify(value) + '\n\n';
 test('a usage failure after streamed text is a failed request', async () => {
   const onText = vi.fn();

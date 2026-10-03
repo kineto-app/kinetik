@@ -1,0 +1,143 @@
+# Agent architecture review
+
+Review of 2026-10-02 at commit `5d6fb24` (the agent stack #28–#31), by seven independent reviewers: three on Claude Opus 5.5 and four on Claude Fable. Each rated one aspect from 0 to 10 and proposed changes. The goal they rated against: simple, maintainable, scalable, platformized and production-ready, following KISS, DRY and SOLID. References below name files and functions rather than line numbers, because the first step of this plan moved most of the code.
+
+## Verdict
+
+About **5 / 10**. The ideas are good. They were packed into too few files, and a handful of real bugs must be fixed before production. The core design choices are right, and every reviewer said to keep them.
+
+| Aspect                                   | Reviewer | Score | In one line                                                                                                                             |
+| ---------------------------------------- | -------- | ----- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| Core loop                                | Opus     | 4     | `Runtime.run` was one 525-line method; `Runtime` held about 20 responsibilities; the result-recording shape was copied about nine times |
+| Overall structure                        | Fable    | 5     | Layers existed in spirit, but the core imports concrete browser storage and `plugins` and `connections` depend on each other            |
+| Tests, operations, UI                    | Fable    | 5     | Tests are strong (7); there is no logging at all (2); `main.ts` mixes imperative DOM and Solid (4)                                      |
+| Tools and safety                         | Fable    | 5.5   | "Is this tool safe" is decided in five places                                                                                           |
+| Durability and storage                   | Fable    | 5.5   | Crash safety 8; storage growth 3; no schema versioning                                                                                  |
+| Model layer                              | Opus     | 5.5   | The `Model` interface is the right seam; the adapters duplicate code; ChatGPT is wired through a fake `fetch`                           |
+| Against pi-mono and the DeepSeek harness | Opus     | 6.5   | Ahead on crash safety and remote-job recovery; behind on loop structure, events and compaction                                          |
+
+## Keep
+
+- Journal-before-execute: a tool call is saved as pending before it runs, a remote operation checkpoints its id, and an uncertain outcome becomes "needs review" instead of a blind replay.
+- Steering only at step boundaries, and the persisted follow-up queue.
+- The small `Store` (key-value with transactional `update` / `updateMany`) and the small `Model` interface (`next`, `pin`, `compact`).
+- Model input stored in append-only segments, with the update detecting an append by array identity.
+- One `RuntimeHost` serving both the service worker and the Tauri WebView.
+- The PWA update protocol: build-id cache namespace, no activation while work runs, the old worker fenced off.
+- Worker-kill tests for each new persisted state; the mock model, fake IndexedDB and Playwright fixtures.
+- Narrow interfaces between `Runtime` and its parts (`AutomationHost`, `BackgroundHost`).
+
+## Bugs found (open)
+
+Each was traced in the code; none is fixed by the structure work.
+
+1. **Approval bypass (security).** `background` start (`core/background.ts`) never checks `tool.approval`, so a tool that needs approval, such as `charms_files_delete`, runs without a card when the model starts it as a background job. A widget's `tools/call` (`AppCalls.call`) has the same gap.
+2. **Widgets can speak as the user.** An MCP App's `ui/message` (`ui/mcp-app.ts`) is submitted as a user message straight away. A compromised widget could ask the agent to run a command in the sandbox, and `charms_exec` needs no approval. Put the text in the composer instead.
+3. **A turn does not fully keep its model.** `ModelRouter.pin` returns only the provider choice. The ChatGPT model and reasoning effort are read again from the session on every request, so switching mid-turn changes the model mid-turn. `no-server-compact:` is keyed by provider, not by model.
+4. **Stop strands queued messages.** `Runtime.stop` clears `pending` but leaves `message.queue = 'after'`; the message shows "Queued" forever and never runs.
+5. **Full scans of the whole database.** `Store.entries(prefix)` opens a cursor over every record and filters by prefix in JavaScript. It runs on every `state` request, every 15-second tick and every background sync, decoding attachments and archives each time. Use `IDBKeyRange.bound(prefix, prefix + '￿')`.
+6. **Unbounded growth.** Nothing deletes `model-archive:`, `app:`, `app-call:`, `background:`, `shared-file:`, `skills:` caches or sent `attachment-preview:` records, and there is no way to delete a chat. `app:` and `background:` records each store a full copy of every pinned plugin's code.
+7. **No schema version.** The database is opened at version 1 with no record version. Old shapes are handled forever in hot paths: the inline `modelInput` move in `ConversationStore.update`, and a notice-text match in `recoverWork`.
+
+Smaller findings:
+
+- A missing model-input segment makes `ConversationStore.load` retry with no bound.
+- `OpenAIModel` does not wrap its own `fetch` failures, unlike `CompatModel`.
+- Any plain `Error` undoes a ChatGPT compaction and switches it off for good, including a malformed tool argument.
+- `selectModel` fails sign-in when the catalog lacks `gpt-6.1-sol`.
+- The helper and parallel reads only accept `provider === 'local'` tools, so with Charms active the helper has only `read_skill`.
+
+## Comparison with pi-mono and the DeepSeek harness
+
+**pi-mono** ([earendil-works/pi](https://github.com/earendil-works/pi), all packages 1.0.0 since 2026-10-01):
+
+- `pi-agent-core` is an in-memory loop of about 1,100 lines, with hooks: `transformContext`, `beforeToolCall` / `afterToolCall`, steering and follow-up queues.
+- Tools return `{content, details, isError}`, can stream updates, and declare `executionMode` and `replay`.
+- `pi-ai` covers about 40 providers under one message model.
+- `pi-durable`, still marked Experimental, commits each step and reruns only tools declared `replay: "safe"`. It stores to memory, Node SQLite or JSONL.
+
+**DeepSeek Harness, "dsh"** ([deepseek-ai/deepseek-harness](https://github.com/deepseek-ai/deepseek-harness), MIT, developer preview; [InfoQ, 2026-08-20](https://www.infoq.com/news/2026/08/deep-seek-harness/)):
+
+- A Cordis microkernel with about 80 plugin packages; only `dsh-agent-loop` holds loop logic.
+- The session is an append-only event log, and model history is a view built from it. Compaction appends replacement events and keeps the originals.
+- After a crash the model is told `TOOL_NOT_STARTED` or `TOOL_OUTCOME_UNKNOWN`.
+- Tools pass through pre-execute (allow, deny or ask), a guard, execute, then post-execute. They run in parallel only when `isConcurrencySafe(args)` says so.
+- Compaction first shortens old tool results to their head and tail, saving the full text to a file, and only then summarises.
+
+**Kinetik is ahead on:** crash safety in a browser worker (journal plus "needs review" instead of telling the model "unknown", and Web Locks across the worker and windows), reattaching to remote jobs (`checkpoint` / `recover` / `wait` / `cancel`), and size (about 200 KB with Ajv).
+
+**Kinetik is behind on:** a small loop with explicit hooks, tools declaring their own safety, typed lifecycle events with streamed tool output, compaction inside one long turn, and storing chat messages append-only.
+
+**Adopt (designs, not code):**
+
+1. Shorten old tool results and cut by token budget, so one long turn can be compacted. Today `splitPoint` keeps everything after the latest user message, so a single 60-step task cannot shrink.
+2. Tools declare their own effects, and the name sets in the runtime go away.
+3. A tool pipeline with named steps: validate → ask → execute → classify → record.
+4. Typed `turn_*` and `tool_*` events with streamed tool output.
+5. Store chat messages append-only, like model input.
+6. Mark a call "started" separately from "pending", so a call that never began isn't sent for review. Honor `Retry-After` on 429.
+
+**Do not copy:** the microkernel and 80-plugin layout; pi-ai or pi-durable as dependencies (bundle size, no IndexedDB backend, Experimental); telling the model "outcome unknown" for actions that send, pay or delete; saving every stream chunk; session trees and branching; dropping the step cap or approvals.
+
+## Structure after this change
+
+```
+src/
+  core/                      agent core
+    runtime.ts               turn loop, steering and queue, asks and approvals, stop, recovery (1,161 lines, from 1,845)
+    conversation-store.ts    conversation records; model input in append-only segments
+    attachments.ts           staged files, uploads, photo previews for the model
+    compaction.ts            context limits, local summaries, ChatGPT compaction and its undo
+    read-only.ts             read-only tools, parallel calls, the delegate helper agent
+    apps.ts                  MCP App widget tool calls and their journal
+    workspace-files.ts       files browser, import and export
+    prompt.ts                system instructions, built-in skill, tool definitions for the model
+    model-input.ts           function_call_output items, printable tool results
+    abortable.ts             promise that rejects when a signal aborts
+    tools.ts, background.ts, automation.ts, archive.ts, skills.ts, types.ts, host.ts
+  models/                    model adapters behind the Model interface
+    openai.ts                Responses API (ChatGPT sign-in, helper)
+    compat.ts                OpenAI-compatible Chat Completions
+    router.ts                per-turn choice between ChatGPT and the custom model
+    mock.ts                  deterministic test model
+  connections/               sign-ins and settings: chatgpt.ts, custom-model.ts, manager.ts, config.ts
+  plugins/                   plugin loader and MCP client
+  browser/, platform/        IndexedDB store, filesystem, service-worker client, Tauri adapters
+  ui/                        Solid components and the imperative main.ts
+```
+
+## Plan
+
+Each step is small enough for one PR. The order puts risk first.
+
+1. **Fix the bugs above.** S. Gate every execution path through the approval check (background start and widget calls). Widget messages fill the composer. Pin `{provider, model, effort}` per turn and key `no-server-compact:` by it. Stop clears the queue flags. `Store.entries` uses a key range.
+2. **One place for tool safety.** S–M. Add `effects` to `ToolDefinition` (`readOnly`, `approval`, `command`, `host`), set it in `localTools` and the MCP mapping, and delete the `readOnlyLocal`, `parallelSafe` and `rerunnable` sets and the `__charms_exec` suffix test. Replay safety still comes only from `provider === 'local' && readOnly`, never from a server's `readOnlyHint`.
+3. **Finish splitting the turn.** M.
+   - **Turn state:** one `Turn` object on the conversation instead of about ten flat optional fields, and one `endTurn()` that every exit and `stop` use.
+   - **Call states:** explicit `proposed | approved | started | completed | unknown | awaiting` instead of the two-meaning `approved` flag.
+   - **Tool pipeline:** move it out of `run` into named steps.
+   - **Recovery:** move `recoverWork` to `recovery.ts`.
+
+   This changes the persisted shape, so it needs a migration, and therefore comes after step 5's schema version.
+
+4. **Model layer hygiene.** S–M. Inject a `ResponsesTransport` instead of the fake `fetch`, and let `OpenAIModel` own the request body. Share one `model-http.ts` (SSE events, HTTP errors, tool-name encoding, step shaping) between both adapters. Add `ModelRejected` so only a real rejection undoes compaction.
+5. **Production readiness.** S–M.
+   - **Trace log:** a local per-turn trace (step, tool, model, status, ms, error), shown in Settings → Advanced and included in exports.
+   - **Lighter `state` op:** returns summaries, and changes name the conversation, so windows refresh one chat.
+   - **Typed RPC:** a shared op union with a protocol version.
+   - **Schema version:** `meta:schema` with a migrations list run once at startup.
+   - **Cleanup:** a sweep at startup and a delete-chat op.
+6. **Later.** M–L.
+   - Compaction for one long turn (adopt idea 1).
+   - Typed events with streamed tool output.
+   - Chat messages stored append-only.
+   - Plugins referenced by digest instead of copied.
+   - Ports (`Store`, `Workspace`, `Locks`) so the core runs in Node for evals.
+   - `main.ts` split by screen.
+
+**Do not:** add a state-machine library, a DI container, a middleware chain, a plugin microkernel or a rewrite. Five to eight focused modules are enough.
+
+## Status
+
+- **Done:** step 0, the structure move above. It is a pure move with no behaviour change; the unit and browser tests pass unchanged apart from import paths.
+- **Open:** steps 1 to 6, starting with the bug fixes.
