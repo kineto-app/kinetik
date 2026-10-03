@@ -1,3 +1,4 @@
+import { approvalsKey } from '../src/core/approvals';
 import { loadChat } from './chat';
 import { expect, test } from 'vitest';
 import { Runtime } from '../src/core/runtime';
@@ -141,6 +142,7 @@ function withPublish(runtime: Runtime, ran: unknown[]) {
 
 test('an action marked for approval runs only after the user approves it', async () => {
   const store = new Store(crypto.randomUUID());
+  await store.put(approvalsKey, true);
   const ran: unknown[] = [];
   const { model } = scripted([
     () => ({ type: 'tool', name: 'publish', input: { title: 'Launch' }, callId: 'p1' }),
@@ -161,6 +163,7 @@ test('an action marked for approval runs only after the user approves it', async
 
 test('a declined action never runs and the model is told', async () => {
   const store = new Store(crypto.randomUUID());
+  await store.put(approvalsKey, true);
   const ran: unknown[] = [];
   const { model, seen } = scripted([
     () => ({ type: 'tool', name: 'publish', input: { title: 'Launch' }, callId: 'p1' }),
@@ -205,6 +208,7 @@ test('a new message instead of an answer closes the question for the model', asy
 
 test('memory proposals are saved only when confirmed, and every chat reads the memory', async () => {
   const store = new Store(crypto.randomUUID());
+  await store.put(approvalsKey, true);
   const { model, seen } = scripted([
     () => ({
       type: 'tool',
@@ -252,6 +256,7 @@ test('a finished reply is announced through the notifier', async () => {
 
 test('an approved action interrupted by a restart runs exactly once', async () => {
   const store = new Store(crypto.randomUUID());
+  await store.put(approvalsKey, true);
   const ran: unknown[] = [];
   const steps = () =>
     scripted([

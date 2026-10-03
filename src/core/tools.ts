@@ -152,15 +152,16 @@ export function localTools(
       { readOnly: true },
     ),
     remember: bind(
-      'Propose a new version of the user’s saved memory: short notes about them and their preferences that every chat reads. The user confirms before it is saved. Send the complete new text, not a diff.',
+      'Save a new version of the user’s memory: short notes about them and their preferences that every chat reads. The user can see and change it in Settings. Send the complete new text, not a diff.',
       {
         type: 'object',
         properties: { text: { type: 'string', maxLength: 4000 } },
         required: ['text'],
         additionalProperties: false,
       },
-      async () => {
-        throw new Error('The remember tool is confirmed by the user, not executed.');
+      async (input) => {
+        await store.put('memory', String(input.text));
+        return 'Saved to memory.';
       },
     ),
     read_skill: bind(

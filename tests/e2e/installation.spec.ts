@@ -56,6 +56,45 @@ test('hosted setup works without installing and offers installation separately',
   await expect(page.getByRole('heading', { name: 'Connect ChatGPT' })).toBeVisible();
 });
 
+test('after "Later", setup does not open by itself again; the status button still opens it', async ({
+  page,
+}, info) => {
+  await page.goto(base);
+  await expect(page.getByRole('heading', { name: 'Connect ChatGPT' })).toBeVisible();
+  await page.getByRole('button', { name: 'Set up later' }).click();
+  await page.reload();
+  await expect(page.locator('#composer')).toBeVisible();
+  await expect(page.locator('#connection-setup')).toBeHidden();
+  await page.screenshot({ path: info.outputPath('after-later-reload.png') });
+  await page.locator('#connection-status').click();
+  await expect(page.getByRole('heading', { name: 'Connect ChatGPT' })).toBeVisible();
+});
+
+test('with a custom model set up, setup does not open by itself on the next launch', async ({
+  page,
+}, info) => {
+  await page.goto(base);
+  await expect(page.getByRole('heading', { name: 'Connect ChatGPT' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  if (await page.locator('#menu').isVisible()) await page.locator('#menu').click();
+  await page.locator('#settings-open').click();
+  await page.locator('.settings-account').click();
+  await page
+    .locator('#settings-dialog .settings-page:not([hidden])')
+    .getByText('Advanced', { exact: true })
+    .click();
+  const form = page.getByRole('form', { name: 'Custom model' });
+  await form.getByLabel('Endpoint', { exact: true }).fill('http://localhost:4174/compat/v1');
+  await form.getByLabel('Model', { exact: true }).fill('fixture-model');
+  await form.getByLabel('API key', { exact: true }).fill('sk-fixture-key-123456');
+  await form.getByRole('button', { name: 'Save' }).click();
+  await expect(form.getByRole('button', { name: 'Remove' })).toBeVisible();
+  await page.reload();
+  await expect(page.locator('#composer')).toBeVisible();
+  await expect(page.locator('#connection-setup')).toBeHidden();
+  await page.screenshot({ path: info.outputPath('custom-model-reload.png') });
+});
+
 test('iPhone offers manual installation without blocking account setup', async ({ page }) => {
   await page.addInitScript(() =>
     Object.defineProperty(navigator, 'userAgent', {

@@ -1,3 +1,4 @@
+import { approvalsKey } from '../src/core/approvals';
 import { loadChat, updateChat } from './chat';
 import { expect, test } from 'vitest';
 import { Runtime } from '../src/core/runtime';
@@ -124,6 +125,7 @@ test('a worker killed after recording a call but before starting it runs it once
 
 test('a recorded call that needs approval still asks when recovery resumes it', async () => {
   const store = new Store(crypto.randomUUID());
+  await store.put(approvalsKey, true);
   const ran: unknown[] = [];
   const runtime = new Runtime(store, undefined, scripted([]));
   withTool(runtime, ran, { approval: true });

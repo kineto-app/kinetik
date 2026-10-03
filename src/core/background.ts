@@ -1,4 +1,5 @@
 import Ajv from 'ajv';
+import { approvalsOn } from './approvals';
 import { isConnectionError, SignInRequired } from './connection-error';
 import type { Store } from './ports';
 import {
@@ -113,7 +114,7 @@ export class BackgroundProcesses {
           const args = (input.input ?? {}) as Record<string, unknown>;
           if (!new Ajv({ strict: false }).compile(binding.tool.inputSchema)(args))
             return { started: false, error: 'Invalid background tool arguments.' };
-          if (needsApproval(binding.tool, args))
+          if ((await approvalsOn(this.store)) && needsApproval(binding.tool, args))
             return {
               started: false,
               error: 'This tool needs your approval. Call it directly, not in the background.',

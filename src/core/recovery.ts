@@ -94,8 +94,11 @@ export async function recoverWork(deps: RecoveryDeps): Promise<void> {
         await chats.update(c.id, (value) => ({ ...value, status: 'queued' }));
         return;
       }
-      if (call.provider === 'local' && localReadOnly(local[call.name], call.input)) {
-        // It changed nothing, so running it again is safe.
+      if (
+        call.provider === 'local' &&
+        (localReadOnly(local[call.name], call.input) || call.name === 'remember')
+      ) {
+        // It changed nothing, or only wrote the same memory text, so running it again is safe.
         await chats.update(c.id, (value) => ({
           ...withCall(value, { state: 'approved' }),
           status: value.status === 'stopped' ? 'stopped' : 'queued',

@@ -28,7 +28,7 @@ export function buildInstructions(
 ): string {
   return (
     (memory?.trim()
-      ? 'About the user (their saved memory; propose changes only with the remember tool):\n' +
+      ? 'About the user (their saved memory; change it only with the remember tool):\n' +
         memory.trim() +
         '\n\n'
       : '') +

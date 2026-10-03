@@ -108,15 +108,17 @@ A turn stops after 60 steps, or earlier when the agent repeats the same call wit
 
 ChatGPT sign-in is the main way to chat. For testing other models, **Settings → ChatGPT → Advanced** takes one OpenAI-compatible endpoint that speaks Chat Completions (`/chat/completions`), such as OpenRouter, Ollama, LM Studio or vLLM: its address, the model name, an API key (optional for servers on the device), the context window (128k by default) and whether the model reads photos. The composer's model menu then lists it under "Custom". The key is stored like the ChatGPT tokens: in secure storage in the apps and never in an export; in a browser, installed connections can read it. A turn keeps the model it started with even if you switch mid-turn. The chat history is translated per request, so a chat can move between ChatGPT and the custom model; ChatGPT's encrypted reasoning and its compaction summaries are not sent to the custom model. A wrong key pauses the chat with **Check API key**, which opens that settings section.
 
-## Photos, questions, approvals and memory
+## Photos, questions and memory
 
 Attached photos reach the model as images, not only as file paths, when the selected ChatGPT model accepts images (the model catalog says which do); other models get a note that a photo was attached. The agent still gets the file path, so a tool can use the original. Each request carries at most the 8 newest photos and 4 MB of them; older photos are replaced by a note, since every request resends the history and the hosted relay caps a request at 8 MB.
 
 While the agent works, the clock button next to Stop sends your message **after** the current work instead of steering it now. The message shows "Queued · runs after the current work" until its turn starts.
 
-The agent can stop and ask. The local `ask` tool shows a question with two to six answer buttons; an MCP tool that a server marks `destructiveHint: true` shows its input with **Approve** and **Decline** and runs only after Approve. The chat status reads "Waiting for your answer", a restart keeps the question, and sending a new message instead tells the agent the question went unanswered.
+Kinetik acts without asking: tools, widget actions and memory saves run straight away, including an MCP tool a server marks `destructiveHint: true`. The agent can still stop and ask for information. The local `ask` tool shows a question with two to six answer buttons. The chat status reads "Waiting for your answer", a restart keeps the question, and sending a new message instead tells the agent the question went unanswered.
 
-**Settings → Memory** holds short notes about you — at most 4000 characters — that every chat reads first. The agent can propose a new version with the `remember` tool; nothing is saved until you choose **Save to memory**.
+**Settings → Memory** holds short notes about you — at most 4000 characters — that every chat reads first. The agent saves a new version with the `remember` tool, and the chat shows "Saved to memory"; you can change or clear it there at any time.
+
+On Android the window ends at the keyboard, so the composer stays visible while you type. After **Later**, or once a custom model is set up, setup no longer opens by itself on each launch; the connection button still opens it.
 
 **Settings → Notify me when work finishes** asks for notification permission and then shows a system notification when a reply is ready or the agent asks a question, but only when no Kinetik window is in front. The web app shows it from the service worker; the Android app uses a native notification. iOS and desktop do not notify yet.
 
