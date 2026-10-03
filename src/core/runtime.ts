@@ -16,7 +16,7 @@ import { WorkspaceFiles } from './workspace-files';
 import { migrate } from './migrations';
 import { conversationKeys, sweepDaily } from './cleanup';
 import { recoverWork, waitForConnection } from './recovery';
-import { endTurn, openCall, withCall, withTurn } from './turn';
+import { endTurn, withCall, withTurn } from './turn';
 import { buildInstructions, builtinSkill, modelVisible, toolDefinitions } from './prompt';
 import { createFilesystem } from '../browser/filesystem';
 import { Plugins } from '../plugins/loader';
@@ -48,6 +48,16 @@ const maxSteps = 60;
 const steering = (c: Conversation | undefined) =>
   (c?.pending ?? []).filter((id) => c!.messages.find((m) => m.id === id)?.queue !== 'after');
 const repeatLimit = 3;
+/** What the model is told about a call the user moved past; every recorded call needs an output. */
+function closing(call: ToolCall): string | undefined {
+  if (call.state === 'awaiting') return 'The user did not answer and sent a new message instead.';
+  if (call.state === 'proposed' || call.state === 'approved')
+    return 'Not run: the user sent a new message.';
+  if (call.state === 'started')
+    return call.provider === 'local'
+      ? 'Not finished: the user sent a new message.'
+      : 'Interrupted: the user sent a new message. It may have run; its result is unknown.';
+}
 type ToolStep = Extract<ModelStep, { type: 'tool' }>;
 type ToolTurn = {
   id: string;
@@ -310,20 +320,9 @@ export class Runtime {
             // Steering joins now; a queued follow-up waits until no steering is left, one at a time.
             const steer = steering(value);
             const taken = steer.length ? steer : value.pending.slice(0, 1);
-            const call = value.turn?.call;
-            // A local call left open never ran or only read, so the new message replaces it.
-            const unanswered = !call?.callId
-              ? []
-              : call.state === 'awaiting'
-                ? [
-                    functionOutput(
-                      call.callId,
-                      'The user did not answer and sent a new message instead.',
-                    ),
-                  ]
-                : openCall(call) && call.provider === 'local'
-                  ? [functionOutput(call.callId, 'Not finished: the user sent a new message.')]
-                  : [];
+            const left = value.turn?.call;
+            const note = left?.callId ? closing(left) : undefined;
+            const unanswered = note ? [functionOutput(left!.callId!, note)] : [];
             return {
               ...value,
               turn: {

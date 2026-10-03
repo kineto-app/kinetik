@@ -110,14 +110,16 @@ test('worker recovery never reissues an uncertain tool', async () => {
   await runtime.submit(c.id, '/write /workspace/double\ndanger');
   await store.update<Conversation>('conversation:' + c.id, (value) => ({
     ...value!,
-    activeMessage: value!.pending[0],
     pending: [],
-    call: {
-      id: 'call',
-      name: 'write',
-      provider: 'local',
-      input: { path: '/workspace/double', content: 'danger' },
-      state: 'pending',
+    turn: {
+      message: value!.pending[0],
+      call: {
+        id: 'call',
+        name: 'write',
+        provider: 'local',
+        input: { path: '/workspace/double', content: 'danger' },
+        state: 'started',
+      },
     },
   }));
   const restarted = new Runtime(store);
@@ -178,16 +180,18 @@ test('an unavailable plugin during recovery does not block the workspace or repe
   await runtime.submit(c.id, '/exec remote operation');
   await store.update<Conversation>('conversation:' + c.id, (value) => ({
     ...value!,
-    activeMessage: value!.pending[0],
     pending: [],
     plugins: [plugin('offline', 1, "throw new Error('provider offline')")],
-    call: {
-      id: 'pending',
-      name: 'exec',
-      provider: 'offline',
-      input: {},
-      state: 'pending',
-      operationId: 'remote-id',
+    turn: {
+      message: value!.pending[0],
+      call: {
+        id: 'pending',
+        name: 'exec',
+        provider: 'offline',
+        input: {},
+        state: 'started',
+        operationId: 'remote-id',
+      },
     },
   }));
   await new Runtime(store).recover();
@@ -203,7 +207,9 @@ test('a crash immediately after Stop still exposes the pending tool for review',
   await store.update<Conversation>('conversation:' + c.id, (value) => ({
     ...value!,
     status: 'stopped',
-    call: { id: 'pending', name: 'write', provider: 'local', input: {}, state: 'pending' },
+    turn: {
+      call: { id: 'pending', name: 'write', provider: 'local', input: {}, state: 'started' },
+    },
   }));
   await new Runtime(store).recover();
   expect((await read(store, c.id)).status).toBe('needs_review');
@@ -482,13 +488,15 @@ test('Stop during a remote recovery check does not restart the conversation', as
     ...value!,
     status: 'waiting',
     waitingFor: 'connection',
-    call: {
-      id: 'call',
-      name: 'exec',
-      provider: 'remote',
-      input: {},
-      state: 'pending',
-      operationId: 'job',
+    turn: {
+      call: {
+        id: 'call',
+        name: 'exec',
+        provider: 'remote',
+        input: {},
+        state: 'started',
+        operationId: 'job',
+      },
     },
   }));
   let finish!: (value: { done: boolean; result: string }) => void;

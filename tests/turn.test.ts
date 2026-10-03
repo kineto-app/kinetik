@@ -122,7 +122,7 @@ test('a worker killed after recording a call but before starting it runs it once
   expect((await read(fresh, c.id)).status).toBe('idle');
 });
 
-test('a recorded call that needs approval still asks after a restart', async () => {
+test('a recorded call that needs approval still asks when recovery resumes it', async () => {
   const store = new Store(crypto.randomUUID());
   const ran: unknown[] = [];
   const runtime = new Runtime(store, undefined, scripted([]));
@@ -247,3 +247,34 @@ test('an old call that may have started goes to review after the upgrade, never 
   expect(ran).toEqual([]);
   expect((await read(store, c.id)).status).toBe('needs_review');
 });
+
+test.each(['proposed', 'approved', 'started'] as const)(
+  'a new message after a stopped remote call in state %s still answers that call',
+  async (state) => {
+    const store = new Store(crypto.randomUUID());
+    const seen: ModelRequest[] = [];
+    const runtime = new Runtime(store, undefined, {
+      async next(request) {
+        seen.push(request);
+        return say('Fine');
+      },
+    });
+    const c = await runtime.create();
+    await store.update<Conversation>('conversation:' + c.id, (value) => ({
+      ...value!,
+      status: 'stopped',
+      modelInput: [
+        { role: 'user', content: 'Post it' },
+        { type: 'function_call', call_id: 'p', name: 'post', arguments: '{}' },
+      ],
+      turn: {
+        message: 'm1',
+        call: { id: 'x', callId: 'p', name: 'post', input: {}, provider: 'demo', state },
+      },
+    }));
+    await runtime.submit(c.id, 'Never mind');
+    await runtime.run(c.id);
+    const outputs = seen[0].history!.filter((item) => item.type === 'function_call_output');
+    expect(outputs.map((item) => item.call_id)).toEqual(['p']);
+  },
+);

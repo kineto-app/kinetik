@@ -146,14 +146,16 @@ test('a crash before the start receipt is saved recovers the existing job and de
   await runtime.submit(c.id, '/bg echo duplicate');
   await store.update<Conversation>('conversation:' + c.id, (value) => ({
     ...value!,
-    activeMessage: value!.pending[0],
     pending: [],
-    call: {
-      id: 'job',
-      name: 'background',
-      provider: 'local',
-      input: { action: 'start' },
-      state: 'pending',
+    turn: {
+      message: value!.pending[0],
+      call: {
+        id: 'job',
+        name: 'background',
+        provider: 'local',
+        input: { action: 'start' },
+        state: 'started',
+      },
     },
   }));
   await runtime.recover();
