@@ -919,11 +919,12 @@ async function start() {
     /* Hosted and offline copies have no launcher. */
   }
 }
-setupFiles(async (file) => {
+setupFiles(async (files) => {
   pickingFile = true;
   updateComposer();
   try {
-    await stageFile(file);
+    // One at a time keeps the chosen order and stops at the first file over the limits.
+    for (const file of files) await stageFile({ name: file.name, bytes: await file.read() });
   } finally {
     pickingFile = false;
     updateComposer();
