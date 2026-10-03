@@ -1,4 +1,5 @@
 import type { Store } from './ports';
+import { approvalsOn } from './approvals';
 import type { Plugins } from '../plugins/loader';
 import type { ConversationStore } from './conversation-store';
 import { printable } from './model-input';
@@ -43,7 +44,8 @@ export class AppCalls {
     if (!tool?.app) throw new Error('App tool unavailable.');
     // A tool the plugin does not expose has no declared effects, so it is treated as risky.
     const target = snapshot.bindings[`${record.provider}__${name}`]?.tool;
-    return { record, app: tool.app, approval: !target || needsApproval(target, input) };
+    const approval = (await approvalsOn(this.store)) && (!target || needsApproval(target, input));
+    return { record, app: tool.app, approval };
   }
   async needsApproval(id: string, name: string, input: Record<string, unknown>) {
     return (await this.resolve(id, name, input)).approval;

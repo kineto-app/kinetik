@@ -34,7 +34,7 @@ async function open(page: Page, request: import('@playwright/test').APIRequestCo
   await expect(page.locator('#status')).toHaveText('Ready');
 }
 
-test('photos, choices, approvals and memory', async ({ page, request }, info) => {
+test('photos, choices, actions and memory', async ({ page, request }, info) => {
   await open(page, request);
   const shot = (name: string) => page.screenshot({ path: info.outputPath(name + '.png') });
 
@@ -66,32 +66,28 @@ test('photos, choices, approvals and memory', async ({ page, request }, info) =>
   await expect(ask).toBeHidden();
   await expect(replies(page).last()).toContainText('Calm it is');
 
-  // 2.5 Approval before an action a server marks as destructive.
+  // 2.5 An action a server marks as destructive runs without asking.
   await rpc(page, 'install', {
     source: base + 'plugins/mcp/plugin.json',
     settings: JSON.stringify({ url: 'http://127.0.0.1:4174/mcp' }),
   });
   await rpc(page, 'enable', { id: 'mcp', enabled: true });
   await send(page, 'Publish my post');
-  await expect(ask).toContainText('Allow Kinetik to run “publish”?');
-  await expect(ask).toContainText('Three days in Lisbon');
-  await shot('3-approval');
-  await ask.getByRole('button', { name: 'Decline' }).click();
-  await expect(replies(page).last()).toContainText('did not publish');
-  await send(page, 'Publish my post');
-  await ask.getByRole('button', { name: 'Approve' }).click();
   await expect(replies(page).last()).toContainText('Published your post');
+  await expect(ask).toBeHidden();
+  await shot('3-action');
 
-  // 2.4 Memory: the agent proposes, the user confirms, Settings shows it.
+  // 2.4 Memory: the agent saves it, every chat reads it, Settings shows it.
   await send(page, 'Remember I write in Russian');
-  await expect(ask).toContainText('Save this to your memory?');
-  await expect(ask).toContainText('Writes in Russian. Prefers short answers.');
-  await shot('4-memory-proposal');
-  await ask.getByRole('button', { name: 'Save to memory' }).click();
   await expect(replies(page).last()).toContainText('keep that in mind');
+  await expect(ask).toBeHidden();
+  await shot('4-memory-saved');
   await send(page, 'Hi');
-  const last = (await (await request.get(base + 'agent-requests')).json()).at(-1);
-  expect(last.instructions).toContain('Writes in Russian. Prefers short answers.');
+  await expect
+    .poll(
+      async () => (await (await request.get(base + 'agent-requests')).json()).at(-1).instructions,
+    )
+    .toContain('Writes in Russian. Prefers short answers.');
   if (info.project.use.isMobile) await page.getByRole('button', { name: 'Toggle chats' }).click();
   await page.locator('#settings-open').click();
   await page.getByRole('button', { name: /^Memory/ }).click();
@@ -99,4 +95,37 @@ test('photos, choices, approvals and memory', async ({ page, request }, info) =>
     'Writes in Russian. Prefers short answers.',
   );
   await shot('5-memory-settings');
+});
+
+test('with approvals turned on, a destructive action waits for Approve', async ({
+  page,
+  request,
+}) => {
+  await open(page, request);
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve, reject) => {
+        const open = indexedDB.open('kinetik-oss-v1', 1);
+        open.onsuccess = () => {
+          const tx = open.result.transaction('records', 'readwrite');
+          tx.objectStore('records').put(true, 'ask-before-actions');
+          tx.oncomplete = () => resolve();
+          tx.onerror = () => reject(tx.error);
+        };
+      }),
+  );
+  await rpc(page, 'install', {
+    source: base + 'plugins/mcp/plugin.json',
+    settings: JSON.stringify({ url: 'http://127.0.0.1:4174/mcp' }),
+  });
+  await rpc(page, 'enable', { id: 'mcp', enabled: true });
+  const ask = page.locator('#ask');
+  await send(page, 'Publish my post');
+  await expect(ask).toContainText('Allow Kinetik to run “publish”?');
+  await expect(ask).toContainText('Three days in Lisbon');
+  await ask.getByRole('button', { name: 'Decline' }).click();
+  await expect(replies(page).last()).toContainText('did not publish');
+  await send(page, 'Publish my post');
+  await ask.getByRole('button', { name: 'Approve' }).click();
+  await expect(replies(page).last()).toContainText('Published your post');
 });

@@ -2,6 +2,7 @@ import { isNative } from '../platform/environment';
 import { setupInstallation } from '../browser/installation';
 import { rpc } from '../browser/client';
 import type { SetupState } from '../connections/manager';
+import type { CustomModelState } from '../connections/custom-model';
 import { icon } from './icons';
 import './onboarding.css';
 
@@ -9,6 +10,15 @@ const initial: SetupState = {
   installation: { required: false },
   charms: { available: false, status: 'not-connected' },
   chatgpt: { available: false, connected: false },
+};
+
+const laterKey = 'kinetik-setup-later';
+const laterChosen = () => {
+  try {
+    return localStorage.getItem(laterKey) === '1';
+  } catch {
+    return false;
+  }
 };
 
 export function setupConnections(changed: (state: SetupState) => void) {
@@ -321,7 +331,14 @@ export function setupConnections(changed: (state: SetupState) => void) {
   }
   $('cancel-signin').onclick = () =>
     void import('../platform/native').then((native) => native.cancelNativeAuthentication());
-  $('later').onclick = close;
+  $('later').onclick = () => {
+    try {
+      localStorage.setItem(laterKey, '1');
+    } catch {
+      /* Without storage it simply asks again next time. */
+    }
+    close();
+  };
   $('start').onclick = close;
   dialog.addEventListener('cancel', (event) => {
     if (screen === 'handoff' || screen === 'connected') {
@@ -518,8 +535,13 @@ export function setupConnections(changed: (state: SetupState) => void) {
         await rpc('connectionPrepare');
         await refresh();
       }
+      // Someone who already chats through a custom model, or chose "Later", is not sent back here.
+      const settled =
+        laterChosen() ||
+        (await rpc<CustomModelState>('customModel', { action: 'state' })).configured;
       if (
         (state.installation.required &&
+          !settled &&
           !(state.charms.status === 'connected' && state.chatgpt.connected)) ||
         callback ||
         sessionStorage.getItem('kinetik-setup') ||
