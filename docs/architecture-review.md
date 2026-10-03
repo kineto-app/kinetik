@@ -42,9 +42,9 @@ Each was traced in the code. All seven are fixed in step 1 (#33), each with a re
 Smaller findings:
 
 - A missing model-input segment makes `ConversationStore.load` retry with no bound.
-- `OpenAIModel` does not wrap its own `fetch` failures, unlike `CompatModel`.
-- Any plain `Error` undoes a ChatGPT compaction and switches it off for good, including a malformed tool argument.
-- `selectModel` fails sign-in when the catalog lacks `gpt-6.1-sol`.
+- `OpenAIModel` does not wrap its own `fetch` failures, unlike `CompatModel`. (Fixed in step 4.)
+- Any plain `Error` undoes a ChatGPT compaction and switches it off for good, including a malformed tool argument. (Fixed in step 4.)
+- `selectModel` fails sign-in when the catalog lacks `gpt-6.1-sol`. (Fixed in step 4.)
 - The helper and parallel reads only accept `provider === 'local'` tools, so with Charms active the helper has only `read_skill`. (Fixed in step 2.)
 
 ## Comparison with pi-mono and the DeepSeek harness
@@ -127,7 +127,8 @@ src/
     abortable.ts             promise that rejects when a signal aborts
     tools.ts, background.ts, automation.ts, archive.ts, skills.ts, types.ts, host.ts
   models/                    model adapters behind the Model interface
-    openai.ts                Responses API (ChatGPT sign-in, helper)
+    model-http.ts            shared by both adapters: SSE events, HTTP errors, tool names, step shaping, images
+    openai.ts                Responses API over an injected transport (ChatGPT sign-in, helper)
     compat.ts                OpenAI-compatible Chat Completions
     router.ts                per-turn choice between ChatGPT and the custom model
     mock.ts                  deterministic test model
@@ -202,4 +203,10 @@ Each step is small enough for one PR. The order puts risk first.
     - migration 5 maps old calls: `pending` + `approved` to `approved`, plain `pending` to `started` (it may have run, so it goes to review), the rest unchanged;
     - a message queued during a turn uses the model chosen when it starts, not the previous turn's.
   - Left on purpose by step 3: plugins pinned for a run and the connection-wait fields (`waitingFor`, `retryAt`, `retryAttempts`) stay on the conversation, because they outlive one turn or belong to the status.
-- **Open:** steps 4 to 6.
+  - Step 4, the model layer (#36):
+    - `OpenAIModel` builds its request and sends it through a `ResponsesTransport`: the browser session or `httpTransport` for the helper. The fake `fetch` in `host.ts` is gone;
+    - `model-http.ts` holds what both adapters share, so the Responses and Chat Completions readers differ only in their event shapes;
+    - `ModelRejected` marks a request the provider refused; only it undoes a ChatGPT compaction. A malformed tool call no longer turns server compaction off;
+    - a network failure reaching ChatGPT is a `ConnectionError`;
+    - a first sign-in whose catalog lacks GPT-6.1 Sol starts on the first listed model. An existing login still never switches silently.
+- **Open:** steps 5 and 6.

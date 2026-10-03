@@ -3,6 +3,8 @@ export class ConnectionError extends Error {}
 export class SignInRequired extends Error {}
 /** The request no longer fits the model's context or output budget; compaction may help. */
 export class ContextOverflow extends Error {}
+/** The provider rejected this request as sent; a ChatGPT compaction before it is undone. */
+export class ModelRejected extends Error {}
 
 export function isConnectionError(error: unknown): boolean {
   return (

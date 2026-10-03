@@ -1,5 +1,6 @@
 import { expect, test } from 'vitest';
 import { Runtime } from '../src/core/runtime';
+import { ModelRejected } from '../src/core/connection-error';
 import { Store } from '../src/browser/store';
 import { modelInput } from './model-input';
 import type { Conversation, Model, ModelRequest, ModelStep } from '../src/core/types';
@@ -231,7 +232,7 @@ function fullModel(compact?: Model['compact'], fail?: () => boolean) {
     async next(request) {
       seen.push(request);
       if (request.message.startsWith('Summarise the conversation')) return say('Local notes.');
-      if (fail?.()) throw new Error('Model request failed: HTTP 400');
+      if (fail?.()) throw new ModelRejected('Model request failed: HTTP 400');
       return {
         type: 'text',
         text: 'Answer to ' + request.message,
@@ -404,7 +405,7 @@ test('a worker killed right after a provider compaction still undoes it when the
     async next(request) {
       if (!rejected) {
         rejected = true;
-        throw new Error('Model request failed: HTTP 400');
+        throw new ModelRejected('Model request failed: HTTP 400');
       }
       return { type: 'text', text: 'Recovered: ' + request.message };
     },

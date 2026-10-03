@@ -153,10 +153,9 @@ test('bug 3: a turn keeps the ChatGPT model and reasoning level it started with'
 test('bug 3: the pinned ChatGPT model and level reach the request', async () => {
   let sent: Record<string, unknown> = {};
   const model = new OpenAIModel(
-    'https://example.test/responses',
     async () => ({ account: 'a', model: 'current-model' }),
-    async (_url, init) => {
-      sent = JSON.parse(String(init?.body));
+    async (body) => {
+      sent = body;
       return new Response(
         'data: ' +
           JSON.stringify({
@@ -485,9 +484,8 @@ test('bug 6: an update that finds the record gone does not write it back', async
 test('bug 3: ChatGPT compaction uses the model the turn pinned', async () => {
   const sent: unknown[] = [];
   const model = new OpenAIModel(
-    'https://example.test/responses',
     async () => ({ account: 'a', model: 'current-model' }),
-    fetch,
+    async () => new Response(),
     async (_account, _input, _signal, pin) => {
       sent.push(pin);
       return [{ type: 'compaction' }];
