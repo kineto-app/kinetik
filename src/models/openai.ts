@@ -1,11 +1,18 @@
 import type { Model, ModelRequest, ModelStep, TurnPin, Usage } from '../core/types';
-import { ConnectionError, ContextOverflow, SignInRequired } from '../core/connection-error';
+import {
+  ConnectionError,
+  ContextOverflow,
+  isConnectionError,
+  SignInRequired,
+} from '../core/connection-error';
+import { errorText } from '../core/types';
 import {
   encodeTools,
   httpFailure,
   latestImages,
   providerError,
   sseEvents,
+  streamDone,
   toStep,
   withoutImages,
 } from './model-http';
@@ -48,7 +55,7 @@ export async function readResponse(
   let text = '',
     reasoning = '';
   for await (const event of sseEvents(response)) {
-    if (typeof event !== 'object') continue;
+    if (event === streamDone) continue;
     if (event.type === 'response.output_item.added' || event.type === 'response.output_item.done') {
       if (
         !Number.isSafeInteger(event.output_index) ||
@@ -72,8 +79,11 @@ export async function readResponse(
     if (['response.failed', 'response.incomplete', 'error'].includes(event.type)) {
       const failure = event.response?.error ?? event.error ?? event;
       const message = failure.message ?? 'Model response did not complete.';
-      if (event.response?.incomplete_details?.reason === 'max_output_tokens')
-        throw new ContextOverflow(message);
+      const reason = event.response?.incomplete_details?.reason;
+      if (reason === 'max_output_tokens') throw new ContextOverflow(message);
+      // An unfinished answer (a content filter, say) is not a refusal of the request itself.
+      if (event.type === 'response.incomplete')
+        throw new Error(reason ? message + ': ' + reason : message);
       throw providerError(failure.code, message);
     }
     if (event.type === 'response.completed') {
@@ -155,8 +165,8 @@ export class OpenAIModel implements Model {
       );
     } catch (error) {
       signal.throwIfAborted();
-      if (error instanceof TypeError)
-        throw new ConnectionError('ChatGPT is unreachable: ' + error.message);
+      if (isConnectionError(error))
+        throw new ConnectionError('ChatGPT is unreachable: ' + errorText(error));
       throw error;
     }
     const meta: { usage?: Usage } = {};

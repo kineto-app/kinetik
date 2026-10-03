@@ -36,10 +36,21 @@ test.each([
   await expect(compat.next(request, signal())).rejects.toBeInstanceOf(kind);
 });
 
-test('a provider failure inside the stream is a rejection, not a plain error', async () => {
+test('a provider failure inside the stream is a rejection; a busy provider is a wait', async () => {
   await expect(
     readResponse(sse({ type: 'response.failed', response: { error: { message: 'Bad input' } } })),
   ).rejects.toBeInstanceOf(ModelRejected);
+  await expect(
+    readResponse(sse({ type: 'error', error: { message: 'Try later', code: 'server_error' } })),
+  ).rejects.toBeInstanceOf(ConnectionError);
+  const filtered = readResponse(
+    sse({
+      type: 'response.incomplete',
+      response: { incomplete_details: { reason: 'content_filter' } },
+    }),
+  );
+  await expect(filtered).rejects.toThrow('content_filter');
+  await expect(filtered).rejects.not.toBeInstanceOf(ModelRejected);
 });
 
 test('a network failure reaching ChatGPT is a connection error', async () => {

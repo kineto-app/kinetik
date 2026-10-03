@@ -233,6 +233,8 @@ export class BrowserChatGPT {
         throw new Error('ChatGPT plan access was not granted.');
       const session = this.session(tokens, String(claims.sub));
       session.model = await this.selectModel(session, undefined, true);
+      // A fallback counts as chosen, so later turns keep it instead of asking for the default.
+      if (session.model !== defaultModel) session.modelSelected = true;
       await this.store.put('registration', { ...registration, clientId, subject: claims.sub });
       await this.store.put('session', session);
       return { ok: true };

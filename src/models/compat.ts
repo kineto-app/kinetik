@@ -185,6 +185,8 @@ async function readChat(response: Response, request: ModelRequest) {
 }
 /** Servers that omit call ids still need one per call to pair calls with their results. */
 const fill = (calls: { id: string; name: string; arguments: string }[]) =>
-  calls
-    .filter(Boolean)
-    .map((call) => ({ ...call, callId: call.id || 'call_' + crypto.randomUUID() }));
+  calls.filter(Boolean).map(({ id, name, arguments: args }) => ({
+    name,
+    arguments: args,
+    callId: id || 'call_' + crypto.randomUUID(),
+  }));

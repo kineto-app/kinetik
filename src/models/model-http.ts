@@ -38,9 +38,13 @@ export const overflow = (code: unknown, text: unknown) =>
   code === 'context_length_exceeded' ||
   /context (window|length)|maximum context|too many (input )?tokens/i.test(String(text ?? ''));
 
-/** An error the provider reported for this request: too long, or rejected. */
+/** An error the provider reported: too long, busy for now, or a refusal of this request. */
 export const providerError = (code: unknown, message: string) =>
-  overflow(code, message) ? new ContextOverflow(message) : new ModelRejected(message);
+  overflow(code, message)
+    ? new ContextOverflow(message)
+    : /server_error|rate_limit|overloaded|unavailable|timeout/i.test(String(code ?? ''))
+      ? new ConnectionError(message)
+      : new ModelRejected(message);
 
 /** The error a failed HTTP response means for the turn: sign in, wait, shorten, or rejected. */
 export async function httpFailure(

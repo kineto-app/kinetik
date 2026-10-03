@@ -42,7 +42,7 @@ Each was traced in the code. All seven are fixed in step 1 (#33), each with a re
 Smaller findings:
 
 - A missing model-input segment makes `ConversationStore.load` retry with no bound.
-- `OpenAIModel` does not wrap its own `fetch` failures, unlike `CompatModel`. (Fixed in step 4.)
+- `OpenAIModel` does not wrap its own `fetch` failures, unlike `CompatModel`. (Step 4 wraps them as `ConnectionError`; the runtime already treated them as one.)
 - Any plain `Error` undoes a ChatGPT compaction and switches it off for good, including a malformed tool argument. (Fixed in step 4.)
 - `selectModel` fails sign-in when the catalog lacks `gpt-6.1-sol`. (Fixed in step 4.)
 - The helper and parallel reads only accept `provider === 'local'` tools, so with Charms active the helper has only `read_skill`. (Fixed in step 2.)
@@ -206,7 +206,7 @@ Each step is small enough for one PR. The order puts risk first.
   - Step 4, the model layer (#36):
     - `OpenAIModel` builds its request and sends it through a `ResponsesTransport`: the browser session or `httpTransport` for the helper. The fake `fetch` in `host.ts` is gone;
     - `model-http.ts` holds what both adapters share, so the Responses and Chat Completions readers differ only in their event shapes;
-    - `ModelRejected` marks a request the provider refused; only it undoes a ChatGPT compaction. A malformed tool call no longer turns server compaction off;
+    - `ModelRejected` marks a request the provider refused; only it undoes a ChatGPT compaction. A malformed tool call or an unfinished answer no longer turns server compaction off, and a busy provider (`server_error`, rate limits) is a connection wait;
     - a network failure reaching ChatGPT is a `ConnectionError`;
     - a first sign-in whose catalog lacks GPT-6.1 Sol starts on the first listed model. An existing login still never switches silently.
 - **Open:** steps 5 and 6.
