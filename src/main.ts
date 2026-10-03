@@ -20,6 +20,7 @@ import { Shell } from './ui/shell';
 import { render as renderSolid } from 'solid-js/web';
 import { icon, type IconName } from './ui/icons';
 import { demoTasks } from './core/demo-tasks';
+import { openCall } from './core/turn';
 import { taskLabel } from './ui/task-labels';
 import { setupFiles } from './ui/files';
 import { setupUpdates } from './browser/updates';
@@ -85,7 +86,7 @@ window.addEventListener('kinetik-custom-model', () => {
 });
 /** The turn runs on the custom model, which uses an API key instead of a sign-in. */
 function apiKeyTurn(c: Conversation) {
-  return c.turnModel?.provider === 'custom';
+  return c.turn?.model?.provider === 'custom';
 }
 renderSolid(
   () =>
@@ -136,8 +137,8 @@ const renderedMessages = new Set<string>();
 const draftKey = 'kinetik-composer';
 byId<HTMLTextAreaElement>('prompt').value = uiStorage.getItem(draftKey) ?? '';
 const isBackgroundTurn = (c: Conversation) => {
-  if (c.turn) return c.turn === 'background';
-  const active = c.messages.find((m) => m.id === (c.activeMessage ?? c.pending[0]));
+  if (c.turn?.kind) return c.turn.kind === 'background';
+  const active = c.messages.find((m) => m.id === (c.turn?.message ?? c.pending[0]));
   return active?.source === 'background' || Boolean(active?.id.startsWith('background-completed:'));
 };
 const current = () => state.conversations.find((c) => c.id === selected);
@@ -222,12 +223,12 @@ function render() {
   byId('status').dataset.state = c?.status ?? 'idle';
   byId('activity').hidden = !foreground;
   const thought =
-    foreground && c?.live?.reasoning && !c.draft && c.call?.state !== 'pending'
+    foreground && c?.live?.reasoning && !c.draft && !openCall(c.turn?.call)
       ? latestThought(c.live.reasoning)
       : undefined;
   byId('activity-label').textContent =
-    (c?.call?.state === 'pending'
-      ? taskLabel(c.call.name)
+    (openCall(c?.turn?.call)
+      ? taskLabel(c!.turn!.call!.name)
       : c?.live?.activity === 'summarising'
         ? 'Summarising earlier messages…'
         : (thought?.heading ?? 'Working')) +
@@ -237,7 +238,7 @@ function render() {
   updateElapsed();
   byId('recovery').hidden = c?.status !== 'needs_review';
   renderAsk(c);
-  const serialized = JSON.stringify([selected, c?.messages, c?.draft, c?.call, c?.status]);
+  const serialized = JSON.stringify([selected, c?.messages, c?.draft, c?.turn?.call, c?.status]);
   if (serialized !== lastMessages) {
     const forceScroll = !lastMessages || followNextMessage;
     followNextMessage = false;
@@ -380,8 +381,9 @@ let askShown = '';
 /** The question a paused call is waiting on, answered with buttons. */
 function renderAsk(c: Conversation | undefined) {
   const panel = byId('ask');
-  const ask = c?.status === 'asking' && c.call?.state === 'awaiting' ? c.call.ask : undefined;
-  const signature = ask ? c!.id + c!.call!.id : '';
+  const call = c?.turn?.call;
+  const ask = c?.status === 'asking' && call?.state === 'awaiting' ? call.ask : undefined;
+  const signature = ask ? c!.id + call!.id : '';
   panel.hidden = !ask;
   if (signature === askShown) return;
   askShown = signature;
@@ -407,7 +409,7 @@ function renderAsk(c: Conversation | undefined) {
   if (ask.kind === 'approval') {
     const details = document.createElement('div');
     details.className = 'ask-details';
-    details.append(jsonView(c!.call!.input));
+    details.append(jsonView(call!.input));
     parts.push(details);
     actions.append(button('Decline', 'decline'), button('Approve', 'approve', true));
   } else if (ask.kind === 'choice') {
@@ -695,9 +697,9 @@ function updateElapsed() {
         ? state.background
             .map((job) => job.startedAt)
             .filter((value): value is number => value !== undefined)
-        : c?.workStartedAt === undefined
+        : c?.turn?.startedAt === undefined
           ? []
-          : [c.workStartedAt];
+          : [c.turn.startedAt];
     if (parent.hidden || !starts.length) {
       timer?.remove();
       continue;

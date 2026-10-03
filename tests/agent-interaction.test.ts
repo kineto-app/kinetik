@@ -99,7 +99,7 @@ test('the ask tool pauses for a choice and the answer resumes the turn', async (
   await runtime.run(c.id);
   let saved = await read(store, c.id);
   expect(saved.status).toBe('asking');
-  expect(saved.call?.ask).toEqual({
+  expect(saved.turn?.call?.ask).toEqual({
     kind: 'choice',
     question: 'Which style?',
     options: ['Bold', 'Calm'],
@@ -151,7 +151,7 @@ test('an action marked for approval runs only after the user approves it', async
   const c = await runtime.create();
   await runtime.submit(c.id, 'Publish it');
   await runtime.run(c.id);
-  expect((await read(store, c.id)).call?.ask?.kind).toBe('approval');
+  expect((await read(store, c.id)).turn?.call?.ask?.kind).toBe('approval');
   expect(ran).toEqual([]);
   await runtime.answer(c.id, 'approve');
   await runtime.run(c.id);
@@ -219,7 +219,7 @@ test('memory proposals are saved only when confirmed, and every chat reads the m
   const c = await runtime.create();
   await runtime.submit(c.id, 'Remember my style');
   await runtime.run(c.id);
-  expect((await read(store, c.id)).call?.ask).toMatchObject({
+  expect((await read(store, c.id)).turn?.call?.ask).toMatchObject({
     kind: 'memory',
     text: 'Writes in Russian. Brand: coral.',
   });

@@ -197,7 +197,10 @@ test('a helper or a read interrupted by a restart runs again instead of going to
   await first.submit(c.id, 'Look with a helper');
   void first.run(c.id);
   await new Promise((resolve) => setTimeout(resolve, 100));
-  expect((await read(store, c.id)).call).toMatchObject({ name: 'delegate', state: 'pending' });
+  expect((await read(store, c.id)).turn?.call).toMatchObject({
+    name: 'delegate',
+    state: 'started',
+  });
   const locks = Object.getOwnPropertyDescriptor(globalThis.navigator, 'locks');
   Object.defineProperty(globalThis.navigator, 'locks', { value: undefined, configurable: true });
   const { model, seen } = scripted([

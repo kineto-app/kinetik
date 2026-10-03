@@ -3,6 +3,7 @@ import { Runtime } from '../src/core/runtime';
 import { Store } from '../src/browser/store';
 import { ModelRouter } from '../src/models/router';
 import { OpenAIModel } from '../src/models/openai';
+import { schemaVersion } from '../src/core/migrations';
 import type {
   Conversation,
   Model,
@@ -236,7 +237,7 @@ test('bug 7: stored data is migrated once and versioned', async () => {
   expect(await store.get('meta:schema')).toBeGreaterThan(0);
   expect(migrated.modelInput).toBeUndefined();
   expect(migrated.input?.segments).toBe(1);
-  expect(migrated.turnModel).toEqual({ provider: 'custom' });
+  expect(migrated.turn?.model).toEqual({ provider: 'custom' });
   expect(migrated.plugins?.[0].code).toBe('');
   expect(await store.get('plugin-code:digest-1')).toBe('return { tools: {} };');
 });
@@ -372,7 +373,7 @@ test('bug 7: migrations interrupted by a restart run again without changing the 
   const twice = await read(store, c.id);
   expect(twice.input?.segments).toBe(once.input?.segments);
   expect(twice.plugins).toEqual(once.plugins);
-  expect(await store.get('meta:schema')).toBe(4);
+  expect(await store.get('meta:schema')).toBe(schemaVersion);
 });
 
 test('bug 6: deleting one chat never touches files another chat still uses', async () => {
@@ -418,7 +419,7 @@ test('bug 7: a failing migration lets the app start and runs again on the next s
   expect(await store.get('meta:schema')).toBeUndefined();
   expect((await store.get<{ state: string }>('app-call:orphan'))?.state).toBe('unknown');
   await new Runtime(store).recover();
-  expect(await store.get('meta:schema')).toBe(4);
+  expect(await store.get('meta:schema')).toBe(schemaVersion);
   expect((await read(store, c.id)).input?.segments).toBe(1);
 });
 
@@ -441,7 +442,7 @@ test('bug 7: a migration stopped halfway finishes the records it had not reached
   expect((await read(store, done.id)).plugins?.[0].code).toBe('');
   expect((await read(store, left.id)).plugins?.[0].code).toBe('');
   expect(await store.get('plugin-code:digest-1')).toBe('code');
-  expect(await store.get('meta:schema')).toBe(4);
+  expect(await store.get('meta:schema')).toBe(schemaVersion);
 });
 
 test('bug 6: startup sweeps at most once a day', async () => {

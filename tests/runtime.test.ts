@@ -41,15 +41,15 @@ test('incoming messages steer at a tool boundary', async () => {
   const c = await runtime.create();
   await runtime.submit(c.id, '/exec sleep 0.3; echo original');
   const run = runtime.run(c.id);
-  await waitFor(async () => (await read(store, c.id)).call?.state === 'pending');
-  const started = (await read(store, c.id)).workStartedAt!;
+  await waitFor(async () => (await read(store, c.id)).turn?.call?.state === 'started');
+  const started = (await read(store, c.id)).turn?.startedAt!;
   expect(started).toBeGreaterThan(0);
   await runtime.submit(c.id, '/write /workspace/steered\nnew direction');
-  expect((await read(store, c.id)).workStartedAt).toBe(started);
+  expect((await read(store, c.id)).turn?.startedAt).toBe(started);
   await run;
   expect((await read(store, c.id)).pending).toEqual([]);
   const finished = await read(store, c.id);
-  expect(finished.workStartedAt).toBeUndefined();
+  expect(finished.turn?.startedAt).toBeUndefined();
   expect(finished.messages.at(-1)?.durationMs).toBeGreaterThanOrEqual(200);
   expect(new TextDecoder().decode(await runtime.exportFile('/workspace/steered'))).toBe(
     'new direction',
@@ -68,9 +68,12 @@ test('elapsed time survives a new runtime and a connection wait', async () => {
   await offline.run(c.id);
   const waiting = await read(store, c.id);
   expect(waiting.status).toBe('waiting');
-  expect(waiting.workStartedAt).toBeGreaterThan(0);
-  const started = waiting.workStartedAt! - 10000;
-  await store.put('conversation:' + c.id, { ...waiting, workStartedAt: started });
+  expect(waiting.turn?.startedAt).toBeGreaterThan(0);
+  const started = waiting.turn?.startedAt! - 10000;
+  await store.put('conversation:' + c.id, {
+    ...waiting,
+    turn: { ...waiting.turn, startedAt: started },
+  });
   const reopened = new Runtime(store, undefined, {
     async next() {
       return { type: 'text', text: 'Finished' };
@@ -79,7 +82,7 @@ test('elapsed time survives a new runtime and a connection wait', async () => {
   await reopened.recover();
   await reopened.run(c.id);
   const finished = await read(store, c.id);
-  expect(finished.workStartedAt).toBeUndefined();
+  expect(finished.turn?.startedAt).toBeUndefined();
   expect(finished.messages.at(-1)?.durationMs).toBeGreaterThanOrEqual(10000);
   await reopened.submit(c.id, 'New request');
   await reopened.run(c.id);
@@ -91,7 +94,7 @@ test('stop leaves interrupted effects explicit and does not retry them', async (
   const c = await runtime.create();
   await runtime.submit(c.id, '/exec sleep 10; echo should-not-run > late');
   const run = runtime.run(c.id);
-  await waitFor(async () => (await read(store, c.id)).call?.state === 'pending');
+  await waitFor(async () => (await read(store, c.id)).turn?.call?.state === 'started');
   await runtime.stop(c.id);
   await run;
   expect((await read(store, c.id)).status).toBe('needs_review');
@@ -107,14 +110,16 @@ test('worker recovery never reissues an uncertain tool', async () => {
   await runtime.submit(c.id, '/write /workspace/double\ndanger');
   await store.update<Conversation>('conversation:' + c.id, (value) => ({
     ...value!,
-    activeMessage: value!.pending[0],
     pending: [],
-    call: {
-      id: 'call',
-      name: 'write',
-      provider: 'local',
-      input: { path: '/workspace/double', content: 'danger' },
-      state: 'pending',
+    turn: {
+      message: value!.pending[0],
+      call: {
+        id: 'call',
+        name: 'write',
+        provider: 'local',
+        input: { path: '/workspace/double', content: 'danger' },
+        state: 'started',
+      },
     },
   }));
   const restarted = new Runtime(store);
@@ -175,21 +180,23 @@ test('an unavailable plugin during recovery does not block the workspace or repe
   await runtime.submit(c.id, '/exec remote operation');
   await store.update<Conversation>('conversation:' + c.id, (value) => ({
     ...value!,
-    activeMessage: value!.pending[0],
     pending: [],
     plugins: [plugin('offline', 1, "throw new Error('provider offline')")],
-    call: {
-      id: 'pending',
-      name: 'exec',
-      provider: 'offline',
-      input: {},
-      state: 'pending',
-      operationId: 'remote-id',
+    turn: {
+      message: value!.pending[0],
+      call: {
+        id: 'pending',
+        name: 'exec',
+        provider: 'offline',
+        input: {},
+        state: 'started',
+        operationId: 'remote-id',
+      },
     },
   }));
   await new Runtime(store).recover();
   expect((await read(store, c.id)).status).toBe('needs_review');
-  expect((await read(store, c.id)).call?.state).toBe('unknown');
+  expect((await read(store, c.id)).turn?.call?.state).toBe('unknown');
   expect((await runtime.create()).status).toBe('idle');
 });
 
@@ -200,11 +207,13 @@ test('a crash immediately after Stop still exposes the pending tool for review',
   await store.update<Conversation>('conversation:' + c.id, (value) => ({
     ...value!,
     status: 'stopped',
-    call: { id: 'pending', name: 'write', provider: 'local', input: {}, state: 'pending' },
+    turn: {
+      call: { id: 'pending', name: 'write', provider: 'local', input: {}, state: 'started' },
+    },
   }));
   await new Runtime(store).recover();
   expect((await read(store, c.id)).status).toBe('needs_review');
-  expect((await read(store, c.id)).call?.state).toBe('unknown');
+  expect((await read(store, c.id)).turn?.call?.state).toBe('unknown');
 });
 
 test('resolving while provider cancellation finishes resumes the conversation', async () => {
@@ -225,7 +234,7 @@ test('resolving while provider cancellation finishes resumes the conversation', 
   const c = await runtime.create();
   await runtime.submit(c.id, '/exec remote');
   const running = runtime.run(c.id);
-  await waitFor(async () => (await read(store, c.id)).call?.operationId === 'remote-id');
+  await waitFor(async () => (await read(store, c.id)).turn?.call?.operationId === 'remote-id');
   await runtime.stop(c.id);
   await waitFor(async () => (await read(store, c.id)).status === 'needs_review');
   await runtime.resolve(c.id, false);
@@ -479,13 +488,15 @@ test('Stop during a remote recovery check does not restart the conversation', as
     ...value!,
     status: 'waiting',
     waitingFor: 'connection',
-    call: {
-      id: 'call',
-      name: 'exec',
-      provider: 'remote',
-      input: {},
-      state: 'pending',
-      operationId: 'job',
+    turn: {
+      call: {
+        id: 'call',
+        name: 'exec',
+        provider: 'remote',
+        input: {},
+        state: 'started',
+        operationId: 'job',
+      },
     },
   }));
   let finish!: (value: { done: boolean; result: string }) => void;

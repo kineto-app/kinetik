@@ -112,7 +112,10 @@ What it does not take:
 ```
 src/
   core/                      agent core
-    runtime.ts               turn loop, steering and queue, asks and approvals, stop, recovery (1,161 lines, from 1,845)
+    runtime.ts               turn loop, steering and queue, one tool call in named steps, asks, stop (1,029 lines, from 1,845)
+    turn.ts                  the Turn record: endTurn, withTurn, withCall, openCall
+    recovery.ts              what a restart does with work a dead worker left behind
+    migrations.ts, cleanup.ts  schema versions; the startup sweep and chat deletion
     conversation-store.ts    conversation records; model input in append-only segments
     attachments.ts           staged files, uploads, photo previews for the model
     compaction.ts            context limits, local summaries, ChatGPT compaction and its undo
@@ -192,4 +195,11 @@ Each step is small enough for one PR. The order puts risk first.
   - Left on purpose by step 2:
     - An existing Charms install keeps its pinned adapter until the next Connect, because a link never replaces pinned code. Until then a failed Charms command shows as done in the activity list (the model still sees the exit code), and `charms_files_read` with `share` counts as a read.
     - Error-as-result and replay stay local-only, as the plan says.
-- **Open:** steps 3 to 6.
+  - Step 3, the turn (#35):
+    - one `turn` record holds the message, kind, start time, model, usage and current call; `endTurn` clears it on every exit;
+    - call states are `proposed`, `awaiting`, `approved`, `started`, `completed` and `unknown`. A call recorded but never started now runs once after a restart instead of going to review;
+    - `callTool` runs one call as check, journal, ask, start, execute, record; `recovery.ts` holds restart recovery;
+    - migration 5 maps old calls: `pending` + `approved` to `approved`, plain `pending` to `started` (it may have run, so it goes to review), the rest unchanged;
+    - a message queued during a turn uses the model chosen when it starts, not the previous turn's.
+  - Left on purpose by step 3: plugins pinned for a run and the connection-wait fields (`waitingFor`, `retryAt`, `retryAttempts`) stay on the conversation, because they outlive one turn or belong to the status.
+- **Open:** steps 4 to 6.

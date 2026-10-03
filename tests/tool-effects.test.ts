@@ -161,7 +161,7 @@ test('a lost connection inside the helper pauses the turn instead of asking for 
   const saved = await read(store, c.id);
   expect(saved.status).not.toBe('needs_review');
   expect(saved.waitingFor).toBe('connection');
-  expect(saved.call).toMatchObject({ name: 'delegate', state: 'pending' });
+  expect(saved.turn?.call).toMatchObject({ name: 'delegate', state: 'started' });
 });
 
 test('a message sent while the helper waits for a connection answers its call first', async () => {
@@ -226,16 +226,15 @@ test('after a restart a pending local read runs again, but a remote read is neve
     await store.update<Conversation>('conversation:' + c.id, (value) => ({
       ...value!,
       status: 'running',
-      call: { id: 'x', callId: 'c', name, input: {}, provider, state: 'pending' },
+      turn: { call: { id: 'x', callId: 'c', name, input: {}, provider, state: 'started' } },
     }));
     return c.id;
   };
   const local = await pending('local', 'read');
   const charms = await pending('charms', 'charms__files_read');
   await runtime.recover();
-  expect((await read(store, local)).call).toMatchObject({ state: 'pending', approved: true });
-  expect((await read(store, charms)).call?.approved).toBeUndefined();
-  expect((await read(store, charms)).call?.state).not.toBe('pending');
+  expect((await read(store, local)).turn?.call?.state).toBe('approved');
+  expect((await read(store, charms)).turn?.call?.state).toBe('unknown');
 });
 
 test("a tool's command flag, not its name, decides that a non-zero exit failed", async () => {
