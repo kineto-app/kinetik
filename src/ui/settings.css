@@ -293,3 +293,40 @@ label.custom-check input {
 .custom-model .settings-note {
   padding-inline: 0;
 }
+.trace-list {
+  max-height: 320px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+.trace-list li {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 2px var(--space-inline);
+  padding: var(--space-inline) var(--space-content);
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+}
+.trace-list time,
+.trace-ms {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.trace-name {
+  overflow-wrap: anywhere;
+}
+.trace-list li.failed .trace-ms,
+.trace-error {
+  color: var(--bad);
+}
+.trace-error {
+  grid-column: 1 / -1;
+  overflow-wrap: anywhere;
+}
+.trace-empty {
+  margin: 0;
+  padding: var(--space-inline) var(--space-content) var(--space-content);
+  font-size: 12px;
+  color: var(--muted);
+}

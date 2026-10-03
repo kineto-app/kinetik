@@ -1,4 +1,5 @@
 import Ajv from 'ajv';
+import { recentTrace, type TraceEntry } from './trace';
 import { Store } from '../browser/store';
 import { createFilesystem } from '../browser/filesystem';
 import { modelMessageText, type Conversation, type InstalledPlugin } from './types';
@@ -174,6 +175,7 @@ type Archive = {
   sharedFiles?: Record<string, string>;
   plugins: InstalledPlugin[];
   automations: Automation[];
+  trace?: TraceEntry[];
 };
 const encode = (bytes: Uint8Array) => {
   let value = '';
@@ -304,6 +306,8 @@ export async function exportArchive(store: Store): Promise<string> {
     automations: ((await store.get<{ items: Automation[] }>('automations'))?.items ?? []).map(
       automation,
     ),
+    // For diagnosis only: an import ignores it.
+    trace: await recentTrace(store, 1000),
   };
   const text = JSON.stringify(archive);
   if (text.length > MAX_ARCHIVE) throw new Error('This workspace is too large to export.');

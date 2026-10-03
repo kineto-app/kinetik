@@ -53,3 +53,26 @@ test('a window from another build is told to reload instead of being served', as
   });
   expect(await ask({ op: 'state', protocol: protocolVersion })).toMatchObject({ ok: true });
 });
+
+test('state sends messages only for the chat the window shows', async () => {
+  const store = new Store(crypto.randomUUID());
+  const host = new RuntimeHost(store, new URL('https://app.test/'), () => {}, { connections: {} });
+  const ask = <T>(data: Record<string, unknown>) =>
+    new Promise<T>(
+      (resolve, reject) =>
+        void host.handle({ ...data, protocol: protocolVersion }, (reply) =>
+          reply.ok ? resolve(reply.result as T) : reject(new Error(reply.error)),
+        ),
+    );
+  const a = await ask<Conversation>({ op: 'create' });
+  const b = await ask<Conversation>({ op: 'create' });
+  for (const id of [a.id, b.id]) await ask({ op: 'submit', id, text: '/write /workspace/x\nhi' });
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  const state = await ask<{ conversations: Conversation[] }>({ op: 'state', conversation: a.id });
+  const byId = Object.fromEntries(state.conversations.map((c) => [c.id, c]));
+  expect(byId[a.id].messages.length).toBeGreaterThan(0);
+  expect(byId[b.id].messages).toEqual([]);
+  expect(byId[b.id].title).toBe(byId[a.id].title);
+  const full = await ask<{ conversations: Conversation[] }>({ op: 'state' });
+  expect(full.conversations.every((c) => c.messages.length > 0)).toBe(true);
+});

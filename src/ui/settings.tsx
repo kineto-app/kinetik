@@ -1,7 +1,8 @@
-import { createSignal, Index, Show } from 'solid-js';
+import { createSignal, For, Index, Show } from 'solid-js';
 import { rpc } from '../browser/client';
 import type { CustomModelState } from '../connections/custom-model';
 import type { SetupState } from '../connections/manager';
+import type { TraceEntry } from '../core/trace';
 import type { InstalledPlugin } from '../core/types';
 import { isNative } from '../platform/environment';
 import { icon, type IconName } from './icons';
@@ -195,6 +196,68 @@ function Info(props: { label: string; value: string }) {
       <span class="settings-label">{props.label}</span>
       <span class="settings-value">{props.value}</span>
     </div>
+  );
+}
+
+const traceLine = (entry: TraceEntry) =>
+  `${new Date(entry.at).toLocaleTimeString()} ${entry.kind} ${entry.name} ${entry.ok ? 'ok' : 'failed'} ${entry.ms} ms${entry.error ? ' · ' + entry.error : ''}`;
+
+/** Recent model requests and tool calls, read when opened and copied for a bug report. */
+function ActivityLog() {
+  const [entries, setEntries] = createSignal<TraceEntry[]>([]);
+  const [note, setNote] = createSignal('');
+  const load = async () => setEntries(await rpc<TraceEntry[]>('trace'));
+  const copy = async () => {
+    await navigator.clipboard.writeText(entries().map(traceLine).join('\n'));
+    setNote('Copied.');
+  };
+  return (
+    <details
+      class="settings-advanced"
+      onToggle={(event) =>
+        event.currentTarget.open && void load().catch(() => setNote('Could not read the log.'))
+      }
+    >
+      <summary>Advanced</summary>
+      <div class="settings-group">
+        <div class="settings-row">
+          <span class="settings-label">Activity log</span>
+          <div class="settings-buttons">
+            <button
+              class="secondary"
+              disabled={!entries().length}
+              onClick={() => void copy().catch(() => setNote('Copy is not available here.'))}
+            >
+              Copy
+            </button>
+          </div>
+        </div>
+        <Show when={entries().length} fallback={<p class="trace-empty">Nothing recorded yet.</p>}>
+          <ol class="trace-list" aria-label="Recent model requests and tool calls">
+            <For each={entries()}>
+              {(entry) => (
+                <li classList={{ failed: !entry.ok }}>
+                  <time dateTime={new Date(entry.at).toISOString()}>
+                    {new Date(entry.at).toLocaleTimeString()}
+                  </time>
+                  <span class="trace-name">
+                    {entry.kind === 'model' ? 'Model' : 'Tool'} · {entry.name}
+                  </span>
+                  <span class="trace-ms">{entry.ok ? `${entry.ms} ms` : 'failed'}</span>
+                  <Show when={entry.error}>
+                    <span class="trace-error">{entry.error}</span>
+                  </Show>
+                </li>
+              )}
+            </For>
+          </ol>
+        </Show>
+      </div>
+      <p class="settings-note" role="status">
+        {note() ||
+          'The last model requests and tool calls, kept on this device. Export includes them.'}
+      </p>
+    </details>
   );
 }
 
@@ -544,6 +607,7 @@ export function SettingsDialog() {
         </p>
         <input id="archive-file" type="file" accept="application/json,.json" hidden />
         <p id="archive-status" class="field-hint" role="status"></p>
+        <ActivityLog />
       </section>
       <section class="settings-page" hidden={page() !== 'connections'}>
         <div class="settings-group">

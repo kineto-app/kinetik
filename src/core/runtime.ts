@@ -22,6 +22,7 @@ import { migrate } from './migrations';
 import { conversationKeys, sweepDaily } from './cleanup';
 import { recoverWork, waitForConnection } from './recovery';
 import { endTurn, withCall, withTurn } from './turn';
+import { traced } from './trace';
 import { buildInstructions, builtinSkill, modelVisible, toolDefinitions } from './prompt';
 import { createFilesystem } from '../browser/filesystem';
 import { Plugins } from '../plugins/loader';
@@ -616,7 +617,13 @@ export class Runtime {
     await this.chats.update(id, (value) => withCall(value, { state: 'started' }));
     this.progress(id, { step: step + 1, tool: output.name });
     try {
-      return { result: await this.execute(turn, output, binding) };
+      return {
+        result: await traced(
+          this.store,
+          { conversationId: id, kind: 'tool', name: output.name },
+          () => this.execute(turn, output, binding),
+        ),
+      };
     } catch (error) {
       return this.toolFailed(turn, output, binding, error);
     }
@@ -842,7 +849,12 @@ export class Runtime {
   }
   /** A model request with the provider and model pinned for this conversation's turn. */
   private async modelNext(id: string, request: ModelRequest, signal: AbortSignal) {
-    return this.model.next({ ...request, pin: await this.pinFor(id) }, signal);
+    const pin = await this.pinFor(id);
+    return traced(
+      this.store,
+      { conversationId: id, kind: 'model', name: pin?.model ?? pin?.provider ?? 'model' },
+      () => this.model.next({ ...request, pin }, signal),
+    );
   }
   /** Runs one model request and records its token usage on the conversation. */
   private async requestStep(

@@ -163,7 +163,8 @@ function choose(id: string) {
   selected = id;
   uiStorage.setItem('kinetik-conversation', id);
   lastMessages = '';
-  render();
+  // Only the open chat carries its messages, so a newly opened one is fetched before it shows.
+  void refresh().catch(showError);
   closeDrawer(false);
   byId('prompt').focus();
 }
@@ -344,10 +345,14 @@ function render() {
 }
 async function refresh() {
   const generation = ++refreshGeneration;
-  const next = await rpc<State>('state');
+  let next = await rpc<State>('state', { conversation: selected });
   if (generation !== refreshGeneration) return;
+  if (!next.conversations.some((c) => c.id === selected) && next.conversations.length) {
+    selected = next.conversations[0].id;
+    next = await rpc<State>('state', { conversation: selected });
+    if (generation !== refreshGeneration) return;
+  }
   state = next;
-  if (!current() && state.conversations.length) selected = state.conversations[0].id;
   uiStorage.setItem('kinetik-conversation', selected);
   render();
 }
