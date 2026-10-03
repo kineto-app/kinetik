@@ -1,4 +1,5 @@
 import Ajv from 'ajv';
+import type { Store } from './ports';
 import { abortable } from './abortable';
 import { isConnectionError, SignInRequired } from './connection-error';
 import type { ConversationStore } from './conversation-store';
@@ -18,6 +19,10 @@ import {
 } from './types';
 
 type Item = Record<string, unknown>;
+type HelperRecord = { task: string; history: Item[]; result?: string; step: number };
+/** A delegate call's helper, owned by that call: `helper:<conversation>:<call>`. */
+export const helperKey = (conversationId: string, callId: string) =>
+  `helper:${conversationId}:${callId}`;
 type ReadOnlyResult = { text: string; response?: unknown; failed?: boolean };
 /** A local call that changes nothing: its errors are facts, and a restart runs it again. */
 export const localReadOnly = (binding: Binding | undefined, input: Record<string, unknown>) =>
@@ -35,6 +40,7 @@ const helperInstructions =
   'You are a helper for Kinetik, the main agent. Complete the task using only the read-only tools, then reply with concise findings the main agent needs: facts, file paths and short quotes. Do not ask questions; if something is missing, say so.';
 
 type ReadOnlyDeps = {
+  store: Store;
   chats: ConversationStore;
   ask: (id: string, request: ModelRequest, signal: AbortSignal) => Promise<ModelStep>;
   live: Map<string, LiveProgress>;
@@ -146,6 +152,7 @@ export class ReadOnlyTools {
     task: string,
     bindings: Record<string, Binding>,
     signal: AbortSignal,
+    callId?: string,
   ): Promise<string> {
     const tools = Object.fromEntries(
       Object.entries(bindings).filter(([name, binding]) => readable(name, binding)),
@@ -156,9 +163,17 @@ export class ReadOnlyTools {
         { description: b.tool.description, inputSchema: b.tool.inputSchema },
       ]),
     );
-    const history: Item[] = [{ role: 'user', content: task }];
-    let result: string | undefined;
-    for (let step = 1; step <= helperSteps; step++) {
+    // The helper's progress is kept per call, so a restart continues it instead of starting over.
+    const saveKey = callId && helperKey(id, callId);
+    const saved = saveKey ? await this.deps.store.get<HelperRecord>(saveKey) : undefined;
+    const resumed = saved?.task === task ? saved : undefined;
+    const history: Item[] = resumed?.history ?? [{ role: 'user', content: task }];
+    let result = resumed?.result;
+    const done = async (text: string) => {
+      if (saveKey) await this.deps.store.delete(saveKey);
+      return text;
+    };
+    for (let step = resumed?.step ?? 1; step <= helperSteps; step++) {
       this.deps.progress(id, {
         step: this.deps.live.get(id)?.step ?? 1,
         tool: 'delegate',
@@ -184,7 +199,7 @@ export class ReadOnlyTools {
           ...value,
           turn: { ...value.turn, usage: addUsage(value.turn?.usage, output.usage) },
         }));
-      if (output.type === 'text') return output.text;
+      if (output.type === 'text') return done(output.text);
       const calls =
         output.type === 'tools'
           ? output.calls
@@ -207,7 +222,9 @@ export class ReadOnlyTools {
       const outputs = await Promise.all(calls.map((call) => this.runReadOnly(tools, call, signal)));
       calls.forEach((call, i) => history.push(functionOutput(call.callId, outputs[i].text)));
       result = outputs.map((o) => o.text).join('\n\n');
+      if (saveKey)
+        await this.deps.store.put<HelperRecord>(saveKey, { task, history, result, step: step + 1 });
     }
-    return `The helper stopped after ${helperSteps} steps without a final answer.`;
+    return done(`The helper stopped after ${helperSteps} steps without a final answer.`);
   }
 }

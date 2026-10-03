@@ -104,3 +104,46 @@ test('a change to one chat names that chat', async () => {
   await runtime.submit(c.id, 'Hello');
   expect(events).toContainEqual({ type: 'changed', conversationId: c.id });
 });
+
+test('a worker killed inside the helper continues it after the restart without repeating steps', async () => {
+  const name = crypto.randomUUID();
+  const helperCalls: number[] = [];
+  const helperStep = (request: { instructions: string; history?: unknown[] }) =>
+    request.instructions.startsWith('You are a helper') ? (request.history?.length ?? 0) : -1;
+  const first = new Runtime(new Store(name), undefined, {
+    next: async (request) => {
+      const step = helperStep(request);
+      if (step < 0)
+        return { type: 'tool', name: 'delegate', input: { task: 'List files' }, callId: 'd' };
+      helperCalls.push(step);
+      if (step === 1)
+        return { type: 'tool', name: 'list', input: { path: '/workspace' }, callId: 'l' };
+      return new Promise(() => {});
+    },
+  });
+  const c = await first.create();
+  await first.submit(c.id, 'Research');
+  void first.run(c.id);
+  await expect.poll(() => helperCalls.length).toBe(2);
+  const store = new Store(name);
+  const second = new Runtime(store, undefined, {
+    next: async (request) => {
+      const step = helperStep(request);
+      if (step < 0) return { type: 'text', text: 'Main: ' + request.result };
+      helperCalls.push(step);
+      return { type: 'text', text: 'Found the workspace.' };
+    },
+  });
+  const locks = Object.getOwnPropertyDescriptor(globalThis.navigator, 'locks');
+  Object.defineProperty(globalThis.navigator, 'locks', { value: undefined, configurable: true });
+  try {
+    await second.recover();
+    await second.run(c.id);
+  } finally {
+    if (locks) Object.defineProperty(globalThis.navigator, 'locks', locks);
+  }
+  // Step 1 ran once; the restart resumed with its history instead of starting over.
+  expect(helperCalls).toEqual([1, 3, 3]);
+  expect((await read(store, c.id)).messages.at(-1)?.text).toBe('Main: Found the workspace.');
+  expect(await store.keys('helper:')).toEqual([]);
+});

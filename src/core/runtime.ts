@@ -108,6 +108,7 @@ export class Runtime {
       this.changed(),
     );
     this.readOnly = new ReadOnlyTools({
+      store,
       chats: this.chats,
       ask: (id, request, signal) => this.modelNext(id, request, signal),
       live: this.live,
@@ -315,8 +316,16 @@ export class Runtime {
           provider: 'local',
           tool: {
             ...bindings.delegate.tool,
-            execute: (input, context) =>
-              this.readOnly.helper(id, String(input.task), bindings, context.signal),
+            execute: async (input, context) => {
+              const call = (await this.store.get<Conversation>(key(id)))?.turn?.call;
+              return this.readOnly.helper(
+                id,
+                String(input.task),
+                bindings,
+                context.signal,
+                call?.id,
+              );
+            },
           },
         };
       while (!controller.signal.aborted) {

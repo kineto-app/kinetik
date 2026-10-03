@@ -33,10 +33,12 @@ export async function sweepDaily(store: Store, now = Date.now()) {
 export async function sweep(store: Store, now = Date.now()) {
   const used = new Set<string>();
   const chats = new Set<string>();
+  const helpers = new Set<string>();
   const usePlugins = (plugins?: InstalledPlugin[]) =>
     plugins?.forEach((plugin) => used.add('plugin-code:' + plugin.digest));
   for (const [, c] of await store.entries<Conversation>('conversation:')) {
     chats.add(c.id);
+    if (c.turn?.call) helpers.add(`helper:${c.id}:${c.turn.call.id}`);
     used.add(`model-archive:${c.id}:${c.compactions ?? 0}`);
     usePlugins(c.plugins);
     fileKeys(c).forEach((key) => used.add(key));
@@ -55,6 +57,8 @@ export async function sweep(store: Store, now = Date.now()) {
     else usePlugins(app.plugins);
   for (const [key, call] of await store.entries<{ state: string }>('app-call:'))
     if (call.state !== 'pending') stale.push(key);
+  // A helper's progress is kept only while its delegate call is the chat's current call.
+  for (const key of await store.keys('helper:')) if (!helpers.has(key)) stale.push(key);
   for (const prefix of ['trace:', 'partial:'])
     for (const key of await store.keys(prefix))
       if (!chats.has(key.slice(prefix.length))) stale.push(key);
@@ -79,6 +83,7 @@ export async function conversationKeys(store: Store, id: string) {
     'conversation:' + id,
     traceKey(id),
     partialKey(id),
+    ...(await store.keys(`helper:${id}:`)),
     ...(await store.keys(`model-input:${id}:`)),
     ...(await store.keys(`model-archive:${id}:`)),
   ];
