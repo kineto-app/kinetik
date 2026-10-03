@@ -46,9 +46,13 @@ return (async () => {
   // Charms marks every sandbox command and file change destructive. In the user's own sandbox
   // only deleting a file cannot be undone, so only that asks first.
   for (const [name, tool] of Object.entries(tools)) tools[name] = { ...tool, approval: name === 'charms_files_delete' };
+  // Sharing a file or rendering publishes a link, so neither runs alongside reads.
+  if (tools.charms_files_read) tools.charms_files_read.readOnly = (input) => input.share !== true;
+  if (tools.charms_render) tools.charms_render.readOnly = false;
   const exec = tools.charms_exec;
   tools.charms_exec = {
     ...exec,
+    command: true,
     async execute(input, context) {
       const result = await exec.execute(context.background ? { ...input, background: true } : input, context);
       const data = payload(result);

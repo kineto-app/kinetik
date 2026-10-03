@@ -86,3 +86,13 @@ Managed credentials live separately from plugin settings, conversations, and job
 Tool definitions may set `timeoutMs` for foreground requests. The runtime defaults to
 30 seconds and clamps overrides to 1–60 seconds. The bundled Charms adapter uses
 60 seconds and requests background execution when a job is launched in the background.
+
+A tool also declares its effects. `approval` asks the user first: `true`, or a function of the
+input. `readOnly: true` says the tool changes nothing, so the model may call it in a parallel batch
+and the `delegate` helper may use it; a call that needs approval, a widget tool and a tool hidden
+from the model are still left out. `command: true` says the tool runs a shell command, so a
+non-zero exit code marks the call failed. The HTTP MCP plugin maps `readOnlyHint` and
+`destructiveHint` to `readOnly` and `approval`; `readOnly` may also be a function of the input,
+as for Charms, where sharing a file publishes a link. A server's hint never re-runs a remote call
+directly: after a restart only Kinetik's own read-only tools run again, and an interrupted
+`delegate` helper may repeat its reads. Any other interrupted call asks the user.

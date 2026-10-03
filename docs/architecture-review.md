@@ -45,7 +45,7 @@ Smaller findings:
 - `OpenAIModel` does not wrap its own `fetch` failures, unlike `CompatModel`.
 - Any plain `Error` undoes a ChatGPT compaction and switches it off for good, including a malformed tool argument.
 - `selectModel` fails sign-in when the catalog lacks `gpt-6.1-sol`.
-- The helper and parallel reads only accept `provider === 'local'` tools, so with Charms active the helper has only `read_skill`.
+- The helper and parallel reads only accept `provider === 'local'` tools, so with Charms active the helper has only `read_skill`. (Fixed in step 2.)
 
 ## Comparison with pi-mono and the DeepSeek harness
 
@@ -139,7 +139,7 @@ src/
 Each step is small enough for one PR. The order puts risk first.
 
 1. **Fix the bugs above.** S–M. Gate every execution path through the approval check (background start and widget calls). Widget messages fill the composer. Pin `{provider, model, effort}` per turn and key `no-server-compact:` by it. Stop clears the queue flags. `Store.entries` uses a key range. A schema version `meta:schema` with a migrations list run once at startup, a startup sweep, a delete-chat op, and plugin code stored once by digest.
-2. **One place for tool safety.** S–M. Add `effects` to `ToolDefinition` (`readOnly`, `approval`, `command`, `host`), set it in `localTools` and the MCP mapping, and delete the `readOnlyLocal`, `parallelSafe` and `rerunnable` sets and the `__charms_exec` suffix test. Replay safety still comes only from `provider === 'local' && readOnly`, never from a server's `readOnlyHint`.
+2. **One place for tool safety.** S–M. Add `readOnly` and `command` to `ToolDefinition` next to `approval`, set them in `localTools`, the MCP mapping and the Charms adapter, and delete the `readOnlyLocal`, `parallelSafe` and `rerunnable` sets and the `__charms_exec` suffix test. Replay safety still comes only from `provider === 'local' && readOnly`, never from a server's `readOnlyHint`. No `host` field: the binding's provider already says where a tool runs.
 3. **Finish splitting the turn.** M.
    - **Turn state:** one `Turn` object on the conversation instead of about ten flat optional fields, and one `endTurn()` that every exit and `stop` use.
    - **Call states:** explicit `proposed | approved | started | completed | unknown | awaiting` instead of the two-meaning `approved` flag.
@@ -183,4 +183,13 @@ Each step is small enough for one PR. The order puts risk first.
     - The helper-mode ChatGPT session pins only the provider; the helper picks model and effort on its side.
     - A pinned model name is checked for shape, not against the catalog.
     - An older build opening a newer schema runs no migrations and does not warn.
-- **Open:** steps 2 to 6.
+  - Step 2, tool safety in one place (#34):
+    - tools declare `readOnly` and `command`; the three name sets and the `__charms_exec` suffix test are gone;
+    - parallel batches and the helper accept remote read-only tools, so with Charms on the helper can read files and jobs;
+    - a read that needs approval, a widget tool and a model-hidden tool never run in a batch or the helper;
+    - a lost connection in a batch or in the helper pauses the turn instead of failing the reads or asking for review;
+    - the Charms adapter keeps sharing a file and rendering out of reads, because both publish a link.
+  - Left on purpose by step 2:
+    - An existing Charms install keeps its pinned adapter until the next Connect, because a link never replaces pinned code. Until then a failed Charms command shows as done in the activity list (the model still sees the exit code), and `charms_files_read` with `share` counts as a read.
+    - Error-as-result and replay stay local-only, as the plan says.
+- **Open:** steps 3 to 6.

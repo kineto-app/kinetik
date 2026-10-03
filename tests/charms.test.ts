@@ -106,6 +106,9 @@ test.each(['inline', 'split', 'text-only'])(
     await plugin.tools.charms_exec.execute({}, { checkpoint });
     expect(checkpoint).toHaveBeenCalledWith('job-1');
     expect(plugin.tools.charms_exec.timeoutMs).toBe(60000);
+    expect(plugin.tools.charms_exec.command).toBe(true);
+    expect(plugin.tools.charms_files_read.readOnly({ path: 'a' })).toBe(true);
+    expect(plugin.tools.charms_files_read.readOnly({ path: 'a', share: true })).toBe(false);
     await plugin.tools.charms_exec.execute(
       { command: 'long job' },
       { checkpoint, background: true },

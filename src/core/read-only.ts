@@ -1,12 +1,16 @@
 import Ajv from 'ajv';
 import { abortable } from './abortable';
+import { isConnectionError, SignInRequired } from './connection-error';
 import type { ConversationStore } from './conversation-store';
 import { functionOutput, printable } from './model-input';
+import { modelVisible } from './prompt';
 import { toolOutcome } from './tool-outcome';
 import {
   addUsage,
   errorText,
   message,
+  needsApproval,
+  readsOnly,
   type Binding,
   type LiveProgress,
   type ModelRequest,
@@ -15,12 +19,17 @@ import {
 
 type Item = Record<string, unknown>;
 type ReadOnlyResult = { text: string; response?: unknown; failed?: boolean };
-/** Kinetik's own read-only tools: their errors are facts the model can act on, not uncertain effects. */
-export const readOnlyLocal = new Set(['read', 'list', 'read_skill']);
-/** Kinetik's own tools that change nothing, so several may run at once. */
-const parallelSafe = readOnlyLocal;
-/** Local calls that change nothing, so a restart runs them again instead of asking for review. */
-export const rerunnable = new Set([...readOnlyLocal, 'delegate']);
+/** A local call that changes nothing: its errors are facts, and a restart runs it again. */
+export const localReadOnly = (binding: Binding | undefined, input: Record<string, unknown>) =>
+  binding?.provider === 'local' && readsOnly(binding.tool, input);
+/** Tools a parallel batch or the helper may call. A helper never starts another helper. */
+const readable = (name: string, binding: Binding | undefined): binding is Binding =>
+  binding !== undefined &&
+  Boolean(binding.tool.readOnly) &&
+  !binding.tool.app &&
+  binding.tool.approval !== true &&
+  modelVisible(binding) &&
+  name !== 'delegate';
 const helperSteps = 20;
 const helperInstructions =
   'You are a helper for Kinetik, the main agent. Complete the task using only the read-only tools, then reply with concise findings the main agent needs: facts, file paths and short quotes. Do not ask questions; if something is missing, say so.';
@@ -47,13 +56,11 @@ export class ReadOnlyTools {
     signal: AbortSignal,
     backgroundTurn: boolean,
   ): Promise<string> {
-    const allowed = output.calls.every(
-      (call) => bindings[call.name]?.provider === 'local' && parallelSafe.has(call.name),
-    );
+    const allowed = output.calls.every((call) => readable(call.name, bindings[call.name]));
     const results: ReadOnlyResult[] = allowed
       ? await Promise.all(output.calls.map((call) => this.runReadOnly(bindings, call, signal)))
       : output.calls.map(() => ({
-          text: `Error: Only read-only tools (${[...parallelSafe].join(', ')}) may run in parallel. Nothing ran; call these one at a time.`,
+          text: 'Error: Only read-only tools may run in parallel. Nothing ran; call these one at a time.',
           failed: true,
         }));
     await this.deps.chats.update(id, (value) => ({
@@ -102,7 +109,7 @@ export class ReadOnlyTools {
     signal: AbortSignal,
   ): Promise<ReadOnlyResult> {
     const binding = bindings[call.name];
-    if (binding?.provider !== 'local' || !parallelSafe.has(call.name))
+    if (!readable(call.name, binding))
       return { text: `Error: There is no read-only tool named ${call.name}.`, failed: true };
     const validate = this.ajv.compile(binding.tool.inputSchema);
     if (!validate(call.input))
@@ -110,11 +117,13 @@ export class ReadOnlyTools {
         text: 'Error: Invalid tool arguments: ' + this.ajv.errorsText(validate.errors),
         failed: true,
       };
+    if (needsApproval(binding.tool, call.input) || !readsOnly(binding.tool, call.input))
+      return {
+        text: `Error: ${call.name} may change something here. Call it directly.`,
+        failed: true,
+      };
+    const timeout = AbortSignal.any([signal, AbortSignal.timeout(binding.tool.timeoutMs ?? 30000)]);
     try {
-      const timeout = AbortSignal.any([
-        signal,
-        AbortSignal.timeout(binding.tool.timeoutMs ?? 30000),
-      ]);
       const response = await abortable(
         binding.tool.execute(call.input, { signal: timeout, checkpoint: async () => {} }),
         timeout,
@@ -122,6 +131,9 @@ export class ReadOnlyTools {
       return { text: printable(response), response };
     } catch (error) {
       if (signal.aborted) throw error;
+      // A lost connection pauses the turn; nothing ran, so the model is asked again later.
+      if (!timeout.aborted && (isConnectionError(error) || error instanceof SignInRequired))
+        throw error;
       return { text: 'Error: ' + errorText(error), failed: true };
     }
   }
@@ -136,9 +148,7 @@ export class ReadOnlyTools {
     signal: AbortSignal,
   ): Promise<string> {
     const tools = Object.fromEntries(
-      Object.entries(bindings).filter(
-        ([name, binding]) => binding.provider === 'local' && parallelSafe.has(name),
-      ),
+      Object.entries(bindings).filter(([name, binding]) => readable(name, binding)),
     );
     const definitions = Object.fromEntries(
       Object.entries(tools).map(([name, b]) => [
