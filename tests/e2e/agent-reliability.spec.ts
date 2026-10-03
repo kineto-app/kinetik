@@ -87,10 +87,13 @@ test('a failed turn reads in plain words, keeps the details, and can be tried ag
   await expect(page.locator('#status')).toHaveText('Ready');
   await send(page, 'Break once');
   const notice = page.locator('[data-role=notice]').last();
-  await expect(notice.locator('.notice-title')).toHaveText('Something went wrong.');
-  await expect(notice.locator('.notice-detail p')).toBeHidden();
-  await notice.getByText('Details').click();
-  await expect(notice.locator('.notice-detail p')).toContainText('empty array');
+  const title = notice.getByRole('button', { name: 'Something went wrong.' });
+  await expect(title).toHaveAttribute('aria-expanded', 'false');
+  await expect(notice.locator('.notice-detail')).toBeHidden();
+  await page.screenshot({ path: info.outputPath('4-plain-error-closed.png') });
+  await title.click();
+  await expect(title).toHaveAttribute('aria-expanded', 'true');
+  await expect(notice.locator('.notice-detail')).toContainText('empty array');
   await page.screenshot({ path: info.outputPath('4-plain-error.png') });
   await notice.getByRole('button', { name: 'Try again' }).click();
   await expect(replies(page).last()).toContainText('Done this time.');

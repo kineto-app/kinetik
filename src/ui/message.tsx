@@ -1,4 +1,4 @@
-import { onCleanup, onMount, Show } from 'solid-js';
+import { createSignal, onCleanup, onMount, Show } from 'solid-js';
 import type { Message } from '../core/types';
 import { renderMessageContent, copyButton } from './message-content';
 import { messageTime, tokenCount, workDuration } from './time';
@@ -63,27 +63,42 @@ export function MessageBubble(props: {
   }
   if (item.role === 'notice') {
     const notice = plainNotice(item.text);
+    const [open, setOpen] = createSignal(false);
+    const detailId = 'notice-detail-' + item.id;
     props.article.toggleAttribute('data-failed', notice.failed);
+    // One quiet line like "Stopped"; the original text opens under it.
     return (
       <>
-        <p class="notice-title">{notice.title}</p>
+        <div class="notice-line">
+          <span class="icon-slot notice-mark" innerHTML={icon('info')} />
+          <Show when={notice.detail} fallback={<span class="notice-title">{notice.title}</span>}>
+            <button
+              class="notice-title"
+              aria-expanded={open()}
+              aria-controls={detailId}
+              onClick={() => setOpen(!open())}
+            >
+              {notice.title}
+              <span class="icon-slot notice-chevron" innerHTML={icon('chevron')} />
+            </button>
+          </Show>
+          <Show when={notice.failed}>
+            <button
+              class="notice-retry"
+              onClick={() =>
+                window.dispatchEvent(
+                  new CustomEvent('kinetik-retry', { detail: props.conversationId }),
+                )
+              }
+            >
+              Try again
+            </button>
+          </Show>
+        </div>
         <Show when={notice.detail}>
-          <details class="notice-detail">
-            <summary>Details</summary>
-            <p>{notice.detail}</p>
-          </details>
-        </Show>
-        <Show when={notice.failed}>
-          <button
-            class="secondary notice-retry"
-            onClick={() =>
-              window.dispatchEvent(
-                new CustomEvent('kinetik-retry', { detail: props.conversationId }),
-              )
-            }
-          >
-            Try again
-          </button>
+          <p class="notice-detail" id={detailId} hidden={!open()}>
+            {notice.detail}
+          </p>
         </Show>
       </>
     );

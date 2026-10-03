@@ -728,26 +728,83 @@ dialog::backdrop,
   overflow: hidden;
 }
 
-/* A notice in plain words; the original text waits under Details, retry only on the newest one. */
-.message[data-role='notice'] .notice-title {
-  margin: 0;
-  color: var(--ink);
-}
-.notice-detail {
-  margin-top: 6px;
+/* A notice is one quiet line between rules, like "Stopped"; its original text opens under it. */
+.message[data-role='notice'] {
+  margin-block: var(--space-content);
+  padding: 0;
+  background: transparent;
   font-size: 12px;
-}
-.notice-detail summary {
-  cursor: pointer;
   color: var(--muted);
 }
-.notice-detail p {
-  margin: 6px 0 0;
-  overflow-wrap: anywhere;
+.notice-line {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  text-align: center;
+}
+.notice-line::before,
+.notice-line::after {
+  content: '';
+  flex: 1;
+  min-width: 16px;
+  height: 1px;
+  background: var(--line);
+}
+.notice-mark .icon,
+.notice-chevron .icon {
+  width: 13px;
+  height: 13px;
+}
+[data-failed] .notice-mark {
+  color: var(--bad);
+}
+.notice-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: var(--target);
+  padding: 0 4px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+}
+.notice-title:is(:hover, :active),
+.notice-retry:is(:hover, :active) {
+  background: transparent;
+}
+.notice-title:hover {
+  color: var(--ink);
+}
+.notice-chevron {
+  display: flex;
+  transition: transform var(--duration) var(--ease-out);
+}
+.notice-title[aria-expanded='true'] .notice-chevron {
+  transform: rotate(90deg);
 }
 .notice-retry {
-  margin-top: 10px;
   min-height: var(--target);
+  padding: 0 6px;
+  background: transparent;
+  color: var(--accent-ink);
+  font-size: 12px;
+  font-weight: 600;
+}
+/* The step inset: narrower than the line, same box the steps open into. */
+.notice-detail {
+  margin: 2px auto 0;
+  max-width: 520px;
+  padding: var(--space-inline) var(--space-content);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-inner);
+  background: var(--hover);
+  font:
+    12px/1.5 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
+  overflow-wrap: anywhere;
 }
 #timeline[data-busy] .notice-retry,
 .message[data-role='notice']:not(:last-of-type) .notice-retry {
