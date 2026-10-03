@@ -34,7 +34,14 @@ interface State {
 const empty = (): State => ({ items: [], events: [], seen: [] });
 export interface AutomationHost {
   ensureConversation(id: string): Promise<Conversation>;
-  submit(id: string, text: string, messageId?: string): Promise<void>;
+  submit(
+    id: string,
+    text: string,
+    messageId?: string,
+    attachmentIds?: string[],
+    queue?: 'after',
+    automated?: boolean,
+  ): Promise<void>;
   run(id: string): Promise<void>;
   stop(id: string): Promise<void>;
   readMonitor(path: string): Promise<string>;
@@ -328,6 +335,9 @@ export class Automations {
               (item.lastResult ? '\nPrevious run result:\n' + item.lastResult : '') +
               (trigger ? '\nEvent:\n' + trigger : ''),
             id + '-trigger',
+            [],
+            undefined,
+            true,
           );
         }),
       );

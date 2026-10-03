@@ -1,5 +1,6 @@
 import type { Store } from '../browser/store';
 import type { BackgroundProcess } from './background';
+import { traceKey } from './trace';
 import type { Conversation, InstalledPlugin } from './types';
 
 const day = 24 * 3600 * 1000;
@@ -52,6 +53,8 @@ export async function sweep(store: Store, now = Date.now()) {
     else usePlugins(app.plugins);
   for (const [key, call] of await store.entries<{ state: string }>('app-call:'))
     if (call.state !== 'pending') stale.push(key);
+  for (const key of await store.keys('trace:'))
+    if (!chats.has(key.slice('trace:'.length))) stale.push(key);
   for (const prefix of [
     'model-archive:',
     'shared-file:',
@@ -71,6 +74,7 @@ export async function sweep(store: Store, now = Date.now()) {
 export async function conversationKeys(store: Store, id: string) {
   const keys = [
     'conversation:' + id,
+    traceKey(id),
     ...(await store.keys(`model-input:${id}:`)),
     ...(await store.keys(`model-archive:${id}:`)),
   ];

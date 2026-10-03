@@ -163,7 +163,8 @@ function choose(id: string) {
   selected = id;
   uiStorage.setItem('kinetik-conversation', id);
   lastMessages = '';
-  render();
+  // Only the open chat carries its messages, so a newly opened one is fetched before it shows.
+  void refresh().catch(showError);
   closeDrawer(false);
   byId('prompt').focus();
 }
@@ -344,10 +345,14 @@ function render() {
 }
 async function refresh() {
   const generation = ++refreshGeneration;
-  const next = await rpc<State>('state');
+  let next = await rpc<State>('state', { conversation: selected });
   if (generation !== refreshGeneration) return;
+  if (!next.conversations.some((c) => c.id === selected) && next.conversations.length) {
+    selected = next.conversations[0].id;
+    next = await rpc<State>('state', { conversation: selected });
+    if (generation !== refreshGeneration) return;
+  }
   state = next;
-  if (!current() && state.conversations.length) selected = state.conversations[0].id;
   uiStorage.setItem('kinetik-conversation', selected);
   render();
 }
@@ -534,14 +539,12 @@ byId('sidebar').addEventListener('keydown', (event) => {
 byId('new-chat').onclick = () => {
   void (async () => {
     const c = await rpc<Conversation>('create');
-    selected = c.id;
-    await refresh();
     choose(c.id);
-    byId('prompt').focus();
   })().catch(showError);
 };
 byId('top-new-chat').onclick = () => byId('new-chat').click();
 let queueNext = false;
+let unsent: { draft: string; id: string } | undefined;
 byId('queue').onclick = () => {
   queueNext = true;
   byId<HTMLFormElement>('composer').requestSubmit();
@@ -569,7 +572,11 @@ byId('composer').onsubmit = (event) => {
       }
       if (!current()) selected = (await rpc<Conversation>('create')).id;
       followNextMessage = true;
-      await rpc('submit', { id: selected, text, attachments, queue });
+      // Sending the same draft again after a failure reuses its id, so it is never posted twice.
+      const sending = JSON.stringify([selected, text, attachments]);
+      if (unsent?.draft !== sending) unsent = { draft: sending, id: crypto.randomUUID() };
+      await rpc('submit', { id: selected, text, attachments, queue, messageId: unsent.id });
+      unsent = undefined;
       input.value = '';
       updateComposer();
       byId('error').textContent = '';
@@ -733,10 +740,13 @@ navigator.serviceWorker?.addEventListener('message', (event) => {
 });
 /** Streamed text and step progress patch the open state; anything else reloads it. */
 function changed(event: RuntimeEvent | undefined) {
-  const c =
-    event && ['text', 'progress', 'reasoning'].includes(event.type)
-      ? state.conversations.find((item) => item.id === event.conversationId)
-      : undefined;
+  const streaming = event && ['text', 'progress', 'reasoning'].includes(event.type);
+  let c = streaming
+    ? state.conversations.find((item) => item.id === event.conversationId)
+    : undefined;
+  // A chat held only as a summary shows no stream: the open one is fetched, the rest wait.
+  if (c && !c.messages.length && c.id !== selected) return;
+  if (c && !c.messages.length) c = undefined;
   if (c && event?.type === 'text' && c.status === 'running') {
     c.draft = event.text;
     render();

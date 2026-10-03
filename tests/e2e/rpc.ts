@@ -1,3 +1,4 @@
+import { protocolVersion } from '../../src/core/protocol';
 import type { Page } from '@playwright/test';
 export async function rpc<T>(
   page: Page,
@@ -5,7 +6,7 @@ export async function rpc<T>(
   data: Record<string, unknown> = {},
 ): Promise<T> {
   return page.evaluate(
-    async ({ op, data }) => {
+    async ({ op, data, protocol }) => {
       const registration = await navigator.serviceWorker.ready;
       return new Promise((resolve, reject) => {
         const channel = new MessageChannel();
@@ -15,10 +16,10 @@ export async function rpc<T>(
           channel.port1.close();
           event.data.ok ? resolve(event.data.result) : reject(new Error(event.data.error));
         };
-        registration.active!.postMessage({ op, ...data }, [channel.port2]);
+        registration.active!.postMessage({ op, ...data, protocol }, [channel.port2]);
       });
     },
-    { op, data },
+    { op, data, protocol: protocolVersion },
   ) as Promise<T>;
 }
 export async function attachmentPath(page: Page, name: string) {

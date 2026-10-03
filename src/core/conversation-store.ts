@@ -30,8 +30,13 @@ export class ConversationStore {
       const parts = await this.store.getMany<Item[]>(
         Array.from({ length: segments.segments }, (_, i) => segmentKey(id, segments, i)),
       );
-      // A missing segment means the input was replaced meanwhile; read again.
-      if (parts.some((part) => !part)) continue;
+      if (parts.some((part) => !part)) {
+        // Replaced meanwhile: read again. Missing from a record that did not change: it is lost.
+        const now = await this.store.get<Conversation>(key(id));
+        if (now?.input && sameSegments(now.input, segments))
+          throw new Error('Part of this chat’s history is missing. Start a new chat to continue.');
+        continue;
+      }
       const items = (parts as Item[][]).flat();
       this.inputs.set(id, { segments, items });
       return { ...c, modelInput: items };

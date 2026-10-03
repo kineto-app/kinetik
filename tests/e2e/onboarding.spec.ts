@@ -1,10 +1,11 @@
+import { protocolVersion } from '../../src/core/protocol';
 import { test, expect } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 
 const base = 'http://127.0.0.1:4174/onboarding/';
 async function rpc(page: import('@playwright/test').Page, op: string, data = {}) {
   return page.evaluate(
-    async ({ op, data }) => {
+    async ({ op, data, protocol }) => {
       const registration = await navigator.serviceWorker.ready;
       return new Promise<any>((resolve, reject) => {
         const channel = new MessageChannel();
@@ -12,10 +13,10 @@ async function rpc(page: import('@playwright/test').Page, op: string, data = {})
           channel.port1.close();
           data.ok ? resolve(data.result) : reject(new Error(data.error));
         };
-        registration.active!.postMessage({ op, ...data }, [channel.port2]);
+        registration.active!.postMessage({ op, ...data, protocol }, [channel.port2]);
       });
     },
-    { op, data },
+    { op, data, protocol: protocolVersion },
   );
 }
 test.beforeEach(async ({ request }) => {
