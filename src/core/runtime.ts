@@ -13,6 +13,8 @@ import { functionOutput, printable, withOutput } from './model-input';
 import { readOnlyLocal, ReadOnlyTools, rerunnable } from './read-only';
 import { AppCalls } from './apps';
 import { WorkspaceFiles } from './workspace-files';
+import { migrate } from './migrations';
+import { conversationKeys, sweepDaily } from './cleanup';
 import { buildInstructions, builtinSkill, modelVisible, toolDefinitions } from './prompt';
 import { createFilesystem } from '../browser/filesystem';
 import { Plugins } from '../plugins/loader';
@@ -34,6 +36,7 @@ import {
   type Message,
   type ModelStep,
   addUsage,
+  needsApproval,
   type Ask,
 } from './types';
 
@@ -226,6 +229,7 @@ export class Runtime {
     });
   }
   private async backgroundCompleted(job: BackgroundProcess): Promise<void> {
+    if (!(await this.store.get(key(job.conversationId)))) return;
     await this.steer(
       job.conversationId,
       {
@@ -249,7 +253,7 @@ export class Runtime {
     const work = async () => {
       let c = await this.store.get<Conversation>(key(id));
       if (!c || c.status === 'needs_review' || c.status === 'stopped') return;
-      const pinned = c.plugins ?? (await this.plugins.list());
+      const pinned = c.plugins ?? (await this.plugins.pin(await this.plugins.list()));
       const choice = await this.model.pin?.();
       await this.chats.update(id, (value) => ({
         ...value,
@@ -753,8 +757,7 @@ export class Runtime {
       };
     if (binding.provider === 'local' && name === 'remember')
       return { kind: 'memory', question: 'Save this to your memory?', text: String(input.text) };
-    const approval = binding.tool.approval;
-    if (approval === true || (typeof approval === 'function' && approval(input)))
+    if (needsApproval(binding.tool, input))
       return {
         kind: 'approval',
         question: `Allow Kinetik to run “${name.split('__').at(-1)}”?`,
@@ -926,70 +929,62 @@ export class Runtime {
       ...c,
       status: c.status === 'needs_review' ? c.status : 'stopped',
       pending: [],
+      messages: c.messages.map((m) =>
+        c.pending.includes(m.id) ? { ...m, queue: undefined, unsent: true } : m,
+      ),
       workStartedAt: undefined,
     }));
     await this.background.cancelConversation(id);
   }
   private recovery?: Promise<void>;
+  private prepared?: Promise<void>;
+  /** Migrates and cleans storage once per worker, before any recovery. */
+  private prepare() {
+    // A failed migration is retried on the next start; a failed sweep only leaves garbage.
+    return (this.prepared ??= migrate({
+      store: this.store,
+      chats: this.chats,
+      plugins: this.plugins,
+    })
+      .then(() => sweepDaily(this.store))
+      .catch(() => {}));
+  }
   recover(): Promise<void> {
-    return (this.recovery ??= this.recoverWork().finally(() => {
-      this.recovery = undefined;
-    }));
+    return (this.recovery ??= this.prepare()
+      .then(() => this.recoverWork())
+      .finally(() => {
+        this.recovery = undefined;
+      }));
+  }
+  async deleteConversation(id: string): Promise<void> {
+    this.active.get(id)?.abort(new Error('Chat deleted'));
+    await this.background.cancelConversation(id);
+    const keys = await conversationKeys(this.store, id);
+    await this.store.updateMany([], () => keys.map((key) => [key, undefined]));
+    this.changed();
   }
   private async recoverWork(): Promise<void> {
-    for (const [key, call] of await this.store.entries<{
+    for (const [callKey, call] of await this.store.entries<{
       state: string;
       conversationId: string;
       name: string;
     }>('app-call:')) {
-      if (call.state !== 'pending' || this.apps.running(key)) continue;
-      await this.chats.update(call.conversationId, (value) => ({
-        ...value,
-        messages: [
-          ...value.messages,
-          message(
-            'notice',
-            `The worker stopped during app tool ${call.name}. Check its effects before trying again.`,
-          ),
-        ],
-      }));
-      await this.store.put(key, { ...call, state: 'unknown' });
+      if (call.state !== 'pending' || this.apps.running(callKey)) continue;
+      if (await this.store.get(key(call.conversationId)))
+        await this.chats.update(call.conversationId, (value) => ({
+          ...value,
+          messages: [
+            ...value.messages,
+            message(
+              'notice',
+              `The worker stopped during app tool ${call.name}. Check its effects before trying again.`,
+            ),
+          ],
+        }));
+      await this.store.put(callKey, { ...call, state: 'unknown' });
     }
     for (const c of await this.conversations()) {
       if (this.active.has(c.id)) continue;
-      // Older builds treated this pre-dispatch rejection as an uncertain side effect.
-      const last = c.messages.at(-1);
-      if (
-        c.status === 'needs_review' &&
-        c.call?.state === 'unknown' &&
-        c.call.name === 'background' &&
-        c.call.provider === 'local' &&
-        last?.role === 'notice' &&
-        last.text.startsWith(
-          'Tool outcome needs review: Tool is unavailable for background execution.',
-        ) &&
-        !(await this.store.get('background:' + c.call.id))
-      ) {
-        const result = JSON.stringify({
-          started: false,
-          error: 'The background tool was rejected before execution. Choose an available tool.',
-        });
-        await this.chats.update(c.id, (value) =>
-          value.status !== 'needs_review' || value.call?.id !== c.call!.id
-            ? value
-            : {
-                ...value,
-                status: 'queued',
-                call: { ...value.call!, state: 'completed', result },
-                messages: value.messages.map((item) =>
-                  item.id === last.id ? { ...item, visibility: 'internal' } : item,
-                ),
-                modelInput: withOutput(value.modelInput, value.call?.callId, result),
-              },
-        );
-        continue;
-      }
-
       if (
         !['running', 'queued', 'waiting'].includes(c.status) &&
         !(c.status === 'stopped' && c.call?.state === 'pending')
@@ -1146,8 +1141,11 @@ export class Runtime {
   readMonitor(path: string) {
     return this.workspaceFiles.readMonitor(path);
   }
-  appCall(id: string, name: string, input: Record<string, unknown>) {
-    return this.apps.call(id, name, input);
+  appCall(id: string, name: string, input: Record<string, unknown>, approved = false) {
+    return this.apps.call(id, name, input, approved);
+  }
+  appNeedsApproval(id: string, name: string, input: Record<string, unknown>) {
+    return this.apps.needsApproval(id, name, input);
   }
   importFile(name: string, bytes: Uint8Array) {
     return this.workspaceFiles.importFile(name, bytes);

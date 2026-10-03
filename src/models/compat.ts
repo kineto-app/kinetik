@@ -94,7 +94,7 @@ export class CompatModel implements Model {
           ...(config.apiKey ? { Authorization: 'Bearer ' + config.apiKey } : {}),
         },
         body: JSON.stringify({
-          model: config.model,
+          model: request.pin?.model ?? config.model,
           messages: toChatMessages(
             request.instructions,
             config.images ? (latestImages(history) ?? []) : (withoutImages(history) ?? []),

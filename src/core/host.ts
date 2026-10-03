@@ -60,7 +60,7 @@ export class RuntimeHost {
               JSON.parse(String(init?.body)),
               init?.signal ?? new AbortController().signal,
             ),
-          (account, input, signal) => chatgpt!.compact({ account, input }, signal),
+          (account, input, signal, pin) => chatgpt!.compact({ account, input, pin }, signal),
         )
       : helper
         ? new OpenAIModel(new URL('responses', helper).href, async () => {
@@ -87,6 +87,8 @@ export class RuntimeHost {
         new CompatModel(
           async () => (await store.get<CustomModel | null>(customModelKey)) ?? undefined,
         ),
+        async () => (chatgpt ? chatgpt.turnSettings() : {}),
+        async () => ({ model: (await store.get<CustomModel | null>(customModelKey))?.model }),
       ),
     );
     runtime.notify = async (alert) => {
@@ -254,6 +256,18 @@ export class RuntimeHost {
             data.id as string | undefined,
           );
           break;
+        case 'appApproval':
+          if (!data.input || typeof data.input !== 'object' || Array.isArray(data.input))
+            throw new Error('Invalid tool input.');
+          result = await runtime.appNeedsApproval(
+            string(data.id),
+            string(data.name),
+            data.input as Record<string, unknown>,
+          );
+          break;
+        case 'delete':
+          await runtime.deleteConversation(string(data.id));
+          break;
         case 'appCall':
           if (!data.input || typeof data.input !== 'object' || Array.isArray(data.input))
             throw new Error('Invalid tool input.');
@@ -261,6 +275,7 @@ export class RuntimeHost {
             string(data.id),
             string(data.name),
             data.input as Record<string, unknown>,
+            data.approved === true,
           );
           break;
         case 'create':

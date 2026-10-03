@@ -54,6 +54,10 @@ interface Session {
   account: string;
 }
 
+/** A turn pins its model when it starts; later requests send it back. */
+const pinnedModel = (pin: { model?: unknown } | undefined, fallback: string) =>
+  typeof pin?.model === 'string' && /^[\w.:-]{1,100}$/.test(pin.model) ? pin.model : fallback;
+
 /** Browser credentials are kept separately from workspace files and conversation history. */
 export class BrowserChatGPT {
   private async storedSession(): Promise<Session | undefined> {
@@ -313,6 +317,11 @@ export class BrowserChatGPT {
       throw new Error('GPT-6.1 Sol is not available for this ChatGPT account.');
     return defaultModel;
   }
+  /** The model and reasoning level a new turn should keep, read without a network call. */
+  async turnSettings() {
+    const session = await this.storedSession();
+    return session ? { model: session.model, effort: this.effort(session) } : {};
+  }
   async models() {
     const status = await this.status();
     const session = await this.access(status.account, AbortSignal.timeout(30000), false);
@@ -486,11 +495,19 @@ export class BrowserChatGPT {
     });
   }
   async responses(
-    body: { account: string; request: Record<string, unknown> },
+    body: {
+      account: string;
+      request: Record<string, unknown>;
+      pin?: { model?: unknown; effort?: unknown };
+    },
     signal: AbortSignal,
   ) {
     const session = await this.access(body.account, signal);
-    const effort = this.effort(session);
+    const model = pinnedModel(body.pin, session.model);
+    const effort =
+      typeof body.pin?.effort === 'string' && /^[a-z]{1,20}$/.test(body.pin.effort)
+        ? body.pin.effort
+        : this.effort(session);
     const send = (summary: boolean) =>
       this.request(this.modelRelay ? this.modelRelay + 'responses' : resource + '/responses', {
         method: 'POST',
@@ -500,13 +517,13 @@ export class BrowserChatGPT {
         headers: { Authorization: 'Bearer ' + session.access, 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...body.request,
-          model: session.model,
+          model,
           reasoning: effort ? { effort, ...(summary ? { summary: 'auto' } : {}) } : undefined,
           store: false,
           stream: true,
         }),
       });
-    const summaryOff = 'no-reasoning-summary:' + session.model;
+    const summaryOff = 'no-reasoning-summary:' + model;
     const summary = Boolean(effort) && !(await this.store.get<boolean>(summaryOff));
     const response = await send(summary);
     if (response.status !== 400 || !summary) return response;
@@ -518,7 +535,10 @@ export class BrowserChatGPT {
     return retried;
   }
   /** Provider-side compaction of older input; returns the compacted items. */
-  async compact(body: { account: string; input: Record<string, unknown>[] }, signal: AbortSignal) {
+  async compact(
+    body: { account: string; input: Record<string, unknown>[]; pin?: { model?: unknown } },
+    signal: AbortSignal,
+  ) {
     const session = await this.access(body.account, signal);
     const response = await this.request(
       this.modelRelay ? this.modelRelay + 'compact' : resource + '/responses/compact',
@@ -528,7 +548,7 @@ export class BrowserChatGPT {
         redirect: 'error',
         signal,
         headers: { Authorization: 'Bearer ' + session.access, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: session.model, input: body.input }),
+        body: JSON.stringify({ model: pinnedModel(body.pin, session.model), input: body.input }),
       },
     );
     if (!response.ok) {

@@ -83,6 +83,11 @@ a {
   background: var(--accent-fill);
   filter: brightness(0.94);
 }
+.danger {
+  background: var(--bad);
+  color: var(--on-accent);
+  font-weight: 600;
+}
 .secondary {
   background: var(--glyph-bg);
   color: var(--accent-ink);
@@ -990,4 +995,12 @@ dialog:has(> .app-update:not([hidden])) {
 }
 .tool-details[open] .message-label {
   margin-top: 8px;
+}
+
+.confirm-dialog {
+  max-width: 420px;
+}
+.confirm-dialog h2 {
+  margin: 0 0 8px;
+  font-size: 18px;
 }
