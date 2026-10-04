@@ -84,11 +84,11 @@ const owner = (() => {
     return undefined;
   }
 })();
+const mergeSubject =
+  owner &&
+  new RegExp(`^(Merge pull request #\\d+ from )${owner.replace(/[^A-Za-z0-9-]/g, '\\$&')}/`);
 const scanMessage = (place, text) =>
-  scanText(place, text, (line) => {
-    const merge = owner && /^Merge pull request #\d+ from /.test(line);
-    return hit(merge ? line.replace(`from ${owner}/`, 'from ') : line);
-  });
+  scanText(place, text, (line) => hit(mergeSubject ? line.replace(mergeSubject, '$1') : line));
 // Printable runs in common byte encodings, so a NUL byte or UTF-16 cannot hide text from the rules.
 const runs = (text) => text.match(/[\x20-\x7e]+/g) ?? [];
 const pairs = (bytes) => bytes.subarray(0, bytes.length - (bytes.length % 2));
