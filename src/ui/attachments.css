@@ -216,8 +216,8 @@ html dialog.photo-viewer {
   overflow: hidden;
   color: white;
   background: rgb(0 0 0 / 0.94);
-  backdrop-filter: none;
   -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 .photo-viewer::backdrop {
   background: black;
@@ -245,8 +245,10 @@ html dialog.photo-viewer {
   height: var(--target);
   color: white;
 }
-.photo-viewer .icon-button:hover {
-  background: rgb(255 255 255 / 0.12);
+@media (hover: hover) {
+  .photo-viewer .icon-button:hover {
+    background: rgb(255 255 255 / 0.12);
+  }
 }
 .viewer-track {
   display: flex;

@@ -379,8 +379,10 @@
   box-shadow: var(--chat-shadow);
   z-index: 1;
 }
-.jump-latest:hover {
-  background: var(--sidebar-fill);
+@media (hover: hover) {
+  .jump-latest:hover {
+    background: var(--sidebar-fill);
+  }
 }
 button,
 .starter-card {
@@ -392,9 +394,11 @@ button,
 button:active:not(:disabled):not(.jump-latest):not(.drawer-scrim) {
   transform: translateY(1px);
 }
-.starter-card:hover {
-  border-color: var(--accent);
-  background: var(--panel);
+@media (hover: hover) {
+  .starter-card:hover {
+    border-color: var(--accent);
+    background: var(--panel);
+  }
 }
 .message-enter {
   animation: message-in var(--duration-enter) var(--ease-out) both;

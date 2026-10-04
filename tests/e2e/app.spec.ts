@@ -358,7 +358,15 @@ test('MCP Apps share host styles and follow theme changes without remounting', a
   await page.locator('.layout').evaluate((el) => {
     (el as HTMLElement).style.background = 'var(--ground)';
   });
-  await page.locator('iframe.mcp-app').scrollIntoViewIfNeeded();
+  // The islands' soft shadows reach into the chat and would tint either sampled pixel.
+  await page.evaluate(() => {
+    for (const shadow of ['--glass-shadow', '--bubble-shadow', '--chat-shadow'])
+      document.documentElement.style.setProperty(shadow, 'none');
+  });
+  // Clear of the floating header's glass.
+  await page
+    .locator('iframe.mcp-app')
+    .evaluate((frame) => frame.scrollIntoView({ block: 'center' }));
   const box = (await page.locator('iframe.mcp-app').boundingBox())!;
   const canvas = await page.screenshot({ clip: { x: 0, y: 0, width: 1, height: 1 } });
   const margin = await page.screenshot({

@@ -37,9 +37,11 @@ button {
   /* Theme foregrounds and surfaces change together, without a low-contrast crossfade. */
   transition: opacity var(--duration);
 }
-button:hover,
-summary:hover {
-  background: var(--hover);
+@media (hover: hover) {
+  button:hover,
+  summary:hover {
+    background: var(--hover);
+  }
 }
 button:active {
   background: var(--glyph-bg);
@@ -79,9 +81,11 @@ a {
   color: var(--on-accent);
   font-weight: 600;
 }
-.primary:hover:not(:disabled) {
-  background: var(--accent-fill);
-  filter: brightness(0.94);
+@media (hover: hover) {
+  .primary:hover:not(:disabled) {
+    background: var(--accent-fill);
+    filter: brightness(0.94);
+  }
 }
 .danger {
   background: var(--bad);
@@ -181,8 +185,10 @@ p {
   font-weight: 600;
   border-radius: var(--radius-inner);
 }
-.new-chat:hover {
-  background: var(--accent-soft);
+@media (hover: hover) {
+  .new-chat:hover {
+    background: var(--accent-soft);
+  }
 }
 .history {
   min-height: 0;
@@ -731,8 +737,10 @@ summary .muted {
   color: var(--accent-ink);
   background: var(--ground);
 }
-.upload-pick:hover {
-  background: var(--hover);
+@media (hover: hover) {
+  .upload-pick:hover {
+    background: var(--hover);
+  }
 }
 .upload-zone:focus-within .upload-pick {
   outline: 2px solid var(--accent-ink);

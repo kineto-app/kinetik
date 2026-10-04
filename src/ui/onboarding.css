@@ -9,7 +9,7 @@
   padding: 0;
   border: 0;
   border-radius: 0;
-  background: var(--ground);
+  background: var(--scene);
   color: var(--ink);
   overflow: auto;
 }
@@ -38,8 +38,10 @@
   color: var(--muted);
   font-size: 13px;
 }
-.setup-quiet:hover {
-  background: var(--hover);
+@media (hover: hover) {
+  .setup-quiet:hover {
+    background: var(--hover);
+  }
 }
 .setup-body {
   display: grid;
@@ -171,22 +173,25 @@
   flex-direction: column;
   justify-content: center;
   gap: 20px;
-  background: var(--sidebar-fill);
-  border: 1px solid var(--line);
+  background: var(--glass-panel);
+  border: 1px solid var(--glass-rim);
   border-radius: 28px;
+  box-shadow: var(--glass-shadow);
+  -webkit-backdrop-filter: var(--glass-filter);
+  backdrop-filter: var(--glass-filter);
 }
 .setup-example .setup-eyebrow {
   margin: 0;
 }
 .setup-example-user {
   margin-left: 24px;
-  background: var(--ground);
-  border: 1px solid var(--line);
+  background: var(--bubble);
+  border: 1px solid var(--bubble-rim);
   border-radius: 15px 15px 4px 15px;
   padding: 17px 19px;
   font-size: 14px;
   line-height: 1.6;
-  box-shadow: var(--chat-shadow);
+  box-shadow: var(--bubble-shadow);
 }
 .setup-example-reply {
   font-size: 14px;

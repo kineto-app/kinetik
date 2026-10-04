@@ -13,8 +13,8 @@ html dialog.mcp-app-panel {
   background: transparent;
   box-shadow: none;
   overflow: visible;
-  backdrop-filter: none;
   -webkit-backdrop-filter: none;
+  backdrop-filter: none;
   animation: none;
 }
 .mcp-app-panel .mcp-app {

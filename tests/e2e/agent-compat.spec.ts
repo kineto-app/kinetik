@@ -58,8 +58,14 @@ test('a hidden OpenAI-compatible model next to ChatGPT', async ({ page, request 
   await shot('2-picker');
   await page.getByRole('button', { name: 'fixture-model', exact: true }).click();
 
+  // The note lives under a second; expect's growing poll interval can step over it.
+  const thinking = page.waitForFunction(
+    () => document.querySelector('.thinking-note')?.textContent?.includes('The user greets me'),
+    undefined,
+    { polling: 'raf' },
+  );
   await send(page, 'Hello custom');
-  await expect(page.locator('.thinking-note')).toContainText('The user greets me');
+  await thinking;
   await shot('3-thinking');
   await expect(replies(page).last()).toContainText('Hello from the custom model.');
   await send(page, 'Custom, list my files');

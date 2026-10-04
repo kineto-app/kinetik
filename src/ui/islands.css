@@ -15,10 +15,10 @@ body {
   padding: var(--space-island);
   gap: var(--space-section);
   grid-template-columns: 258px minmax(0, 1fr);
-  background:
-    radial-gradient(ellipse at bottom right, var(--panel), transparent 65%), var(--ground);
+  background: var(--scene);
 }
 .main {
+  position: relative;
   min-height: 0;
   background: transparent;
 }
@@ -39,15 +39,18 @@ button:active:not(:disabled):not(.drawer-scrim):not(.jump-latest) {
   transform: scale(0.97);
 }
 .sidebar,
-.topbar,
 .composer,
-dialog:not(.connection-setup) {
+dialog:not(.connection-setup),
+.topbar > :is(#menu, .heading, #connection-status, #delete-chat, #top-new-chat) {
   background: var(--glass);
-  border: 1px solid var(--control-line);
+  border: 1px solid var(--glass-rim);
   border-radius: var(--radius-island);
-  box-shadow: var(--chat-shadow);
-  -webkit-backdrop-filter: blur(var(--glass-blur));
-  backdrop-filter: blur(var(--glass-blur));
+  box-shadow: var(--glass-shadow);
+  -webkit-backdrop-filter: var(--glass-filter);
+  backdrop-filter: var(--glass-filter);
+}
+dialog:not(.connection-setup) {
+  background: var(--glass-panel);
 }
 .sidebar {
   padding: var(--space-section) var(--space-content);
@@ -66,8 +69,10 @@ dialog:not(.connection-setup) {
   color: var(--ink);
   padding-inline: var(--space-section);
 }
-.new-chat:hover {
-  background: var(--panel);
+@media (hover: hover) {
+  .new-chat:hover {
+    background: var(--panel);
+  }
 }
 /* Recent chats: a colour dot, the title and how long ago; the open one gets a soft fill. */
 .conversation {
@@ -80,9 +85,11 @@ dialog:not(.connection-setup) {
   color: var(--muted);
   font-weight: 400;
 }
-.conversation:hover {
-  background: var(--hover);
-  color: var(--ink);
+@media (hover: hover) {
+  .conversation:hover {
+    background: var(--hover);
+    color: var(--ink);
+  }
 }
 .conversation[aria-current='true'] {
   background: var(--hover);
@@ -115,15 +122,37 @@ dialog:not(.connection-setup) {
 .nav-tools {
   border-top: 0;
 }
+/* The header is separate glass pills of one height, floating over the chat as it scrolls by. */
 .topbar {
-  padding: var(--space-inline);
+  position: absolute;
+  inset: 0 0 auto;
+  z-index: 3;
+  padding: 0;
   gap: var(--space-inline);
-  flex-shrink: 0;
+  border: 0;
+  pointer-events: none;
+}
+.topbar > * {
+  pointer-events: auto;
+}
+.topbar > :is(#menu, .heading, #connection-status, #delete-chat, #top-new-chat) {
+  height: 48px;
+  min-height: 48px;
+  border-radius: var(--radius-pill);
+}
+.topbar > .icon-button {
+  width: 48px;
+  padding: 0;
 }
 .heading {
   display: flex;
   align-items: center;
   gap: var(--space-inline);
+}
+.topbar > .heading {
+  flex: 0 1 auto;
+  margin-right: auto;
+  padding: 0 16px 0 10px;
 }
 .heading img {
   flex: none;
@@ -154,18 +183,48 @@ dialog:not(.connection-setup) {
 #connections-open {
   width: 100%;
 }
+/* The chat scrolls under the header and composer, and keeps their heights free at its ends. */
 #timeline {
-  padding-block: 28px;
+  padding-top: calc(var(--topbar-height, 48px) + 20px);
+  padding-bottom: calc(var(--composer-height, 72px) + 16px);
+  scroll-padding-block: calc(var(--topbar-height, 48px) + 8px)
+    calc(var(--composer-height, 72px) + 8px);
 }
 .message[data-role='user'] {
   background: transparent;
   padding: 0;
 }
 .message[data-role='user'] > .message-content {
-  background: var(--glyph-bg);
-  border-radius: 24px 24px 6px 24px;
+  background: var(--bubble);
+  border: 1px solid var(--bubble-rim);
+  border-radius: 22px 22px 6px 22px;
+  box-shadow: var(--bubble-shadow);
   padding: var(--space-content) var(--space-section);
   margin: 0;
+}
+/* Kinetik's replies are glass cards; a reply that is only a widget stays bare. */
+.message:is([data-role='assistant'], [data-draft]):has(> .message-label) {
+  /* Uneven on purpose: the avatar ring and the last line's leading even the visible gaps out. */
+  padding: 18px 18px 10px;
+  background: var(--reply-card);
+  border: 1px solid var(--glass-rim);
+  border-radius: 24px;
+  box-shadow: var(--glass-shadow);
+}
+.message-label img {
+  border-radius: 50%;
+  box-shadow:
+    0 0 0 2px var(--glass-rim),
+    0 0 0 4px rgba(255, 188, 255, 0.53);
+}
+/* The copy row sits tight under the text, so a card's bottom matches its top. */
+.message:is([data-role='assistant'], [data-draft]):has(> .message-label) > .message-actions {
+  margin: 2px 0 -6px -10px;
+}
+@media (max-width: 700px) {
+  .message:is([data-role='assistant'], [data-draft]):has(> .message-label) > .message-actions {
+    margin-bottom: -10px;
+  }
 }
 .message-time,
 .elapsed-time {
@@ -189,8 +248,44 @@ dialog:not(.connection-setup) {
   overflow-wrap: anywhere;
 }
 .composer-area {
+  position: absolute;
+  inset: auto 0 0;
+  z-index: 3;
   background: transparent;
   padding-bottom: var(--space-inline);
+  pointer-events: none;
+}
+.composer-area > * {
+  pointer-events: auto;
+}
+/* Lines in the composer area sit over moving chat text, so each gets its own glass. */
+.composer-area > .panel {
+  background: var(--glass-panel);
+  border: 1px solid var(--glass-rim);
+  box-shadow: var(--glass-shadow);
+  -webkit-backdrop-filter: var(--glass-filter);
+  backdrop-filter: var(--glass-filter);
+}
+.composer-area > :is(#error, #attachment-status):not(:empty),
+.work-status > .activity:not([hidden]),
+.work-options > summary {
+  width: fit-content;
+  margin: 0 auto var(--space-inline);
+  padding: 4px var(--space-content);
+  background: var(--glass-panel);
+  border: 1px solid var(--glass-rim);
+  border-radius: var(--radius-pill);
+  -webkit-backdrop-filter: var(--glass-filter);
+  backdrop-filter: var(--glass-filter);
+}
+/* The work line and its menu sit side by side, centred together. */
+.work-status > :is(.activity, .work-options) {
+  margin-inline: 0;
+}
+/* Typing brightens the composer's rim rather than drawing a ring around it. */
+.composer:focus-within {
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--glass-rim));
+  box-shadow: var(--glass-shadow);
 }
 .composer {
   display: flex;
@@ -282,10 +377,12 @@ dialog:not(.connection-setup) {
   right: 0;
   z-index: 3;
   padding: var(--space-inline);
-  background: var(--ground);
-  border: 1px solid var(--control-line);
+  background: var(--glass-panel);
+  border: 1px solid var(--glass-rim);
   border-radius: var(--radius);
-  box-shadow: var(--chat-shadow);
+  box-shadow: var(--glass-shadow);
+  -webkit-backdrop-filter: var(--glass-filter);
+  backdrop-filter: var(--glass-filter);
 }
 #cancel-work {
   white-space: nowrap;
@@ -305,14 +402,16 @@ dialog:not(.connection-setup) {
 :is(.tool-group, .run-summary) summary {
   cursor: pointer;
   list-style: none;
-  border-radius: var(--radius-control);
+  border-radius: var(--radius-inner);
   transition: background var(--duration) var(--ease-out);
 }
 :is(.tool-group, .run-summary) summary::-webkit-details-marker {
   display: none;
 }
-:is(.tool-group, .run-summary) summary:hover {
-  background: var(--hover);
+@media (hover: hover) {
+  :is(.tool-group, .run-summary) summary:hover {
+    background: var(--hover);
+  }
 }
 :is(.tool-group, .run-summary) summary:focus-visible {
   outline-offset: -2px;
@@ -399,9 +498,9 @@ details[open] > summary > .activity-chevron {
   /* An opened step is an inset submenu: narrower than its row, same row rhythm. */
   margin: 0 0 var(--space-inline) 29px;
   padding: var(--space-inline) var(--space-content);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-inner);
-  background: var(--hover);
+  border: 1px solid var(--glass-rim);
+  border-radius: 18px;
+  background: var(--reply-card);
   color: var(--muted);
 }
 .tool-group-steps > .activity-body {
@@ -488,13 +587,26 @@ details[open] > summary > .activity-chevron {
   }
 }
 .jump-latest {
+  bottom: calc(var(--composer-height, 72px) + 12px);
   background: var(--glass);
-  -webkit-backdrop-filter: blur(var(--glass-blur));
-  backdrop-filter: blur(var(--glass-blur));
+  border-color: var(--glass-rim);
+  box-shadow: var(--glass-shadow);
+  -webkit-backdrop-filter: var(--glass-filter);
+  backdrop-filter: var(--glass-filter);
 }
-.app-update {
-  margin-top: var(--space-inline);
+.main > .app-update {
+  position: absolute;
+  top: calc(var(--topbar-height, 48px) + var(--space-inline));
+  inset-inline: 0;
+  z-index: 3;
+  width: min(440px, calc(100% - 2 * var(--space-content)));
+  margin: 0 auto;
   border-radius: var(--radius);
+  background: var(--glass-panel);
+  border: 1px solid var(--glass-rim);
+  box-shadow: var(--glass-shadow);
+  -webkit-backdrop-filter: var(--glass-filter);
+  backdrop-filter: var(--glass-filter);
 }
 .dialog-head button {
   border-radius: 50%;
@@ -548,11 +660,8 @@ dialog::backdrop,
     top: var(--app-top, 0px);
     height: var(--app-height, 100dvh);
   }
-  .topbar {
-    padding: 5px;
-  }
   #timeline {
-    padding: 24px 4px 12px;
+    padding-inline: 4px;
   }
   .composer-area {
     padding: 0;
@@ -566,11 +675,19 @@ dialog::backdrop,
 }
 @media (prefers-reduced-transparency: reduce) {
   .sidebar,
-  .topbar,
   .composer,
-  dialog:not(.connection-setup) {
+  dialog:not(.connection-setup),
+  .topbar > *,
+  .message:is([data-role='assistant'], [data-draft]):has(> .message-label),
+  .toast,
+  .app-update,
+  .jump-latest {
     background: var(--ground);
+    -webkit-backdrop-filter: none;
     backdrop-filter: none;
+  }
+  .message[data-role='user'] > .message-content {
+    background: color-mix(in srgb, var(--accent) 30%, var(--ground));
   }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -650,10 +767,12 @@ dialog::backdrop,
 .ask-card {
   margin: 0 0 var(--space-inline);
   padding: var(--space-content) var(--space-section);
-  border: 1px solid var(--control-line);
+  border: 1px solid var(--glass-rim);
   border-radius: var(--radius);
   background: var(--glass-panel);
-  box-shadow: var(--chat-shadow);
+  box-shadow: var(--glass-shadow);
+  -webkit-backdrop-filter: var(--glass-filter);
+  backdrop-filter: var(--glass-filter);
 }
 .ask-card[hidden] {
   display: none;
@@ -762,8 +881,10 @@ dialog::backdrop,
 .notice-retry:is(:hover, :active) {
   background: transparent;
 }
-.notice-title:hover {
-  color: var(--ink);
+@media (hover: hover) {
+  .notice-title:hover {
+    color: var(--ink);
+  }
 }
 .notice-chevron {
   display: flex;
@@ -838,10 +959,13 @@ dialog::backdrop,
   display: none;
 }
 
-/* Toasts: one line, an action, a close; they float over the top of the chat. */
+/* Toasts: one line, an action, a close; they float over the chat, under any update banner. */
+.main:has(#app-update:not([hidden])) .toasts {
+  top: calc(var(--topbar-height, 48px) + 84px);
+}
 .toasts {
   position: absolute;
-  top: var(--space-inline);
+  top: calc(var(--topbar-height, 48px) + var(--space-inline));
   left: 50%;
   transform: translateX(-50%);
   /* Above the chat, below the phone drawer and its scrim. */
@@ -860,12 +984,12 @@ dialog::backdrop,
   min-height: calc(var(--target) + 8px);
   font-size: 14px;
   color: var(--ink);
-  background: var(--glass);
-  border: 1px solid var(--control-line);
+  background: var(--glass-panel);
+  border: 1px solid var(--glass-rim);
   border-radius: var(--radius-pill);
-  box-shadow: var(--chat-shadow);
-  -webkit-backdrop-filter: blur(var(--glass-blur));
-  backdrop-filter: blur(var(--glass-blur));
+  box-shadow: var(--glass-shadow);
+  -webkit-backdrop-filter: var(--glass-filter);
+  backdrop-filter: var(--glass-filter);
 }
 .toast > span {
   flex: 1;

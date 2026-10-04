@@ -766,6 +766,17 @@ new ResizeObserver(() => {
   if (pinned) byId('timeline').scrollTop = byId('timeline').scrollHeight;
   updateJumpButton();
 }).observe(byId('timeline'));
+// The header and composer float over the chat, which keeps their heights free at its ends.
+const floating = new ResizeObserver(() => {
+  const main = byId('main');
+  main.style.setProperty('--topbar-height', `${main.querySelector('.topbar')!.clientHeight}px`);
+  main.style.setProperty(
+    '--composer-height',
+    `${main.querySelector('.composer-area')!.clientHeight}px`,
+  );
+  if (pinned) byId('timeline').scrollTop = byId('timeline').scrollHeight;
+});
+for (const part of document.querySelectorAll('.topbar, .composer-area')) floating.observe(part);
 byId('timeline').addEventListener('click', (event) => {
   const target = event.target as HTMLElement;
   if (target.closest('a, button, summary, details, iframe')) return;
