@@ -17,7 +17,7 @@ const rules = [
     'provider-key',
     /\b(sk-(proj|ant|live)-[A-Za-z0-9_-]{16,}|gsk_[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{35}|gh[pousr]_[A-Za-z0-9]{30,}|xox[abp]-[A-Za-z0-9-]{10,})\b/,
   ],
-  ['machine-email', /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.local|\.home|\.lan)\b/],
+  ['machine-email', /@[A-Za-z0-9-]+\.(local|home|lan)\b/],
   [
     'private-network',
     /\b(10\.\d{1,3}\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3})\b/,
@@ -74,10 +74,10 @@ if (mode === '--staged') {
     author(`commit ${sha.slice(0, 12)} committer`, committerEmail);
     scan(`commit ${sha.slice(0, 12)} message`, message);
   }
-} else if (mode && mode !== '-') {
-  for (const path of process.argv.slice(2)) scanPath(path, readFileSync(path));
 } else {
-  scan('stdin', readFileSync(0, 'utf8'));
+  for (const path of mode ? process.argv.slice(2) : ['-'])
+    if (path === '-') scan('stdin', readFileSync(0, 'utf8'));
+    else scanPath(path, readFileSync(path));
 }
 
 if (hits) {
