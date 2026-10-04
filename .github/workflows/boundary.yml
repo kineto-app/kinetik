@@ -1,6 +1,7 @@
 name: Boundary
-# This repository is public. Every change, commit message, author and PR text is checked for secrets
-# and private details before it can merge.
+# This repository is public. Every commit — its files, text inside its images, message, author and
+# committer — and every pull request title and description is checked for secrets and private
+# details before it can merge.
 on:
   push:
   pull_request:
@@ -12,51 +13,45 @@ jobs:
   changes:
     if: github.event_name != 'pull_request_target'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
+    env:
+      BOUNDARY_OCR: required
+      BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+      HEAD: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Range under review
-        id: range
-        run: |
-          if [ "${{ github.event_name }}" = pull_request ]; then
-            echo "range=${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}" >> "$GITHUB_OUTPUT"
-          elif [ "${{ github.event.before }}" = 0000000000000000000000000000000000000000 ]; then
-            echo "range=$(git rev-list --max-parents=0 HEAD | tail -1)..${{ github.sha }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "range=${{ github.event.before }}..${{ github.sha }}" >> "$GITHUB_OUTPUT"
-          fi
-      - run: node scripts/boundary.mjs --range "${{ steps.range.outputs.range }}"
-      - name: Text inside changed images
-        run: |
-          images=$(git diff --name-only --diff-filter=ACMR "${{ steps.range.outputs.range }}" | grep -iE '\.(png|jpe?g|gif|webp)$' || true)
-          [ -z "$images" ] && exit 0
-          sudo apt-get install -y -qq tesseract-ocr > /dev/null
-          status=0
-          for image in $images; do
-            tesseract "$image" - 2> /dev/null | node scripts/boundary.mjs - || { echo "in $image"; status=1; }
-          done
-          exit $status
+      - run: sudo apt-get install -y -qq tesseract-ocr > /dev/null
+      # A base that is all zeros or missing (new branch, force push) checks the whole history.
+      - run: node scripts/boundary.mjs --range "$BASE" "$HEAD"
 
-  # Runs the base branch's scanner over the PR as data, with the maintainers' private rules. Nothing
-  # from the PR is executed here, and a hit reports only the rule and the place.
+  # Runs the base branch's scanner over the pull request as data, with the maintainers' private
+  # rules. Nothing from the pull request is executed, and a finding reports only the rule and place.
   private:
     if: github.event_name == 'pull_request_target'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
+    env:
+      BOUNDARY_OCR: required
+      BOUNDARY_RULES: ${{ secrets.BOUNDARY_RULES }}
+      BASE: ${{ github.event.pull_request.base.sha }}
+      HEAD: ${{ github.event.pull_request.head.sha }}
+      NUMBER: ${{ github.event.pull_request.number }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - run: git fetch --no-tags origin "pull/${{ github.event.pull_request.number }}/head"
-      - name: Changes, commit messages and authors
+          persist-credentials: false
+      - run: git fetch --no-tags origin "pull/$NUMBER/head"
+      - run: sudo apt-get install -y -qq tesseract-ocr > /dev/null
+      - name: Commits, files, images, messages and identities
+        run: node scripts/boundary.mjs --range "$BASE" "$HEAD"
+      - name: Title and description
+        shell: bash
         env:
-          BOUNDARY_RULES: ${{ secrets.BOUNDARY_RULES }}
-        run: node scripts/boundary.mjs --range "${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}"
-      - name: PR title and description
-        env:
-          BOUNDARY_RULES: ${{ secrets.BOUNDARY_RULES }}
           TITLE: ${{ github.event.pull_request.title }}
           BODY: ${{ github.event.pull_request.body }}
-        run: printf '%s\n\n%s\n' "$TITLE" "$BODY" | node scripts/boundary.mjs -
+        run: |
+          set -o pipefail
+          printf '%s\n\n%s\n' "$TITLE" "$BODY" | node scripts/boundary.mjs -
