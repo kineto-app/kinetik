@@ -49,7 +49,9 @@ test('workspace transfer excludes credentials and execution state and preserves 
   await target.put('conversation:old', {});
   await target.replace(await parseArchive(text), (key) => key.startsWith('connection'));
   expect(await target.get('conversation:old')).toBeUndefined();
-  expect(await target.get('connection-token:charms')).toEqual({ access: 'placeholder-device-token' });
+  expect(await target.get('connection-token:charms')).toEqual({
+    access: 'placeholder-device-token',
+  });
   expect(await (await createFilesystem(target)).fs.readFileBuffer('/workspace/binary')).toEqual(
     new Uint8Array([0, 255, 128]),
   );

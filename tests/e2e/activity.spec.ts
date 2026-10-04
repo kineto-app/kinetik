@@ -15,7 +15,11 @@ const action = (
   input: Record<string, unknown>,
   outcome: NonNullable<Message['activity']>['outcome'] = 'completed',
 ): Message => ({
-  ...msg(id, 'tool', JSON.stringify({ result: 'Saved result', render_token: 'placeholder-hidden-token' })),
+  ...msg(
+    id,
+    'tool',
+    JSON.stringify({ result: 'Saved result', render_token: 'placeholder-hidden-token' }),
+  ),
   tool,
   activity: { input, outcome },
 });

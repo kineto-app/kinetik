@@ -162,7 +162,11 @@ test('an unauthorized MCP response invalidates the managed token without retryin
   const invalid = vi.fn(async () => {});
   const request = vi.fn(async () => new Response(null, { status: 401 }));
   vi.stubGlobal('fetch', request);
-  const client = new McpClient('https://service.example/mcp', async () => 'placeholder-token', invalid);
+  const client = new McpClient(
+    'https://service.example/mcp',
+    async () => 'placeholder-token',
+    invalid,
+  );
   await expect(client.call('write', {})).rejects.toThrow('Reconnect Charms');
   expect(invalid).toHaveBeenCalledWith('placeholder-token');
   expect(request).toHaveBeenCalledTimes(1);

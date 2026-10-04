@@ -137,7 +137,10 @@ function callback() {
   );
 }
 test('retains login across worker restarts in the dedicated credential store', async () => {
-  await store.put('session', { access: 'placeholder-old-access', refresh: 'placeholder-old-refresh' });
+  await store.put('session', {
+    access: 'placeholder-old-access',
+    refresh: 'placeholder-old-refresh',
+  });
   await begin();
   const host = flow.searchParams.get('ext_agent_host_id');
   await client.callback(callback());
