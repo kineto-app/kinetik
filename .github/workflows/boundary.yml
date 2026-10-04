@@ -1,0 +1,62 @@
+name: Boundary
+# This repository is public. Every change, commit message, author and PR text is checked for secrets
+# and private details before it can merge.
+on:
+  push:
+  pull_request:
+  pull_request_target:
+    types: [opened, edited, synchronize, reopened]
+permissions:
+  contents: read
+jobs:
+  changes:
+    if: github.event_name != 'pull_request_target'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Range under review
+        id: range
+        run: |
+          if [ "${{ github.event_name }}" = pull_request ]; then
+            echo "range=${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event.before }}" = 0000000000000000000000000000000000000000 ]; then
+            echo "range=$(git rev-list --max-parents=0 HEAD | tail -1)..${{ github.sha }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "range=${{ github.event.before }}..${{ github.sha }}" >> "$GITHUB_OUTPUT"
+          fi
+      - run: node scripts/boundary.mjs --range "${{ steps.range.outputs.range }}"
+      - name: Text inside changed images
+        run: |
+          images=$(git diff --name-only --diff-filter=ACMR "${{ steps.range.outputs.range }}" | grep -iE '\.(png|jpe?g|gif|webp)$' || true)
+          [ -z "$images" ] && exit 0
+          sudo apt-get install -y -qq tesseract-ocr > /dev/null
+          status=0
+          for image in $images; do
+            tesseract "$image" - 2> /dev/null | node scripts/boundary.mjs - || { echo "in $image"; status=1; }
+          done
+          exit $status
+
+  # Runs the base branch's scanner over the PR as data, with the maintainers' private rules. Nothing
+  # from the PR is executed here, and a hit reports only the rule and the place.
+  private:
+    if: github.event_name == 'pull_request_target'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - run: git fetch --no-tags origin "pull/${{ github.event.pull_request.number }}/head"
+      - name: Changes, commit messages and authors
+        env:
+          BOUNDARY_RULES: ${{ secrets.BOUNDARY_RULES }}
+        run: node scripts/boundary.mjs --range "${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}"
+      - name: PR title and description
+        env:
+          BOUNDARY_RULES: ${{ secrets.BOUNDARY_RULES }}
+          TITLE: ${{ github.event.pull_request.title }}
+          BODY: ${{ github.event.pull_request.body }}
+        run: printf '%s\n\n%s\n' "$TITLE" "$BODY" | node scripts/boundary.mjs -

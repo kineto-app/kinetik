@@ -18,6 +18,8 @@
     "THIRD_PARTY_NOTICES.md"
   ],
   "scripts": {
+    "prepare": "node -e \"require('fs').existsSync('.git') && require('child_process').execSync('git config core.hooksPath .githooks')\"",
+    "boundary": "node scripts/boundary.mjs",
     "dev": "node scripts/dev.mjs",
     "build": "node scripts/build.mjs",
     "package:static": "node scripts/package-static.mjs",

@@ -15,4 +15,6 @@ Use design tokens in `src/ui/tokens.css`; these track the Kinetik Charms visual 
 
 Plugin SDK changes must update `docs/plugins.md` and the example plugin. Distinguish working behavior from future design in documentation. The current limitation on official ChatGPT authentication must not be removed without verified evidence and a corresponding integration test.
 
+This repository is public: keep secrets and private details out of code, comments, commit messages and pull request text (see `AGENTS.md`). `npm ci` installs Git hooks that check staged files, commit messages and the author address; pull requests run the same check. Commit with your GitHub noreply address.
+
 Open an issue for proposals, or a pull request with the problem, change, and verification. Keep commits scoped. Report security issues according to `SECURITY.md`.
