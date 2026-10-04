@@ -1,5 +1,8 @@
 import { openCall } from '../core/turn';
 import type { Conversation, Message } from '../core/types';
+/** What a window knows about background work: enough for a live step. */
+type Job = { id: string; conversationId: string; tool: string; state: string; startedAt?: number };
+import { took } from './time';
 import {
   activityBatches,
   activityExplanation,
@@ -36,12 +39,29 @@ const kindIcons: Record<string, IconName> = {
   background: 'clock',
   automation: 'clock',
 };
-function summary(label: string, mark: IconName, note?: string) {
+function summary(
+  label: string,
+  mark: IconName,
+  note?: string,
+  time?: { ms?: number; startedAt?: number },
+) {
   const node = element('summary', 'activity-summary');
   const glyph = element('span', 'activity-mark');
   glyph.innerHTML = icon(mark);
   node.append(glyph, element('span', 'activity-label', label));
   if (note) node.append(element('span', 'activity-note', note));
+  if (time?.startedAt !== undefined) {
+    // Counted up every second by the window's clock while the step runs.
+    const live = element('span', 'activity-time', took(Date.now() - time.startedAt));
+    live.dataset.startedAt = String(time.startedAt);
+    node.append(live);
+    // No job reports how far along it is, so a running step only shows that it is alive.
+    const bar = element('span', 'activity-progress');
+    bar.setAttribute('aria-hidden', 'true');
+    node.append(bar);
+    // An instant step needs no time; "0.0s" would only be noise.
+  } else if (time?.ms !== undefined && time.ms >= 100)
+    node.append(element('span', 'activity-time', took(time.ms)));
   const arrow = element('span', 'activity-chevron');
   arrow.innerHTML = icon('chevron');
   node.append(arrow);
@@ -57,7 +77,7 @@ const statusWord = (item: Activity) =>
         ? 'Failed'
         : item.outcome === 'unknown'
           ? 'Needs review'
-          : item.outcome === 'running'
+          : item.outcome === 'running' && item.message.activity?.startedAt === undefined
             ? 'Running'
             : undefined;
 /** One step row: what kind of action, a plain title, and a status word only when it matters. */
@@ -71,6 +91,10 @@ function receipt(item: Activity) {
       activityTitle(item),
       kindIcons[taskKind(message.tool ?? '')] ?? 'plug',
       statusWord(item),
+      {
+        ms: message.durationMs,
+        startedAt: outcome === 'running' ? message.activity?.startedAt : undefined,
+      },
     ),
     stepBody(item),
   );
@@ -128,8 +152,41 @@ function sentence(labels: string[]) {
   return shown.join(', ') + (labels.length > 2 ? ` and ${labels.length - 2} more` : '');
 }
 
+/** The notice that brings finished background work back into the chat, shown as its step. */
+function finishedJob(message: Message): Message | undefined {
+  if (!message.id.startsWith('background-completed:')) return undefined;
+  const [, tool = 'background · local', state = 'completed'] =
+    message.text.match(/^Background job \S+ \((.+?)\) (\w+)\./) ?? [];
+  const job = message.id.slice('background-completed:'.length);
+  return {
+    ...message,
+    role: 'tool',
+    tool,
+    activity: {
+      // Each job is its own action, so one job's success never reads as another's retry.
+      input: { job },
+      // A stop the user asked for is not a failure.
+      outcome: state === 'interrupted' ? 'failed' : 'completed',
+      label:
+        state === 'completed'
+          ? taskLabel(tool, true) + ' in the background'
+          : state === 'cancelled'
+            ? 'Stopped background work'
+            : 'Background work was interrupted',
+    },
+  };
+}
+const steps = (messages: Message[]) =>
+  messages
+    .map((message) => finishedJob(message) ?? message)
+    .filter((message) => message.role === 'tool' && !isInternalActivity(message));
+
 /** Keep narration and widgets in place; only receipts belong inside activity cards. */
-export function renderToolActivity(timeline: HTMLElement, conversation?: Conversation) {
+export function renderToolActivity(
+  timeline: HTMLElement,
+  conversation?: Conversation,
+  jobs: Job[] = [],
+) {
   if (!conversation) return;
   let turn = 'start';
   const groups = new Map<string, { messages: Message[]; before: Element | null }>();
@@ -139,9 +196,13 @@ export function renderToolActivity(timeline: HTMLElement, conversation?: Convers
       node,
     ]),
   );
-  for (const message of conversation.messages) {
+  const started = new Map<string, string>();
+  for (const original of conversation.messages) {
+    const message = finishedJob(original) ?? original;
     if (isInternalActivity(message)) continue;
     if (message.role === 'user' || message.role === 'assistant') turn = message.id;
+    const job = jobOf(message);
+    if (job) started.set(job, turn);
     if (message.role !== 'tool') continue;
     const article = articles.get(message.id);
     if (!article) continue;
@@ -168,9 +229,37 @@ export function renderToolActivity(timeline: HTMLElement, conversation?: Convers
       text: call.result ?? '',
       createdAt: conversation.updatedAt,
       tool: `${call.name} · ${call.provider}`,
-      activity: { input: call.input, outcome: call.state === 'unknown' ? 'unknown' : 'running' },
+      activity: {
+        input: call.input,
+        outcome: call.state === 'unknown' ? 'unknown' : 'running',
+        startedAt: call.state === 'unknown' ? undefined : call.startedAt,
+      },
     });
     groups.set(turn, group);
+  }
+  // Work still running in the background is a live step of the run that started it.
+  for (const job of jobs) {
+    if (job.conversationId !== conversation.id || !['running', 'waiting'].includes(job.state))
+      continue;
+    const key = started.get(job.id) ?? turn;
+    const group = groups.get(key) ?? {
+      messages: [],
+      before: timeline.querySelector('[data-draft]'),
+    };
+    group.messages.push({
+      id: 'job:' + job.id,
+      role: 'tool',
+      text: '',
+      createdAt: job.startedAt ?? conversation.updatedAt,
+      tool: job.tool,
+      activity: {
+        input: {},
+        outcome: 'running',
+        startedAt: job.startedAt,
+        label: taskLabel(job.tool) + ' in the background',
+      },
+    });
+    groups.set(key, group);
   }
   const existing = new Map(
     [...timeline.querySelectorAll<HTMLDetailsElement>('.tool-group')].map((node) => [
@@ -199,31 +288,37 @@ export function renderToolActivity(timeline: HTMLElement, conversation?: Convers
       ? document.activeElement?.closest<HTMLElement>('[data-activity-key]')?.dataset.activityKey
       : undefined;
     const batches = activityBatches(data.messages);
-    const steps = batches
+    const items = batches
       .flatMap((batch) => batch.items)
       .sort((a, b) => data.messages.indexOf(a.message) - data.messages.indexOf(b.message));
-    const failed = steps.filter(
+    const failed = items.filter(
       (item) => !item.recovered && !handled(item) && ['failed', 'unknown'].includes(item.outcome),
     ).length;
-    const fixed = steps.filter((item) => item.recovered).length;
-    const corrected = steps.filter(handled).length;
-    const running = steps.some((item) => item.outcome === 'running');
+    const fixed = items.filter((item) => item.recovered).length;
+    const corrected = items.filter(handled).length;
+    const running = items.find((item) => item.outcome === 'running');
     const state = failed ? 'failed' : running ? 'running' : 'completed';
     card.dataset.outcome = state;
+    const total = items.reduce((sum, item) => sum + (item.message.durationMs ?? 0), 0);
     const heading = summary(
       running
-        ? taskLabel(steps.find((item) => item.outcome === 'running')!.message.tool ?? '') + '…'
+        ? (running.message.activity?.label ?? taskLabel(running.message.tool ?? '')) + '…'
         : sentence(batches.map((batch) => batch.label)),
       failed ? 'info' : running ? 'clock' : 'check',
       [failed && `${failed} failed`, fixed && `${fixed} fixed`, corrected && `${corrected} handled`]
         .filter(Boolean)
         .join(' · ') || undefined,
+      running?.message.activity?.startedAt !== undefined
+        ? { startedAt: running.message.activity.startedAt }
+        : total
+          ? { ms: total }
+          : undefined,
     );
     heading.querySelector('.activity-label')!.classList.add('tool-group-label');
     const body = element('div', 'tool-group-steps');
     // A single step would repeat the line's own words; its details open directly instead.
-    if (steps.length === 1) body.append(stepBody(steps[0]));
-    else body.append(...steps.map(receipt));
+    if (items.length === 1) body.append(stepBody(items[0]));
+    else body.append(...items.map(receipt));
     card.replaceChildren(heading, body);
     if (headingFocused) heading.focus({ preventScroll: true });
     for (const node of card.querySelectorAll<HTMLDetailsElement>('details')) {
@@ -233,4 +328,134 @@ export function renderToolActivity(timeline: HTMLElement, conversation?: Convers
     }
   }
   for (const [id, node] of existing) if (!groups.has(id!)) node.remove();
+}
+
+/** The background job a start step launched, from its `{ id, state }` result. */
+function jobOf(message: Message) {
+  if (message.role !== 'tool' || !message.tool?.startsWith('background ·')) return undefined;
+  try {
+    const id = (JSON.parse(message.text) as { id?: unknown }).id;
+    return typeof id === 'string' ? id : undefined;
+  } catch {
+    return undefined;
+  }
+}
+interface Run {
+  user: Message;
+  final?: Message;
+  messages: Message[];
+  jobs: Set<string>;
+}
+/**
+ * A run is a request and everything until its final reply (the one that records how long the turn
+ * took): narration, messages sent meanwhile, and background work it started, even when that work
+ * finishes after a later request.
+ */
+export function collectRuns(messages: Message[]) {
+  const runs: Run[] = [];
+  const owners = new Map<string, Run>();
+  let current: Run | undefined;
+  for (const message of messages) {
+    if (message.id.startsWith('background-completed:')) {
+      const owner = owners.get(message.id.slice('background-completed:'.length)) ?? current;
+      owner?.messages.push(message);
+      current = owner;
+      continue;
+    }
+    if (message.role === 'user' && !isInternalActivity(message)) {
+      const last = runs.at(-1);
+      if (last && !last.final) {
+        last.messages.push(message);
+        current = last;
+        continue;
+      }
+      current = { user: message, messages: [], jobs: new Set() };
+      runs.push(current);
+      continue;
+    }
+    if (!current) continue;
+    current.messages.push(message);
+    const job = jobOf(message);
+    if (job) {
+      current.jobs.add(job);
+      owners.set(job, current);
+    }
+    if (
+      message.role === 'assistant' &&
+      !isInternalActivity(message) &&
+      message.durationMs !== undefined
+    ) {
+      current.final = message;
+      // Background work that woke an earlier run hands the chat back to the latest one.
+      current = runs.at(-1);
+    }
+  }
+  return runs;
+}
+const clock = (time: number) =>
+  new Date(time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+/** After each finished run's final reply: how long it took from the request, and every step in it. */
+export function renderRuns(
+  timeline: HTMLElement,
+  conversation: Conversation | undefined,
+  busy: boolean,
+  jobs: Job[] = [],
+) {
+  const running = new Set(jobs.map((job) => job.id));
+  const runs = conversation ? collectRuns(conversation.messages) : [];
+  const kept = new Set<string>();
+  runs.forEach((run, index) => {
+    const after =
+      run.final && timeline.querySelector(`[data-message-id="${CSS.escape(run.final.id)}"]`);
+    // A run is not over while its own background work runs, or while the latest one still works.
+    if (
+      !run.final ||
+      !after ||
+      [...run.jobs].some((id) => running.has(id)) ||
+      (busy && index === runs.length - 1)
+    )
+      return;
+    kept.add(run.user.id);
+    const done = steps(run.messages);
+    let card = timeline.querySelector<HTMLDetailsElement>(
+      `.run-summary[data-run="${CSS.escape(run.user.id)}"]`,
+    );
+    const signature = JSON.stringify([
+      run.final.id,
+      done.map((m) => [m.id, m.durationMs, m.activity?.outcome]),
+    ]);
+    if (!card || signatures.get(card) !== signature) {
+      card ??= element('details', 'run-summary');
+      card.dataset.run = run.user.id;
+      card.dataset.outcome = 'completed';
+      signatures.set(card, signature);
+      const ms = Math.max(0, run.final.createdAt - run.user.createdAt);
+      const [from, to] = [clock(run.user.createdAt), clock(run.final.createdAt)];
+      const label = [
+        'Worked ' + (ms < 1000 ? '<1s' : took(ms)),
+        done.length && `${done.length} ${done.length === 1 ? 'step' : 'steps'}`,
+        from === to ? from : `${from} → ${to}`,
+      ]
+        .filter(Boolean)
+        .join(' · ');
+      const heading = summary(label, 'check');
+      const tokens = run.messages.reduce(
+        (sum, m) => sum + (m.usage ? m.usage.input + m.usage.output : 0),
+        0,
+      );
+      heading.title = 'From the request to the final reply' + (tokens ? `. Tokens: ${tokens}` : '');
+      const order = new Map(done.map((m, i) => [m.id, i]));
+      const body = element('div', 'tool-group-steps');
+      body.append(
+        ...activityBatches(done)
+          .flatMap((batch) => batch.items)
+          .sort((a, b) => order.get(a.message.id)! - order.get(b.message.id)!)
+          .map(receipt),
+      );
+      card.replaceChildren(heading, ...(done.length ? [body] : []));
+    }
+    if (after.nextElementSibling !== card) after.after(card);
+  });
+  for (const card of timeline.querySelectorAll<HTMLElement>('.run-summary'))
+    if (!kept.has(card.dataset.run!)) card.remove();
 }

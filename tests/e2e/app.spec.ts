@@ -431,9 +431,9 @@ test('background process releases the turn and later wakes it with output withou
   );
   await expect(page.locator('#background-activity')).toBeHidden();
   await expect(page.locator('#timeline')).not.toContainText('Background job ');
-  await expect(page.locator('#timeline [data-role=tool]')).not.toContainText(
-    'Completion will wake',
-  );
+  await expect(page.locator('#timeline')).not.toContainText('Completion will wake');
+  // The background work is a step of the run, with its own time.
+  await expect(page.locator('.tool-group').last()).toContainText('in the background');
   await page.screenshot({ path: testInfo.outputPath('background-process.png') });
   const before = await rpc<{ conversations: Conversation[] }>(page, 'state');
   const events = () =>
@@ -452,7 +452,7 @@ test('background process releases the turn and later wakes it with output withou
   ).toHaveLength(1);
 });
 
-test('background app results appear immediately with tool activity hidden and survive reload', async ({
+test('background app results appear immediately with their steps and survive reload', async ({
   page,
 }) => {
   await rpc(page, 'install', {
@@ -513,11 +513,11 @@ test('background app results appear immediately with tool activity hidden and su
   await expect(page.locator('[data-role=assistant]').last()).toHaveText(/Your result is ready/);
   await expect(app.locator('#result')).toHaveText('Ready');
   await expect(page.locator('#timeline')).not.toContainText('private tool receipt');
-  await expect(page.locator('.tool-group')).toHaveCount(0);
+  await expect(page.locator('.tool-group')).toHaveCount(1);
   await page.screenshot({ path: test.info().outputPath('background-widget.png') });
   await page.reload();
   await expect(app.locator('#result')).toHaveText('Ready');
-  await expect(page.locator('.tool-group')).toHaveCount(0);
+  await expect(page.locator('.tool-group')).toHaveCount(1);
 });
 
 test('closing the browser worker recovers a Charms job and its widget without another message', async ({
@@ -560,7 +560,6 @@ test('closing the browser worker recovers a Charms job and its widget without an
   await expect(
     reopened.frameLocator('iframe.mcp-app').frameLocator('iframe').locator('#result'),
   ).toHaveText('Recovered result');
-  await expect(reopened.locator('.tool-group')).toHaveCount(0);
   await expect(reopened.locator('#timeline')).not.toContainText('remote result');
   expect((await (await request.get(base + 'stats')).json()).remoteRuns).toBe(1);
   await reopened.reload();

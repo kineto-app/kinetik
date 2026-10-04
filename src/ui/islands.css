@@ -168,8 +168,7 @@ dialog:not(.connection-setup) {
   margin: 0;
 }
 .message-time,
-.elapsed-time,
-.work-duration {
+.elapsed-time {
   font-size: 12px;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
@@ -182,16 +181,6 @@ dialog:not(.connection-setup) {
 .message-actions {
   align-items: center;
   gap: var(--space-inline);
-}
-.work-duration {
-  display: flex;
-  align-items: center;
-  gap: var(--space-inline);
-  margin-bottom: var(--space-section);
-}
-.work-duration .icon {
-  width: 16px;
-  height: 16px;
 }
 .elapsed-time {
   white-space: nowrap;
@@ -308,24 +297,24 @@ dialog:not(.connection-setup) {
   font-size: 12px;
 }
 /* Activity between narration: one quiet line that opens into a compact list of steps. */
-.tool-group {
+:is(.tool-group, .run-summary) {
   margin: 0 0 var(--space-section);
   color: var(--muted);
   font-size: 13px;
 }
-.tool-group summary {
+:is(.tool-group, .run-summary) summary {
   cursor: pointer;
   list-style: none;
   border-radius: var(--radius-control);
   transition: background var(--duration) var(--ease-out);
 }
-.tool-group summary::-webkit-details-marker {
+:is(.tool-group, .run-summary) summary::-webkit-details-marker {
   display: none;
 }
-.tool-group summary:hover {
+:is(.tool-group, .run-summary) summary:hover {
   background: var(--hover);
 }
-.tool-group summary:focus-visible {
+:is(.tool-group, .run-summary) summary:focus-visible {
   outline-offset: -2px;
 }
 .activity-summary {
@@ -335,11 +324,11 @@ dialog:not(.connection-setup) {
   min-height: 32px;
   padding: 0 6px;
 }
-.tool-group > .activity-summary {
+:is(.tool-group, .run-summary) > .activity-summary {
   width: fit-content;
   max-width: 100%;
 }
-.tool-group[open] > .activity-summary {
+:is(.tool-group, .run-summary)[open] > .activity-summary {
   color: var(--ink);
 }
 .activity-label {
@@ -368,10 +357,10 @@ dialog:not(.connection-setup) {
   width: 15px;
   height: 15px;
 }
-.tool-group[data-outcome='completed'] > summary .activity-mark {
+:is(.tool-group, .run-summary)[data-outcome='completed'] > summary .activity-mark {
   color: var(--ok);
 }
-.tool-group[data-outcome='failed'] > summary .activity-mark,
+:is(.tool-group, .run-summary)[data-outcome='failed'] > summary .activity-mark,
 .tool-details:is([data-outcome='failed'], [data-outcome='unknown']) .activity-mark,
 .tool-details:is([data-outcome='failed'], [data-outcome='unknown']) .activity-note {
   color: var(--bad);
@@ -394,13 +383,13 @@ details[open] > summary > .activity-chevron {
   padding-left: var(--space-inline);
   border-left: 2px solid var(--control-line);
 }
-.tool-group .tool-details {
+:is(.tool-group, .run-summary) .tool-details {
   border: 0;
   padding: 0;
   margin: 0;
   color: inherit;
 }
-.tool-group .tool-details > summary {
+:is(.tool-group, .run-summary) .tool-details > summary {
   min-height: 30px;
   padding: 0 6px;
   font-size: 12.5px;
@@ -492,8 +481,8 @@ details[open] > summary > .activity-chevron {
   color: var(--syntax-number);
 }
 @media (prefers-reduced-motion: reduce) {
-  .tool-group *,
-  .tool-group summary {
+  :is(.tool-group, .run-summary) *,
+  :is(.tool-group, .run-summary) summary {
     animation: none !important;
     transition: none;
   }
@@ -811,23 +800,11 @@ dialog::backdrop,
   display: none;
 }
 
-/* Only the newest reply keeps its copy button and time; others show them on hover, focus or a tap. */
-@media (prefers-reduced-motion: no-preference) {
-  .message-actions,
-  .message[data-role='user'] > .message-time {
-    transition: opacity var(--duration);
-  }
-}
-.message[data-role='assistant']:not([data-latest]) > .message-actions,
-.message[data-role='user'] > .message-time {
-  opacity: 0;
-}
-.message:hover > .message-actions,
-.message:hover > .message-time,
-.message:focus-within > .message-actions,
-.message[data-show-actions] > .message-actions,
-.message[data-show-actions] > .message-time {
-  opacity: 1;
+/* Only the newest reply keeps its copy button and time; others show them on hover, focus or a tap,
+   and take no room until then. A message you sent always shows when you sent it. */
+.message[data-role='assistant']:not([data-latest], :hover, :focus-within, [data-show-actions])
+  > .message-actions {
+  display: none;
 }
 /* A connection that needs attention says so in a word, not only a red plug. */
 .topbar #connection-status {
@@ -932,4 +909,64 @@ dialog::backdrop,
 .conversation-title.unread {
   color: var(--ink);
   font-weight: 600;
+}
+
+/* A step's own time sits at the row's end; a running one counts up. */
+.activity-time {
+  flex: none;
+  /* Room for "59m 59s", so a counting time never shifts the row's arrow. */
+  min-width: 3.5em;
+  text-align: right;
+  margin-left: auto;
+  padding-left: var(--space-content);
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+/* No job reports how far along it is: the bar only shows the step is alive. */
+.activity-summary:has(.activity-progress) {
+  position: relative;
+}
+.activity-progress {
+  position: absolute;
+  left: 29px;
+  right: 6px;
+  bottom: 1px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--line);
+  overflow: hidden;
+}
+.activity-progress::after {
+  content: '';
+  display: block;
+  width: 35%;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .activity-progress::after {
+    animation: activity-sweep 1.6s ease-in-out infinite;
+  }
+}
+@keyframes activity-sweep {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(290%);
+  }
+}
+/* The run's total closes its last reply, as one more step row. */
+.run-summary {
+  margin: calc(var(--space-section) * -1) 0 var(--space-section);
+}
+
+.draft-time {
+  margin-left: 6px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
 }

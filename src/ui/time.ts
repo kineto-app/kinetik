@@ -1,5 +1,3 @@
-import { icon } from './icons';
-
 export function elapsed(ms: number): string {
   const seconds = Math.max(0, Math.floor(ms / 1000));
   if (seconds < 60) return `${seconds}s`;
@@ -8,6 +6,10 @@ export function elapsed(ms: number): string {
     ? `${minutes}m ${seconds % 60}s`
     : `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
 }
+
+/** "0.4s", "12s", "2m 40s": how long one step or a run took. */
+export const took = (ms: number) =>
+  ms < 1000 ? (Math.max(0, ms) / 1000).toFixed(1) + 's' : elapsed(ms);
 
 /** "now", "5m", "3h", a weekday within a week, then a short date. */
 export function shortAge(timestamp: number, now = Date.now()): string {
@@ -38,15 +40,4 @@ export function tokenCount(tokens: number): string {
     : tokens < 1_000_000
       ? `${(tokens / 1000).toFixed(tokens < 10_000 ? 1 : 0)}k`
       : `${(tokens / 1_000_000).toFixed(1)}M`;
-}
-
-export function workDuration(ms: number, usage?: { input: number; output: number }): HTMLElement {
-  const summary = document.createElement('div');
-  summary.className = 'work-duration';
-  summary.title = 'Elapsed time, including connection waits';
-  summary.innerHTML = icon('clock');
-  summary.append(document.createTextNode('Worked for ' + elapsed(ms)));
-  // Token counts mean nothing to most people; they stay in the tooltip and the Activity log.
-  if (usage) summary.title += `. Tokens: ${usage.input} in, ${usage.output} out`;
-  return summary;
 }

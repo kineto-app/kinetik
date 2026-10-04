@@ -51,6 +51,10 @@ export interface Message {
     outcome: 'completed' | 'failed' | 'running' | 'started' | 'unknown';
     /** The error went back to the model, which could act on it; not an unresolved failure. */
     returned?: boolean;
+    /** A row's own wording, for steps that are not a plain tool result. */
+    label?: string;
+    /** A step still running: when it began, for its live time. */
+    startedAt?: number;
   };
   app?: AppView;
   file?: { path: string; name: string; snapshotId?: string };
@@ -104,6 +108,8 @@ export interface ToolCall {
   result?: string;
   operationId?: string;
   callId?: string;
+  /** When the call started running; its result records how long it took. */
+  startedAt?: number;
 }
 export interface Turn {
   /** A turn the user started, or one started by finished background work. */

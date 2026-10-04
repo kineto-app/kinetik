@@ -4,6 +4,13 @@ import { taskAction, taskKind, taskLabel } from './task-labels';
 
 /** Widget RPCs and background receipts are not foreground agent activity. */
 export function isInternalActivity(message: Message): boolean {
+  // Every step the agent took is shown, background work included; only a widget's own calls are not.
+  if (
+    message.role === 'tool' &&
+    !message.tool?.startsWith('App · ') &&
+    !message.activity?.scope?.startsWith('app:')
+  )
+    return false;
   return (
     message.visibility === 'internal' ||
     message.source === 'background' ||
@@ -108,6 +115,8 @@ export function activityBatches(messages: Message[]): ActivityBatch[] {
         : batch.failed
           ? taskAction(batch.items[0].message.tool ?? '')
           : taskLabel(batch.items[0].message.tool ?? '', !batch.running, count);
+    const own = batch.items[0].message.activity?.label;
+    if (own && batch.items.every((item) => item.message.activity?.label === own)) batch.label = own;
     if (
       !batch.failed &&
       !batch.running &&
@@ -123,6 +132,7 @@ export function activityBatches(messages: Message[]): ActivityBatch[] {
 }
 
 export function activityTitle(item: Activity): string {
+  if (item.message.activity?.label) return item.message.activity.label;
   if (item.outcome === 'started') return 'Started background work';
   const name = item.message.tool ?? '';
   const input = item.message.activity?.input ?? {};

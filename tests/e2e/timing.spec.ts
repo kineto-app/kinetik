@@ -17,8 +17,8 @@ test('message times and elapsed work survive steering and reopening', async ({ p
     'final',
   );
   await expect(page.locator('#activity')).toBeHidden();
-  const duration = page.locator('.work-duration').last();
-  await expect(duration).toContainText('Worked for');
+  const duration = page.locator('.run-summary > summary').last();
+  await expect(duration).toContainText(/^Worked \d/);
   const saved = await duration.textContent();
   await expect(page.locator('[data-role=user] > time')).toHaveCount(2);
   for (const time of await page.locator('.message-time').all()) {
@@ -27,7 +27,7 @@ test('message times and elapsed work survive steering and reopening', async ({ p
     await expect(time).toBeVisible();
   }
   await page.reload();
-  await expect(page.locator('.work-duration').last()).toHaveText(saved!);
+  await expect(page.locator('.run-summary > summary').last()).toHaveText(saved!);
   for (const theme of ['light', 'dark']) {
     await page.evaluate((t) => {
       document.documentElement.dataset.theme = t;

@@ -6,9 +6,9 @@ import { createSignal } from 'solid-js';
 import { ConversationList } from './ui/lists';
 import { isNative } from './platform/environment';
 import { setupViewport } from './browser/viewport';
-import { renderToolActivity } from './ui/tool-activity';
+import { renderRuns, renderToolActivity } from './ui/tool-activity';
 import { isInternalActivity } from './ui/activity-data';
-import { elapsed } from './ui/time';
+import { elapsed, took } from './ui/time';
 import { renderMessageContent } from './ui/message-content';
 import './ui/styles.css';
 import './ui/chat.css';
@@ -351,7 +351,14 @@ function render() {
     ['running', 'queued', 'waiting', 'asking', 'needs_review'].includes(c?.status ?? ''),
   );
   renderAsk(c, (id, value) => rpc('answer', { id, value }).then(refresh).catch(showError));
-  const serialized = JSON.stringify([selected, c?.messages, c?.draft, c?.turn?.call, c?.status]);
+  const serialized = JSON.stringify([
+    selected,
+    c?.messages,
+    c?.draft,
+    c?.turn?.call,
+    c?.status,
+    state.background.filter((job) => job.conversationId === selected).map((job) => job.state),
+  ]);
   if (serialized !== lastMessages) {
     const forceScroll = !lastMessages || followNextMessage;
     followNextMessage = false;
@@ -437,7 +444,9 @@ function render() {
       timeline
         .querySelector<HTMLElement>(`[data-message-id="${CSS.escape(item.id)}"]`)
         ?.toggleAttribute('data-unsent', Boolean(item.unsent));
-      const hiddenActivity = isInternalActivity(item);
+      // Finished background work has no bubble, but its step needs a place in the chat.
+      const hiddenActivity =
+        isInternalActivity(item) && !item.id.startsWith('background-completed:');
       if ((hiddenActivity && !item.app && !item.file) || renderedMessages.has(item.id)) continue;
       renderedMessages.add(item.id);
       const article = document.createElement('article');
@@ -467,8 +476,8 @@ function render() {
         draft.dataset.draft = 'true';
         // Re-rendered content would otherwise be re-announced in full on every frame.
         draft.setAttribute('aria-busy', 'true');
-        // Holds the line the final reply's "Worked for" takes, so the swap does not shift text.
-        draft.innerHTML = `<div class="work-duration">${icon('clock')}<span>Working…</span></div><div class="message-label"><img src="./icon.svg" width="24" height="24" alt="" />Kinetik<span class="streaming-label">Writing</span></div><div class="message-content streaming-content"></div>`;
+        // The live time rides on the name row, so the finished reply takes the same lines.
+        draft.innerHTML = `<div class="message-label"><img src="./icon.svg" width="24" height="24" alt="" />Kinetik<span class="streaming-label">Writing</span><span class="draft-time"></span></div><div class="message-content streaming-content"></div>`;
         timeline.append(draft);
       }
       draftText = c!.draft ?? '';
@@ -478,7 +487,8 @@ function render() {
     replies.forEach((reply, index) =>
       reply.toggleAttribute('data-latest', index === replies.length - 1),
     );
-    renderToolActivity(timeline, c);
+    renderToolActivity(timeline, c, state.background);
+    renderRuns(timeline, c, Boolean(c && busyChat(c)), state.background);
     timeline.scrollTop = !c?.messages.length
       ? 0
       : forceScroll || nearBottom
@@ -776,12 +786,21 @@ byId('jump-latest').onclick = () => {
 };
 let refreshTimer: ReturnType<typeof setTimeout>;
 let sidebarTimer: ReturnType<typeof setTimeout>;
+/** Work in this chat is still going: a turn, or background work it started. */
+function busyChat(c: Conversation) {
+  return (
+    ['running', 'queued', 'waiting', 'asking', 'needs_review'].includes(c.status) ||
+    state.background.some((job) => job.conversationId === c.id)
+  );
+}
 function updateElapsed() {
   const c = current();
   const now = Date.now();
-  const working = byId('timeline').querySelector('[data-draft] .work-duration span');
+  for (const time of byId('timeline').querySelectorAll<HTMLElement>('[data-started-at]'))
+    time.textContent = took(now - Number(time.dataset.startedAt));
+  const working = byId('timeline').querySelector('[data-draft] .draft-time');
   if (working && c?.turn?.startedAt !== undefined)
-    working.textContent = 'Working for ' + elapsed(now - c.turn.startedAt);
+    working.textContent = elapsed(now - c.turn.startedAt);
   for (const id of ['activity', 'connection-wait', 'background-activity']) {
     const parent = byId(id);
     let timer = parent.querySelector<HTMLElement>('.elapsed-time');

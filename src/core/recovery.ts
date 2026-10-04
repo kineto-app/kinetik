@@ -147,6 +147,10 @@ export async function recoverWork(deps: RecoveryDeps): Promise<void> {
                 {
                   ...message('tool', result, `${call.name} · ${call.provider}`),
                   id: call.id,
+                  durationMs:
+                    call.startedAt === undefined
+                      ? undefined
+                      : Math.max(0, Date.now() - call.startedAt),
                   activity: {
                     input: call.input,
                     outcome: toolOutcome(status.result, tool.command),

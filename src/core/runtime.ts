@@ -75,6 +75,10 @@ type ToolTurn = {
   pinned: InstalledPlugin[];
   backgroundTurn: boolean;
 };
+/** How long a call ran, from its start to now; unknown for calls recorded before it was kept. */
+const took = (call: ToolCall) =>
+  call.startedAt === undefined ? undefined : Math.max(0, Date.now() - call.startedAt);
+
 export class Runtime {
   readonly plugins: Plugins;
   readonly automations: Automations;
@@ -283,6 +287,8 @@ export class Runtime {
         id: 'background-completed:' + job.id,
         visibility: 'internal',
         source: 'background',
+        durationMs:
+          job.startedAt === undefined ? undefined : Math.max(0, Date.now() - job.startedAt),
       },
       job.state !== 'cancelled',
     );
@@ -645,7 +651,9 @@ export class Runtime {
       return 'paused';
     }
     // From here the call may have effects, so a restart must review it, not rerun it.
-    await this.chats.update(id, (value) => withCall(value, { state: 'started' }));
+    await this.chats.update(id, (value) =>
+      withCall(value, { state: 'started', startedAt: Date.now() }),
+    );
     this.progress(id, { step: step + 1, tool: output.name });
     try {
       return {
@@ -752,6 +760,7 @@ export class Runtime {
         {
           ...message('tool', result, `${output.name} · ${binding.provider}`),
           id: value.turn!.call!.id,
+          durationMs: took(value.turn!.call!),
           activity: { input: output.input, outcome: toolOutcome(response, binding.tool.command) },
           app,
           file:
@@ -963,7 +972,7 @@ export class Runtime {
           : []),
         {
           ...message('tool', text, `${output.name} · ${provider ?? 'unknown'}`),
-          ...(ran ? { id: value.turn!.call!.id } : {}),
+          ...(ran ? { id: value.turn!.call!.id, durationMs: took(value.turn!.call!) } : {}),
           activity: { input: output.input, outcome: 'failed' as const, returned: true },
           visibility: backgroundTurn ? ('internal' as const) : undefined,
         },

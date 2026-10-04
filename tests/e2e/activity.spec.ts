@@ -176,7 +176,7 @@ test('a live command keeps the activity card open when its result arrives', asyn
   await expect(page.locator('[data-role=assistant]')).toContainText('finished');
 });
 
-test('an explicitly shared background result is visible without its internal receipt', async ({
+test('an explicitly shared background result is visible, its step too, without its receipt text', async ({
   page,
 }) => {
   await seed(page, [
@@ -190,7 +190,8 @@ test('an explicitly shared background result is visible without its internal rec
     msg('a', 'assistant', 'Your file is ready.'),
   ]);
   await expect(page.locator('.file-card')).toContainText('result.txt');
-  await expect(page.locator('.tool-group')).toHaveCount(0);
+  // The sharing step is shown like any other; its raw receipt stays behind Result.
+  await expect(page.locator('.tool-group')).toHaveCount(1);
   await expect(page.locator('#timeline')).not.toContainText('internal sharing receipt');
 });
 

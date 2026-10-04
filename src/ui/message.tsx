@@ -1,7 +1,7 @@
 import { createSignal, onCleanup, onMount, Show } from 'solid-js';
 import type { Message } from '../core/types';
 import { renderMessageContent, copyButton } from './message-content';
-import { messageTime, tokenCount, workDuration } from './time';
+import { messageTime, tokenCount } from './time';
 import { icon } from './icons';
 import { mountApp } from './mcp-app';
 import { mountFile } from './files';
@@ -52,6 +52,8 @@ export function MessageBubble(props: {
       </p>
     );
   }
+  // Finished background work shows as a step of its run, not as a notice.
+  if (item.id.startsWith('background-completed:')) return null;
   if (item.role === 'notice' && item.text === 'Stopped.') {
     props.article.classList.add('compaction-note');
     return (
@@ -105,9 +107,6 @@ export function MessageBubble(props: {
   }
   return (
     <Show when={!onlyWidget && item.role !== 'tool'}>
-      {item.role === 'assistant' && item.durationMs !== undefined
-        ? workDuration(item.durationMs, item.usage)
-        : null}
       <div class="message-label">
         <Show when={item.role === 'assistant'}>
           <img src="./icon.svg" alt="" width="24" height="24" />

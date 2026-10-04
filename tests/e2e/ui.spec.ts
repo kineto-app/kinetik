@@ -191,7 +191,7 @@ test('everyday examples explicitly share files that reopen offline', async ({
   );
   await page.getByRole('button', { name: 'Send', exact: true }).click();
   await expect(page.locator('[data-role=assistant]')).toContainText('weekend packing list');
-  await expect(page.locator('.tool-details')).toHaveCount(2);
+  await expect(page.locator('.tool-group .tool-details')).toHaveCount(2);
   await expect(page.locator('.tool-details[open]')).toHaveCount(0);
   await expect(page.locator('.file-card')).toContainText('Weekend packing list.txt');
   await page.screenshot({ path: info.outputPath('everyday-chat.png') });

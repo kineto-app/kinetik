@@ -20,11 +20,13 @@ test('usage, self-correction, automatic summaries and overflow recovery', async 
   await expect(page.locator('#status')).toHaveText('Ready');
   const shot = (name: string) => page.screenshot({ path: info.outputPath(name + '.png') });
 
-  // 1.1 Usage is shown on the reply.
+  // 1.1 Usage is kept on the run's line, out of the chat's words.
   await send(page, 'Hi');
   await expect(replies(page)).toHaveCount(1);
-  await expect(page.locator('.work-duration').last()).not.toContainText('tokens');
-  await expect(page.locator('.work-duration').last()).toHaveAttribute('title', /Tokens: \d+ in/);
+  const run = page.locator('.run-summary > summary').last();
+  await expect(run).toContainText(/^Worked (<1s|\d)/);
+  await expect(run).not.toContainText('tokens');
+  await expect(run).toHaveAttribute('title', /Tokens: \d+/);
   await shot('1-usage');
 
   // 1.4 Bad arguments and a missing file go back to the model, which finishes the job.
