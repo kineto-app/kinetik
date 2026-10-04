@@ -47,7 +47,8 @@ extra.split('\n').forEach((line, index) => {
 });
 if (broken) process.exit(2);
 
-const publicAddress = /^[0-9]+\+[A-Za-z0-9-]+@users\.noreply\.github\.com$|^noreply@github\.com$/;
+const publicAddress =
+  /^([0-9]+\+)?[A-Za-z0-9-]+(\[bot\])?@users\.noreply\.github\.com$|^noreply@github\.com$/;
 const images = /\.(png|jpe?g|gif|webp|bmp|tiff?)$/i;
 const ocr = process.env.BOUNDARY_OCR === 'required';
 
@@ -64,40 +65,66 @@ const report = (place, rule) => {
   findings++;
   console.log(`${place}: ${rule}`);
 };
-// GitHub's merge subjects name the source branch as owner/branch; only the branch is ours to check.
-const unmerge = (line) => line.replace(/^(Merge pull request #\d+ from )[A-Za-z0-9_.-]+\//, '$1');
-const scanText = (place, text) => {
+const scanText = (place, text, check = hit) => {
   const where = label(place);
   text.split('\n').forEach((line, index) => {
-    for (const rule of hit(unmerge(line))) report(`${where}:${index + 1}`, rule);
+    for (const rule of check(line)) report(`${where}:${index + 1}`, rule);
   });
 };
+// GitHub's merge subjects name the source branch as this repository's owner/branch; in exactly that
+// line, only the branch is ours to check.
+const owner = (() => {
+  if (process.env.GITHUB_REPOSITORY_OWNER) return process.env.GITHUB_REPOSITORY_OWNER;
+  try {
+    return execFileSync('git', ['remote', 'get-url', 'origin'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).match(/github\.com[:/]([^/]+)\//)?.[1];
+  } catch {
+    return undefined;
+  }
+})();
+const scanMessage = (place, text) =>
+  scanText(place, text, (line) => {
+    const merge = owner && /^Merge pull request #\d+ from /.test(line);
+    return hit(merge ? line.replace(`from ${owner}/`, 'from ') : line);
+  });
 // Printable runs in common byte encodings, so a NUL byte or UTF-16 cannot hide text from the rules.
-const runs = (text) => text.match(/[\x20-\x7e]{4,}/g) ?? [];
-const strings = (bytes) => {
-  const swapped = bytes.length % 2 ? '' : Buffer.from(bytes).swap16().toString('utf16le');
-  return [
+const runs = (text) => text.match(/[\x20-\x7e]+/g) ?? [];
+const pairs = (bytes) => bytes.subarray(0, bytes.length - (bytes.length % 2));
+const strings = (bytes) =>
+  [
     ...runs(bytes.toString('latin1')),
-    ...runs(bytes.toString('utf16le')),
-    ...runs(swapped),
+    ...runs(pairs(bytes).toString('utf16le')),
+    ...runs(Buffer.from(pairs(bytes)).swap16().toString('utf16le')),
+    ...runs(pairs(bytes.subarray(1)).toString('utf16le')),
   ].join('\n');
+const decode = (bytes) => {
+  if (bytes[0] === 0xff && bytes[1] === 0xfe) return pairs(bytes.subarray(2)).toString('utf16le');
+  if (bytes[0] === 0xfe && bytes[1] === 0xff)
+    return Buffer.from(pairs(bytes.subarray(2)))
+      .swap16()
+      .toString('utf16le');
+  const text = bytes.toString('utf8');
+  return text.includes('\0') || text.includes('\ufffd') ? strings(bytes) : text;
 };
+// The bytes always, and for images also the text tesseract reads in them.
 const read = (place, bytes) => {
+  const text = decode(bytes);
   if (images.test(place)) {
     try {
       // Tesseract sees only the image: no environment, so no private rules.
-      return execFileSync('tesseract', ['stdin', 'stdout'], {
+      return `${text}\n${execFileSync('tesseract', ['stdin', 'stdout'], {
         input: bytes,
         env: { PATH: process.env.PATH },
         stdio: ['pipe', 'pipe', 'ignore'],
         maxBuffer: 1 << 26,
-      }).toString('utf8');
+      }).toString('utf8')}`;
     } catch {
       if (ocr) report(label(place), 'image-not-read');
     }
   }
-  const text = bytes.toString('utf8');
-  return text.includes('\0') || text.includes('�') ? strings(bytes) : text;
+  return text;
 };
 const scanFile = (place, bytes) => {
   for (const rule of hit(place)) report(`path of ${label(place)}`, rule);
@@ -113,7 +140,7 @@ const scanCommit = (sha) => {
   const [an, ae, cn, ce] = git('show', '-s', '--format=%an%x00%ae%x00%cn%x00%ce', sha).split('\0');
   identity(`commit ${short} author`, an, ae);
   identity(`commit ${short} committer`, cn, ce);
-  scanText(`commit ${short} message`, git('show', '-s', '--format=%B', sha));
+  scanMessage(`commit ${short} message`, git('show', '-s', '--format=%B', sha));
   // Every path the commit adds or changes, against each parent, including the root commit.
   const changed = git(
     'diff-tree',
@@ -155,7 +182,7 @@ if (mode === '--staged') {
     identity(place, name, email);
   }
 } else if (mode === '--commit-msg') {
-  scanText('commit message', readFileSync(value, 'utf8'));
+  scanMessage('commit message', readFileSync(value, 'utf8'));
 } else if (mode === '--range') {
   const range = exists(value) ? [`${value}..${second}`] : [second];
   for (const sha of git('rev-list', '--reverse', ...range)
