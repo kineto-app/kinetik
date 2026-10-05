@@ -101,23 +101,8 @@ jobs:
         with:
           workspaces: src-tauri
       - run: npm ci
-      - run: npm run tauri -- ios init --ci
-      - name: Prepare simulator Keychain identity
-        run: |
-          # Simulator entitlements belong in Mach-O sections, not the macOS signature.
-          # Device releases use Apple's provisioning profile instead.
-          cat > /tmp/kinetik-simulator-entitlements.plist <<'PLIST'
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0"><dict>
-            <key>application-identifier</key><string>SIMULATOR.app.kinetik.oss</string>
-            <key>keychain-access-groups</key><array><string>SIMULATOR.app.kinetik.oss</string></array>
-          </dict></plist>
-          PLIST
-          /usr/bin/derq query -f xml -i /tmp/kinetik-simulator-entitlements.plist -o /tmp/kinetik-simulator-entitlements.der --raw
-          python3 scripts/configure-ios-simulator.py \
-            src-tauri/gen/apple/kinetik.xcodeproj/project.pbxproj \
-            /tmp/kinetik-simulator-entitlements
+      # Same project generation and simulator identity as `npm run ios:simulator`.
+      - run: scripts/prepare-ios-simulator.sh
       - run: npm run ios:build -- --debug --target aarch64-sim --no-sign --ci
       - name: Verify simulator identity sections
         run: |

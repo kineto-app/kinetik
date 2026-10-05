@@ -25,16 +25,35 @@ npm run android:build -- --debug --target aarch64 --apk
 
 The debug package is `app.kinetik.oss.debug`. Release uses `app.kinetik.oss`; both can coexist. Debug builds contain Rust symbols and are much larger than release APKs.
 
-For Windows, run `npm run desktop:build` on a Windows machine with the Tauri build prerequisites. For iOS, use a Mac with full Xcode and its command-line tools selected:
+For Windows, run `npm run desktop:build` on a Windows machine with the Tauri build prerequisites.
 
-```sh
-npm run tauri -- ios init --ci
-npm run ios:build -- --debug --target aarch64-sim --no-sign
-```
+### iOS Simulator
+
+No iPhone or Apple developer account is needed. On a Mac:
+
+1. Install Xcode from the App Store, open it once, accept the license, and add the iOS platform when it offers (or later in **Xcode → Settings → Components**).
+2. Point the command-line tools at Xcode, add the Rust simulator target, and install CocoaPods:
+
+   ```sh
+   sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+   rustup target add aarch64-apple-ios-sim
+   brew install cocoapods
+   ```
+
+3. Build, install and open the app on an iPhone simulator:
+
+   ```sh
+   npm ci
+   npm run ios:simulator
+   ```
+
+Run the last command again after pulling changes. It reuses the booted simulator and keeps the app's data. The build uses `native.config.json`; set `KINETIK_NATIVE_CONFIG` to build with your own connection settings (see [Distribution configuration](#distribution-configuration)). To start from a clean project, delete `src-tauri/gen/apple`. The CI also uploads each unsigned simulator build as the `ios-simulator` artifact, which installs with `xcrun simctl install booted Kinetik.app`.
+
+An unsigned simulator build needs an app identity for Keychain access. `scripts/prepare-ios-simulator.sh`, used locally and by CI, embeds simulator-only XML and DER entitlements in Mach-O sections and adds simulator-only linker settings directly to the generated Xcode project, because Tauri filters the environment passed to Xcode. Do not apply iOS entitlements to the simulator executable’s macOS code signature or use the simulator identity for a physical-device release. CI also checks the launch screenshot for startup errors.
+
+### iOS devices
 
 A physical iOS build needs an Apple development team and signing identity. Set `APPLE_DEVELOPMENT_TEAM`; use TestFlight before distributing a store release. Do not regenerate Android project files without reviewing the resulting manifest and signing changes.
-
-The unsigned simulator build also needs an app identity before testing Keychain access. Native CI embeds simulator-only XML and DER entitlements in Mach-O sections and checks the launch screenshot for startup errors. Follow its `Prepare simulator Keychain identity` step when building with `--no-sign` locally. The script adds simulator-only linker settings directly to the generated Xcode project because Tauri filters the environment passed to Xcode. Do not apply iOS entitlements to the simulator executable’s macOS code signature or use the simulator identity for a physical-device release.
 
 ## Distribution configuration
 
