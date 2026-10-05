@@ -38,7 +38,7 @@ The unsigned simulator build also needs an app identity before testing Keychain 
 
 ## Distribution configuration
 
-Native apps ship with Charms: `native.config.json` holds its public kineto.app endpoints, is embedded at build time, and on first launch Kinetik installs the bundled Charms plugin, ready to sign in. Set `KINETIK_NATIVE_CONFIG` to another JSON file in the connection format of [deployment.md](deployment.md#connections-and-guided-setup) to replace that configuration, for example `{ "connections": {} }` for a build without Charms. Include only public service endpoints and UI configuration, never tokens, passwords, or private keys. Native ChatGPT authorization is configured by the native adapter.
+Native builds embed a connection preset at build time. `native.config.json` is empty by default; set `KINETIK_NATIVE_CONFIG` to a JSON file in the connection format of [deployment.md](deployment.md#connections-and-guided-setup) to ship connections with your build. With a Charms preset, Kinetik installs the bundled Charms plugin on first launch, ready to sign in; `native.config.example.json` shows the shape with placeholder endpoints. Include only public service endpoints and UI configuration, never tokens, passwords, or private keys. Native ChatGPT authorization is configured by the native adapter.
 
 To create a signed Android APK, keep a stable keystore and a private properties file outside the repository:
 

@@ -1,0 +1,10 @@
+{
+  "connections": {
+    "charms": {
+      "url": "https://charms.example.com/mcp",
+      "resource": "https://charms.example.com/mcp",
+      "issuer": "https://charms.example.com/oauth",
+      "metadataUrl": "https://charms.example.com/.well-known/oauth-authorization-server/oauth"
+    }
+  }
+}
