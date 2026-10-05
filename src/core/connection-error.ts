@@ -13,3 +13,27 @@ export function isConnectionError(error: unknown): boolean {
     (error instanceof DOMException && ['NetworkError', 'TimeoutError'].includes(error.name))
   );
 }
+
+/** An invalid provider response, distinct from local application failures. */
+export class ModelFailure extends Error {}
+export type FailureKind = 'app' | 'network' | 'model';
+export class OperationFailure extends Error {
+  constructor(
+    message: string | undefined,
+    readonly failureKind: FailureKind = 'app',
+  ) {
+    super(message);
+  }
+}
+export function failureKind(error: unknown): FailureKind {
+  if (error instanceof OperationFailure) return error.failureKind;
+  if (isConnectionError(error)) return 'network';
+  if (
+    error instanceof SignInRequired ||
+    error instanceof ContextOverflow ||
+    error instanceof ModelRejected ||
+    error instanceof ModelFailure
+  )
+    return 'model';
+  return 'app';
+}

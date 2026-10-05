@@ -1,0 +1,285 @@
+use super::*;
+
+#[tauri::command]
+pub async fn updates_status(updates: tauri::State<'_, Updates>) -> Result<Status> {
+    let guard = updates.engine.lock().await;
+    let mut status = guard.as_ref().map(Engine::status).unwrap_or_default();
+    if let Some(reason) = &updates.startup_recovery {
+        status.recovery = status.recovery.or_else(|| Some(reason.clone()));
+        status.enabled &= guard.as_ref().is_some_and(|e| e.state.recovery);
+    }
+    Ok(status)
+}
+#[tauri::command]
+pub async fn updates_ready(updates: tauri::State<'_, Updates>) -> Result<bool> {
+    let mut guard = updates.engine.lock().await;
+    let Some(engine) = guard.as_mut() else {
+        return Ok(false);
+    };
+    if updates.startup_recovery.is_some()
+        || engine.state.recovery
+        || engine.ready
+        || engine.state.restore.is_some()
+    {
+        return Ok(false);
+    }
+    let mut next = engine.state.clone();
+    let updated = next.ready(&engine.embedded);
+    engine.save(next)?;
+    engine.ready = true;
+    engine.cleanup();
+    Ok(updated)
+}
+#[tauri::command]
+pub async fn updates_check(updates: tauri::State<'_, Updates>) -> Result<Status> {
+    let Ok(_check) = updates.checking.try_lock() else {
+        return updates_status(updates.clone()).await;
+    };
+    let config = {
+        let guard = updates.engine.lock().await;
+        let Some(engine) = guard.as_ref() else {
+            return Ok(Status::default());
+        };
+        engine.ensure_writable()?;
+        engine.config.clone()
+    };
+    let client = download::client()?;
+    let bytes = download::fetch(&client, &config.manifest_url, 1024 * 1024).await?;
+    let mut signature_url = url::Url::parse(&config.manifest_url).map_err(|e| e.to_string())?;
+    signature_url.set_path(&format!("{}.minisig", signature_url.path()));
+    let signature = download::fetch(&client, signature_url.as_str(), 8192).await?;
+    let manifest = manifest::verify(
+        &bytes,
+        std::str::from_utf8(&signature).map_err(|e| e.to_string())?,
+        &config,
+        Utc::now(),
+    )?;
+    let candidate = {
+        let mut guard = updates.engine.lock().await;
+        let engine = guard.as_mut().unwrap();
+        engine.candidate(manifest)?.map(|release| {
+            let destination = engine
+                .root
+                .join("versions")
+                .join(release.version.to_string());
+            (release, destination)
+        })
+    };
+    if let Some((release, destination)) = candidate {
+        let bytes = download::fetch(&client, &release.archive.url, release.archive.size).await?;
+        let archive = release.archive.clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            // An interrupted state write may leave a complete, unreferenced directory.
+            if destination.exists() {
+                std::fs::remove_dir_all(&destination).map_err(|e| e.to_string())?;
+            }
+            download::unpack(&bytes, &archive, &destination)
+        })
+        .await
+        .map_err(|e| e.to_string())??;
+        let mut guard = updates.engine.lock().await;
+        let engine = guard.as_mut().unwrap();
+        let mut next = engine.state.clone();
+        next.staged = Some(Staged {
+            release,
+            at: Utc::now().timestamp(),
+            snapshot_ready: false,
+        });
+        engine.save(next)?;
+        engine.cleanup();
+    }
+    updates_status(updates.clone()).await
+}
+#[tauri::command]
+pub async fn updates_snapshot(
+    updates: tauri::State<'_, Updates>,
+    version: String,
+    text: String,
+) -> Result<()> {
+    if text.len() > 32 * 1024 * 1024 {
+        return Err("Snapshot exceeds size limit".into());
+    }
+    let value: serde_json::Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+    if value["format"] != "kinetik-workspace" || value["version"] != 1 {
+        return Err("Invalid workspace snapshot".into());
+    }
+    let mut guard = updates.engine.lock().await;
+    let engine = guard.as_mut().ok_or("Updates disabled")?;
+    let mut next = engine.state.clone();
+    engine.ensure_writable()?;
+    let staged = next.staged.as_mut().ok_or("No staged release")?;
+    if staged.release.version.to_string() != version
+        || staged.release.data_format <= next.active.data_format
+    {
+        return Err("Snapshot does not match staged release".into());
+    }
+    download::atomic_write(
+        &engine
+            .root
+            .join("snapshots")
+            .join(format!("{}.json", next.active.version)),
+        text.as_bytes(),
+    )?;
+    staged.snapshot_ready = true;
+    engine.save(next)
+}
+#[tauri::command]
+pub async fn updates_restore(
+    updates: tauri::State<'_, Updates>,
+    complete: bool,
+) -> Result<Option<String>> {
+    let mut guard = updates.engine.lock().await;
+    let Some(engine) = guard.as_mut() else {
+        return Ok(None);
+    };
+    let Some(version) = &engine.state.restore else {
+        return Ok(None);
+    };
+    let path = engine
+        .root
+        .join("snapshots")
+        .join(format!("{version}.json"));
+    if !complete {
+        return std::fs::read_to_string(path)
+            .map(Some)
+            .map_err(|e| e.to_string());
+    }
+    let mut next = engine.state.clone();
+    next.restore = None;
+    engine.save(next)?;
+    engine.cleanup();
+    Ok(None)
+}
+#[tauri::command]
+pub async fn updates_reports(updates: tauri::State<'_, Updates>, enabled: bool) -> Result<()> {
+    let mut guard = updates.engine.lock().await;
+    let Some(engine) = guard.as_mut() else {
+        return Ok(());
+    };
+    let mut next = engine.state.clone();
+    next.reports_enabled = enabled;
+    if !enabled {
+        next.reports.clear();
+    }
+    engine.save(next)
+}
+#[tauri::command]
+pub async fn updates_first_use(updates: tauri::State<'_, Updates>, ok: bool) -> Result<()> {
+    let mut guard = updates.engine.lock().await;
+    let Some(engine) = guard.as_mut() else {
+        return Ok(());
+    };
+    let mut next = engine.state.clone();
+    let Some(event) = next.first_use(ok) else {
+        return Ok(());
+    };
+    let version = next.active.version.to_string();
+    health::enqueue(
+        &mut next,
+        &engine.config,
+        &engine.embedded.version.to_string(),
+        &version,
+        event,
+    );
+    engine.save(next)
+}
+#[tauri::command]
+pub async fn updates_flush(updates: tauri::State<'_, Updates>) -> Result<()> {
+    flush(&updates, &download::client()?).await
+}
+
+// A supplied client lets tests exercise the real delivery path with a local receiver.
+pub(super) async fn flush(updates: &Updates, client: &reqwest::Client) -> Result<()> {
+    let Ok(_sending) = updates.reporting.try_lock() else {
+        return Ok(());
+    };
+    loop {
+        let pending = {
+            let guard = updates.engine.lock().await;
+            let Some(engine) = guard.as_ref() else {
+                return Ok(());
+            };
+            engine.ensure_writable()?;
+            if !engine.state.reports_enabled {
+                return Ok(());
+            }
+            engine.config.health_url.as_ref().and_then(|url| {
+                engine
+                    .state
+                    .reports
+                    .first()
+                    .filter(|r| r.next_at <= Utc::now().timestamp())
+                    .map(|r| (url.clone(), r.clone()))
+            })
+        };
+        let Some((url, report)) = pending else {
+            return Ok(());
+        };
+        let result = client
+            .post(url)
+            .timeout(std::time::Duration::from_secs(5))
+            .json(&report.payload)
+            .send()
+            .await;
+        let sent = result.is_ok_and(|r| r.status().is_success());
+        let mut guard = updates.engine.lock().await;
+        let Some(engine) = guard.as_mut() else {
+            return Ok(());
+        };
+        let mut next = engine.state.clone();
+        if let Some(index) = next.reports.iter().position(|r| r.id == report.id) {
+            if sent {
+                next.reports.remove(index);
+            } else {
+                health::retry(&mut next.reports[index]);
+            }
+            engine.save(next)?;
+        }
+        if !sent {
+            return Ok(());
+        }
+    }
+}
+
+/// Called under the workspace lock, before any IndexedDB mutation.
+#[tauri::command]
+pub async fn updates_workspace_write(updates: tauri::State<'_, Updates>) -> Result<bool> {
+    if let Some(reason) = &updates.startup_recovery {
+        return Err(reason.clone());
+    }
+    let mut guard = updates.engine.lock().await;
+    let Some(engine) = guard.as_mut() else {
+        return Ok(false);
+    };
+    engine.ensure_writable()?;
+    if engine.state.recovery {
+        return Err("Workspace is closed for recovery".into());
+    }
+    let mut next = engine.state.clone();
+    let Some(staged) = next.staged.as_mut() else {
+        return Ok(false);
+    };
+    if staged.release.data_format <= next.active.data_format {
+        return Ok(false);
+    }
+    if staged.snapshot_ready {
+        staged.snapshot_ready = false;
+        engine.save(next)?;
+    }
+    Ok(true)
+}
+#[tauri::command]
+pub async fn updates_recovery_copy(updates: tauri::State<'_, Updates>) -> Result<String> {
+    let mut guard = updates.engine.lock().await;
+    let engine = guard.as_mut().ok_or("Updates disabled")?;
+    engine.ensure_writable()?;
+    if engine.state.restore.is_none() {
+        return Err("No pending restore".into());
+    }
+    if engine.state.restore_backup.is_none() {
+        let mut next = engine.state.clone();
+        next.restore_backup = Some(format!("kinetik-update-recovery-{}", uuid::Uuid::new_v4()));
+        engine.save(next)?;
+    }
+    Ok(engine.state.restore_backup.clone().unwrap())
+}

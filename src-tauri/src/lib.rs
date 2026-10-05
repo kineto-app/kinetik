@@ -1,14 +1,25 @@
+#[cfg(desktop)]
+use tauri::Manager;
+
 mod auth;
+mod updates;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let mut context = tauri::generate_context!();
-    let updates = tauri_plugin_hot_update::install(&mut context);
+    let updates = updates::install(&mut context);
     let builder = tauri::Builder::default();
+    #[cfg(desktop)]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _, _| {
+        if let Some(window) = app.get_webview_window("main") {
+            let _ = window.unminimize();
+            let _ = window.show();
+            let _ = window.set_focus();
+        }
+    }));
     #[cfg(target_os = "android")]
     let builder = builder.invoke_system(include_str!("android-ipc.js"));
     builder
-        .plugin(tauri_plugin_hot_update::init(updates))
         .manage(auth::AuthState::default())
         .plugin(tauri_plugin_native::init())
         .plugin(tauri_plugin_http::init())
@@ -16,8 +27,12 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_deep_link::init())
-        .invoke_handler(tauri::generate_handler![auth::auth_prepare, auth::auth_wait, auth::auth_open, auth::auth_cancel])
-         .setup(|app| {
+        .invoke_handler(tauri::generate_handler![auth::auth_prepare, auth::auth_wait, auth::auth_open, auth::auth_cancel,
+            updates::updates_status, updates::updates_ready, updates::updates_check,
+            updates::updates_snapshot, updates::updates_restore, updates::updates_reports,
+            updates::updates_first_use, updates::updates_flush, updates::updates_workspace_write, updates::updates_recovery_copy])
+         .setup(move |app| {
+            updates::initialize(app, updates).map_err(std::io::Error::other)?;
             let config = app.config().app.windows.first().expect("main window configuration");
             tauri::WebviewWindowBuilder::from_config(app, config)?
                 .on_web_resource_request(|request, response| {

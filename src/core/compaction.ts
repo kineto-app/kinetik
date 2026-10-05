@@ -1,7 +1,7 @@
 import type { Store } from './ports';
 import { openCall } from './turn';
 import { abortable } from './abortable';
-import { ContextOverflow } from './connection-error';
+import { ContextOverflow, ModelFailure } from './connection-error';
 import type { ConversationStore } from './conversation-store';
 import {
   message,
@@ -226,7 +226,7 @@ export class Compactor {
           ),
           signal,
         );
-        if (step.type !== 'text') throw new Error('The summary request called a tool.');
+        if (step.type !== 'text') throw new ModelFailure('The summary request called a tool.');
         summary = step.text;
       } catch (error) {
         if (!(error instanceof ContextOverflow)) throw error;

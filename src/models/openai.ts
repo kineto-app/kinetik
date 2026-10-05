@@ -1,3 +1,4 @@
+import { ModelFailure } from '../core/connection-error';
 import type { Model, ModelRequest, ModelStep, TurnPin, Usage } from '../core/types';
 import {
   ConnectionError,
@@ -63,7 +64,7 @@ export async function readResponse(
         !event.item ||
         typeof event.item !== 'object'
       )
-        throw new Error('Invalid streamed output item.');
+        throw new ModelFailure('Invalid streamed output item.');
       started.add(event.output_index);
       if (event.type === 'response.output_item.done') finished.set(event.output_index, event.item);
     }
@@ -83,7 +84,7 @@ export async function readResponse(
       if (reason === 'max_output_tokens') throw new ContextOverflow(message);
       // An unfinished answer (a content filter, say) is not a refusal of the request itself.
       if (event.type === 'response.incomplete')
-        throw new Error(reason ? 'The answer stopped early: ' + reason : message);
+        throw new ModelFailure(reason ? 'The answer stopped early: ' + reason : message);
       throw providerError(failure.code, message);
     }
     if (event.type === 'response.completed') {
@@ -95,12 +96,12 @@ export async function readResponse(
           cached: Number(usage.input_tokens_details?.cached_tokens) || undefined,
         };
       if (!Array.isArray(event.response?.output))
-        throw new Error('Model completed without output.');
+        throw new ModelFailure('Model completed without output.');
       if (event.response.output.length) return event.response.output;
       // SIWC streams can carry complete items only in output_item.done,
       // leaving the terminal response's output array empty.
       if (!finished.size || [...started].some((index) => !finished.has(index)))
-        throw new Error('Model completed without all streamed output items.');
+        throw new ModelFailure('Model completed without all streamed output items.');
       return [...finished.entries()].sort(([a], [b]) => a - b).map(([, item]) => item);
     }
   }
@@ -178,7 +179,7 @@ export class OpenAIModel implements Model {
       .join('');
     const raw = items.filter((item) => item.type === 'function_call');
     if (raw.some((call) => typeof call.call_id !== 'string' || typeof call.arguments !== 'string'))
-      throw new Error('Model returned an unknown tool call.');
+      throw new ModelFailure('Model returned an unknown tool call.');
     const calls = raw.map((call) => ({
       name: String(call.name),
       arguments: call.arguments as string,

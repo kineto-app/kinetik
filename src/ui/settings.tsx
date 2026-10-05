@@ -1,4 +1,4 @@
-import { createSignal, For, Index, Show } from 'solid-js';
+import { createSignal, For, Index, Show, onMount } from 'solid-js';
 import { rpc } from '../browser/client';
 import type { CustomModelState } from '../connections/custom-model';
 import type { SetupState } from '../connections/manager';
@@ -508,6 +508,64 @@ function CustomModelForm() {
   );
 }
 
+function UpdateReports() {
+  const [configured, setConfigured] = createSignal(false);
+  const [enabled, setEnabled] = createSignal(true);
+  const [saving, setSaving] = createSignal(false);
+  const [error, setError] = createSignal('');
+  onMount(() => {
+    if (!isNative) return;
+    void import('@tauri-apps/api/core')
+      .then(async ({ invoke }) => {
+        const status = await invoke<import('../platform/updates').UpdateStatus>('updates_status');
+        setConfigured(status.enabled && status.healthConfigured);
+        setEnabled(status.reportsEnabled);
+      })
+      .catch(() => {});
+  });
+  return (
+    <Show when={configured()}>
+      <div class="settings-group">
+        <label class="settings-row">
+          <span class="settings-label">Send anonymous update reports</span>
+          <input
+            type="checkbox"
+            role="switch"
+            class="settings-switch"
+            checked={enabled()}
+            disabled={saving()}
+            aria-describedby="update-reports-note"
+            onChange={async (event) => {
+              const input = event.currentTarget;
+              const checked = input.checked;
+              setSaving(true);
+              setError('');
+              try {
+                const { invoke } = await import('@tauri-apps/api/core');
+                await invoke('updates_reports', { enabled: checked });
+                setEnabled(checked);
+              } catch {
+                input.checked = enabled();
+                setError('Could not save this setting. Try again.');
+              } finally {
+                setSaving(false);
+              }
+            }}
+          />
+        </label>
+      </div>
+      <p id="update-reports-note" class="settings-note">
+        Send update startup and first-use results to this app's distributor. Reports include a
+        random installation ID, platform, versions, channel, event and time. No chat content is
+        sent.
+      </p>
+      <p class="field-hint" role="status">
+        {error()}
+      </p>
+    </Show>
+  );
+}
+
 export function SettingsDialog() {
   const parent = () => stack().at(-2);
   const page = () => top().page;
@@ -620,6 +678,7 @@ export function SettingsDialog() {
         </p>
         <input id="archive-file" type="file" accept="application/json,.json" hidden />
         <p id="archive-status" class="field-hint" role="status"></p>
+        <UpdateReports />
         <ActivityLog />
       </section>
       <section class="settings-page" hidden={page() !== 'connections'}>

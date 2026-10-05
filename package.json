@@ -51,8 +51,7 @@
     "ajv": "8.20.0",
     "just-bash": "3.4.2",
     "markdown-it": "15.0.2",
-    "solid-js": "^1.9.15",
-    "tauri-plugin-hot-update-api": "^0.1.0"
+    "solid-js": "^1.9.15"
   },
   "devDependencies": {
     "@axe-core/playwright": "4.13.0",

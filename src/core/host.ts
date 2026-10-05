@@ -3,7 +3,7 @@ import { memoryChangeKey, memoryKey, saveMemory, undoMemory, type MemoryChange }
 import { protocolVersion, reloadHint } from './protocol';
 import { recentTrace } from './trace';
 import type { BackgroundProcess } from './background';
-import { ConnectionError, SignInRequired } from './connection-error';
+import { ConnectionError, SignInRequired, failureKind, type FailureKind } from './connection-error';
 import { Runtime } from './runtime';
 import { errorText, type RuntimeEvent } from './types';
 import { Store } from '../browser/store';
@@ -20,6 +20,7 @@ export interface HostReply {
   ok: boolean;
   result?: unknown;
   error?: string;
+  failureKind?: FailureKind;
 }
 
 /** Shared agent commands. The host decides lifetime, transport, and update activation. */
@@ -406,7 +407,7 @@ export class RuntimeHost {
             .map((c) => runtime.run(c.id)),
         );
     } catch (error) {
-      reply({ ok: false, error: errorText(error) });
+      reply({ ok: false, error: errorText(error), failureKind: failureKind(error) });
     } finally {
       await runtime.background.drain();
     }

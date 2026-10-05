@@ -27,7 +27,6 @@
     "fs:allow-read-file",
     "fs:allow-write-file",
     "fs:allow-open",
-    "fs:allow-read",
-    "hot-update:default"
+    "fs:allow-read"
   ]
 }
