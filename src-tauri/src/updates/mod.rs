@@ -43,7 +43,11 @@ impl Engine {
     fn candidate(&mut self, mut manifest: manifest::Manifest) -> Result<Option<manifest::Release>> {
         let mut next = self.state.clone();
         next.accept_manifest(&manifest)?;
-        if (next.recovery || next.failures >= 2 || next.revoked.contains(&next.active.version))
+        let replacement = next.restore.is_some()
+            || next.recovery
+            || next.failures >= 2
+            || next.revoked.contains(&next.active.version);
+        if replacement
             && next
                 .staged
                 .as_ref()
@@ -54,9 +58,7 @@ impl Engine {
         self.save(next)?;
         let s = &self.state;
         manifest.revoked = s.revoked.clone();
-        let replacement = s.recovery || s.failures >= 2 || s.revoked.contains(&s.active.version);
         if s.staged.is_some()
-            || s.restore.is_some()
             || (!replacement
                 && (s.snapshot.is_some() || (s.active != self.embedded && s.healthy_starts < 3)))
         {
@@ -114,9 +116,9 @@ impl Engine {
             }),
             restart: staged.is_some_and(|s| {
                 let compatible = s.release.data_format == self.state.active.data_format;
-                let prepared_upgrade = !self.state.recovery
+                let prepared_upgrade = self.state.restore.is_none() && !self.state.recovery
                     && s.release.data_format > self.state.active.data_format && s.snapshot_ready;
-                self.state.restore.is_none() && (compatible || prepared_upgrade)
+                (compatible || prepared_upgrade)
                     && (self.state.recovery || s.release.urgent || Utc::now().timestamp() - s.at > 3 * 86400)
             }),
         }
@@ -341,6 +343,7 @@ fn start(config: config::Config, root: PathBuf, embedded: Bundle) -> Startup {
     }) {
         next.snapshot = None;
     }
+    next.resolve_restore(&engine.embedded, &exists);
     let old_version = next.active.version.to_string();
     for event in next.boot(&engine.embedded) {
         let version = if matches!(event, Event::FailedStart | Event::RolledBack) {
@@ -357,7 +360,8 @@ fn start(config: config::Config, root: PathBuf, embedded: Bundle) -> Startup {
         );
     }
     if !next.recovery && !exists(&next.active) {
-        return Startup::recovery();
+        next.recovery = true;
+        next.boot_pending = false;
     }
     if engine.save(next).is_err() {
         return Startup {

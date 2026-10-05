@@ -1307,3 +1307,148 @@ fn replacement_preserves_the_healthy_fallback_and_its_snapshot() {
         "failed code must not replace the last healthy fallback"
     );
 }
+
+fn interrupted_rollback(root: &std::path::Path, keys: &Keys) -> State {
+    let mut state = State::new(embedded());
+    state.generation = 1;
+    state.healthy_starts = 1;
+    let mut update = release("2.0.0");
+    update.data_format = 2;
+    state.staged = Some(Staged {
+        release: update,
+        at: 0,
+        snapshot_ready: true,
+    });
+    download::atomic_write(&root.join("versions/2.0.0/index.html"), b"format 2").unwrap();
+    download::atomic_write(&root.join("snapshots/1.0.0.json"), b"saved format 1").unwrap();
+    persistence::commit(root, &state).unwrap();
+    for _ in 0..2 {
+        let boot = start(keys.config(), root.to_path_buf(), embedded());
+        assert_eq!(boot.engine.unwrap().state.active.version, version("2.0.0"));
+    }
+    // The second failed start durably selects rollback, but JavaScript has not restored yet.
+    let rollback = start(keys.config(), root.to_path_buf(), embedded());
+    let state = rollback.engine.unwrap().state;
+    assert_eq!(state.active, embedded());
+    assert_eq!(state.restore, Some(version("1.0.0")));
+    assert!(state.restore_backup.is_some());
+    state
+}
+
+#[test]
+fn interrupted_rollback_resumes_after_native_upgrade_removes_the_embedded_target() {
+    let root = tempfile::tempdir().unwrap();
+    let keys = Keys::new();
+    let saved = interrupted_rollback(root.path(), &keys);
+    for native_version in ["1.1.0", "1.1.0", "3.0.0"] {
+        let shell = Bundle {
+            version: version(native_version),
+            ..embedded()
+        };
+        let boot = start(keys.config(), root.path().to_path_buf(), shell.clone());
+        let engine = boot
+            .engine
+            .expect("a missing restore target must retain the updater");
+        assert!(
+            boot.recovery.is_none(),
+            "compatible native code must resume restoration"
+        );
+        assert!(boot.assets.is_none());
+        assert_eq!(engine.state.active, shell);
+        assert_eq!(engine.state.restore, saved.restore);
+        assert_eq!(engine.state.restore_backup, saved.restore_backup);
+        assert_eq!(
+            engine.state.watermark,
+            saved.watermark.clone().max(version(native_version))
+        );
+        assert_eq!(
+            std::fs::read(root.path().join("snapshots/1.0.0.json")).unwrap(),
+            b"saved format 1"
+        );
+        let persisted = persistence::load(root.path(), &shell).unwrap().state;
+        assert_eq!(persisted.active, shell);
+        assert_eq!(persisted.restore, saved.restore);
+        assert_eq!(persisted.restore_backup, saved.restore_backup);
+    }
+}
+
+#[test]
+fn unavailable_restore_target_can_download_signed_compatible_code_and_resume() {
+    for revoked_shell in [false, true] {
+        let root = tempfile::tempdir().unwrap();
+        let keys = Keys::new();
+        let saved = interrupted_rollback(root.path(), &keys);
+        let shell = Bundle {
+            version: version("3.0.0"),
+            data_format: if revoked_shell { 1 } else { 2 },
+            ..embedded()
+        };
+        let mut state = saved.clone();
+        if revoked_shell {
+            state.revoked.push(shell.version.clone());
+        }
+        persistence::commit(root.path(), &state).unwrap();
+        for _ in 0..2 {
+            let boot = start(keys.config(), root.path().to_path_buf(), shell.clone());
+            assert!(boot.assets.is_none());
+            assert!(boot.recovery.is_some());
+            let engine = boot
+                .engine
+                .expect("recovery must keep checking for compatible code");
+            assert!(engine.status().enabled);
+            assert_eq!(engine.state.restore, saved.restore);
+            assert_eq!(engine.state.restore_backup, saved.restore_backup);
+        }
+        let mut engine = start(keys.config(), root.path().to_path_buf(), shell.clone())
+            .engine
+            .unwrap();
+        let bytes = archive(false);
+        let mut feed = manifest();
+        feed.releases.clear();
+        for (v, format) in [("3.1.0", 1), ("3.2.0", 1), ("3.3.0", 2), ("3.4.0", 1)] {
+            let mut r = release(v);
+            r.data_format = format;
+            r.archive = archive_info(&bytes);
+            feed.releases.push(r);
+        }
+        feed.revoked.push(version("3.4.0"));
+        let signed = serde_json::to_vec(&feed).unwrap();
+        let verified =
+            manifest::verify(&signed, &keys.sign(&signed, 0), &keys.config(), Utc::now()).unwrap();
+        let replacement = engine
+            .candidate(verified)
+            .unwrap()
+            .expect("pending restore permits compatible downloads");
+        assert_eq!(replacement.version, version("3.2.0"));
+        download::unpack(
+            &bytes,
+            &replacement.archive,
+            &root.path().join("versions/3.2.0"),
+        )
+        .unwrap();
+        let mut next = engine.state.clone();
+        next.staged = Some(Staged {
+            release: replacement,
+            at: Utc::now().timestamp(),
+            snapshot_ready: false,
+        });
+        engine.save(next).unwrap();
+        assert!(
+            engine.status().restart,
+            "offer restart while the restore is pending"
+        );
+        for _ in 0..2 {
+            let boot = start(keys.config(), root.path().to_path_buf(), shell.clone());
+            assert!(boot.recovery.is_none());
+            assert_eq!(boot.assets, Some(root.path().join("versions/3.2.0")));
+            let state = boot.engine.unwrap().state;
+            assert_eq!(state.active.data_format, 1);
+            assert_eq!(state.restore, saved.restore);
+            assert_eq!(state.restore_backup, saved.restore_backup);
+            assert_eq!(
+                std::fs::read(root.path().join("snapshots/1.0.0.json")).unwrap(),
+                b"saved format 1"
+            );
+        }
+    }
+}

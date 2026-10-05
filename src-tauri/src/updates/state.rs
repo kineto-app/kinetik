@@ -107,6 +107,42 @@ impl State {
         }
         Ok(())
     }
+    pub fn resolve_restore(&mut self, embedded: &Bundle, exists: impl Fn(&Bundle) -> bool) {
+        if self.restore.is_none() {
+            return;
+        }
+        // active.data_format is the snapshot's target format until restore is acknowledged.
+        // Resolve code independently of the snapshot version and the outgoing-data backup.
+        let staged = self.staged.as_ref().map(|s| Bundle {
+            source: Source::Downloaded,
+            version: s.release.version.clone(),
+            data_format: s.release.data_format,
+        });
+        let target = std::iter::once(&self.active)
+            .chain(self.previous.iter())
+            .chain(std::iter::once(embedded))
+            .chain(staged.iter())
+            .filter(|b| {
+                b.data_format == self.active.data_format
+                    && !self.revoked.contains(&b.version)
+                    && exists(b)
+            })
+            .max_by(|a, b| a.version.cmp_precedence(&b.version))
+            .cloned();
+        self.staged = None;
+        self.recovery = target.is_none();
+        if let Some(target) = target {
+            if target != self.active {
+                self.boot_pending = false;
+                self.failures = 0;
+                self.healthy_starts = 0;
+                self.first_use_pending = false;
+                self.notify_update = false;
+            }
+            self.watermark = self.watermark.clone().max(target.version.clone());
+            self.active = target;
+        }
+    }
     pub fn boot(&mut self, embedded: &Bundle) -> Vec<Event> {
         let mut events = vec![];
         if self.boot_pending {
@@ -115,8 +151,8 @@ impl State {
         }
         self.boot_pending = false;
         if self.restore.is_some() {
-            // Until restoration completes, the live format is uncertain. Never run a revoked
-            // restore target, or replace it with code that assumes restoration has finished.
+            // Startup resolved compatible code, but the snapshot still must be restored
+            // before runtime initialization. Repeated starts keep that same restore intact.
             if self.recovery || self.revoked.contains(&self.active.version) {
                 self.recovery = true;
                 return events;
