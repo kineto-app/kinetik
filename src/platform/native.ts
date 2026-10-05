@@ -51,6 +51,7 @@ async function boot() {
       payload: { key: title, value: body, url: conversationId },
     });
   };
+  await (await import('./updates')).restoreUpdateSnapshot();
   await host.initialize();
   // Opening the tapped chat is a convenience; the app works without it.
   await addPluginListener('native', 'open-chat', ({ id }: { id: string }) =>

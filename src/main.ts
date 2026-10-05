@@ -168,13 +168,24 @@ function button(
   });
   return result;
 }
+function reportFirstUse(ok: boolean) {
+  if (isNative)
+    void import('./platform/updates')
+      .then(({ reportUpdateFirstUse }) => reportUpdateFirstUse(ok))
+      .catch(() => {});
+}
 function choose(id: string, focus = true) {
   markRead(id);
   selected = id;
   uiStorage.setItem('kinetik-conversation', id);
   lastMessages = '';
   // Only the open chat carries its messages, so a newly opened one is fetched before it shows.
-  void refresh().catch(showError);
+  void refresh()
+    .then(() => reportFirstUse(true))
+    .catch((error) => {
+      reportFirstUse(false);
+      showError(error);
+    });
   closeDrawer(false);
   // Opened from a notification, the chat is for reading; the keyboard would hide it.
   if (focus) byId('prompt').focus();
@@ -611,6 +622,7 @@ byId('composer').onsubmit = (event) => {
     const attachments = current()?.attachments?.map((file) => file.id) ?? [];
     if ((!text.trim() && !attachments.length) || submitting || pickingFile) return;
     submitting = true;
+    let localOperation = false;
     renderAttachments();
     updateComposer();
     try {
@@ -622,18 +634,26 @@ byId('composer').onsubmit = (event) => {
           return;
         }
       }
+      localOperation = true;
       if (!current()) selected = (await rpc<Conversation>('create')).id;
       followNextMessage = true;
       // Sending the same draft again after a failure reuses its id, so it is never posted twice.
       const sending = JSON.stringify([selected, text, attachments]);
       if (unsent?.draft !== sending) unsent = { draft: sending, id: crypto.randomUUID() };
+      localOperation = false;
       await rpc('submit', { id: selected, text, attachments, queue, messageId: unsent.id });
+      localOperation = true;
       unsent = undefined;
       input.value = '';
       updateComposer();
       byId('error').textContent = '';
       await refresh();
       input.focus();
+      reportFirstUse(true);
+    } catch (error) {
+      // Uploads and provider requests are external failures, not bundle failures.
+      if (localOperation) reportFirstUse(false);
+      throw error;
     } finally {
       submitting = false;
       renderAttachments();
@@ -904,9 +924,7 @@ function changed(event: RuntimeEvent | undefined) {
 }
 async function start() {
   const registration = await connect();
-  const updatesReady = registration
-    ? setupUpdates(registration)
-    : import('./platform/updates').then(({ setupNativeUpdates }) => setupNativeUpdates());
+  const updatesReady = registration ? setupUpdates(registration) : undefined;
   // Opened from a notification: show that chat.
   const opened = new URL(location.href).searchParams.get('chat');
   if (opened) {
@@ -917,6 +935,10 @@ async function start() {
     history.replaceState(null, '', url);
   }
   await refresh();
+  if (!registration)
+    void import('./platform/updates')
+      .then(({ setupNativeUpdates }) => setupNativeUpdates())
+      .catch(() => {});
   await refreshCustomModel().catch(() => {});
   await connectionSetup.initialize();
   await rpc('resume');

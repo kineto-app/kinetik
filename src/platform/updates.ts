@@ -1,51 +1,78 @@
-import { check, download, notifyAppReady } from 'tauri-plugin-hot-update-api';
+import { invoke } from '@tauri-apps/api/core';
+import { rpc } from '../browser/client';
+import { toast } from '../ui/toast';
 import { updateBanner } from '../ui/update-banner';
 
-/** Checks are passive; only the user's Update action stages a bundle for the next launch. */
+export interface UpdateStatus {
+  enabled: boolean;
+  healthConfigured: boolean;
+  reportsEnabled: boolean;
+  staged: string | null;
+  snapshotNeeded: boolean;
+  restart: boolean;
+}
+
+/** Called before the runtime can migrate or read workspace data. */
+export async function restoreUpdateSnapshot() {
+  const text = await invoke<string | null>('updates_restore', { complete: false });
+  if (text === null) return;
+  const { NativeStore } = await import('./secure-store');
+  const { parseArchive } = await import('../core/archive');
+  await new NativeStore().replace(
+    await parseArchive(text),
+    (key) => key.startsWith('connection') || key === 'deployment-config',
+  );
+  await invoke('updates_restore', { complete: true });
+}
+
+export function reportUpdateFirstUse(ok: boolean) {
+  void invoke('updates_first_use', { ok }).catch(() => {});
+}
+
+/** The caller has loaded the local chat list and rendered the main screen. */
 export async function setupNativeUpdates() {
+  const status = await invoke<UpdateStatus>('updates_status');
+  if (!status.enabled) return;
+  // Two frames let the browser paint the rendered screen before acknowledging this boot.
+  await new Promise<void>((resolve) =>
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+  );
+  if (await invoke<boolean>('updates_ready')) toast({ text: 'Kinetik was updated', ms: 4000 });
   const { banner, action, feedback } = updateBanner();
-  // A working UI commits this boot independently of network availability and login.
-  await notifyAppReady();
+  banner.querySelector('strong')!.textContent = 'Restart to update';
+  action.hidden = true;
+  feedback.textContent = 'Close and reopen Kinetik when you are ready.';
   let checking = false;
-  let staging = false;
+  const render = (value: UpdateStatus) => {
+    banner.hidden = !value.restart;
+  };
+  const snapshot = async (value: UpdateStatus) => {
+    if (!value.snapshotNeeded || !value.staged) return;
+    // Existing export refuses while foreground or background work is running.
+    const text = await rpc<string>('archiveExport');
+    await invoke('updates_snapshot', { version: value.staged, text });
+  };
   const inspect = async () => {
-    if (checking || staging) return;
+    if (checking) return;
     checking = true;
+    void invoke('updates_flush').catch(() => {});
     try {
-      const result = await check();
-      banner.hidden = !['available', 'alreadyStaged', 'shellTooOld'].includes(result.status);
-      if (result.status === 'alreadyStaged') {
-        feedback.textContent = 'Update ready. Close and reopen Kinetik to apply.';
-        action.hidden = true;
-      } else if (result.status === 'shellTooOld') {
-        feedback.textContent = 'A new app version is required for this update.';
-        action.hidden = true;
+      // A previous download may only be waiting for idle workspace export.
+      let value = await invoke<UpdateStatus>('updates_status');
+      render(value);
+      await snapshot(value);
+      try {
+        value = await invoke<UpdateStatus>('updates_check');
+      } catch {
+        value = await invoke<UpdateStatus>('updates_status');
       }
+      await snapshot(value);
+      render(await invoke<UpdateStatus>('updates_status'));
     } catch {
-      // Disabled update channels and offline checks leave the installed app available.
+      // Offline feeds and a busy workspace leave the running bundle usable.
     } finally {
       checking = false;
     }
-  };
-  action.onclick = () => {
-    if (staging) return;
-    staging = true;
-    action.disabled = true;
-    feedback.textContent = 'Downloading update…';
-    void download()
-      .then((result) => {
-        if (result.status === 'staged' || result.status === 'alreadyStaged') {
-          feedback.textContent = 'Update ready. Close and reopen Kinetik to apply.';
-          action.hidden = true;
-        } else feedback.textContent = 'This update is no longer available.';
-      })
-      .catch(() => {
-        feedback.textContent = 'Could not download the update. Try again.';
-      })
-      .finally(() => {
-        staging = false;
-        action.disabled = false;
-      });
   };
   window.addEventListener('online', () => void inspect());
   document.addEventListener('visibilitychange', () => {
@@ -57,5 +84,10 @@ export async function setupNativeUpdates() {
     },
     15 * 60 * 1000,
   );
+  // Retry reports independently of manifest availability and the longer check interval.
+  setInterval(() => {
+    if (!document.hidden) void invoke('updates_flush').catch(() => {});
+  }, 60 * 1000);
+  render(status);
   void inspect();
 }
