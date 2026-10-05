@@ -5,9 +5,20 @@ use super::{
 use semver::Version;
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum Source {
+    Embedded,
+    Downloaded,
+    #[default]
+    Unknown,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct Bundle {
+    #[serde(default)]
+    pub source: Source,
     pub version: Version,
     pub data_format: u32,
 }
@@ -24,6 +35,8 @@ pub struct State {
     pub install_id: String,
     #[serde(default)]
     pub generation: u64,
+    #[serde(default)]
+    pub recovery: bool,
     pub active: Bundle,
     pub previous: Option<Bundle>,
     pub staged: Option<Staged>,
@@ -35,6 +48,8 @@ pub struct State {
     #[serde(default)]
     pub manifest_dates: std::collections::BTreeMap<String, chrono::DateTime<chrono::Utc>>,
     pub snapshot: Option<Version>,
+    #[serde(default)]
+    pub snapshot_bundle: Option<Bundle>,
     pub restore: Option<Version>,
     #[serde(default)]
     pub restore_backup: Option<String>,
@@ -48,6 +63,7 @@ impl State {
         Self {
             install_id: uuid::Uuid::new_v4().to_string(),
             generation: 0,
+            recovery: false,
             watermark: embedded.version.clone(),
             active: embedded,
             previous: None,
@@ -58,6 +74,7 @@ impl State {
             revoked: vec![],
             manifest_dates: Default::default(),
             snapshot: None,
+            snapshot_bundle: None,
             restore: None,
             restore_backup: None,
             reports_enabled: true,
@@ -87,7 +104,6 @@ impl State {
             .is_some_and(|s| self.revoked.contains(&s.release.version))
         {
             self.staged = None;
-            self.snapshot = None;
         }
         Ok(())
     }
@@ -97,28 +113,53 @@ impl State {
             self.failures = self.failures.saturating_add(1);
             events.push(Event::FailedStart);
         }
+        self.boot_pending = false;
         if self.restore.is_some() {
-            // The live data may still be the outgoing format until JS finishes restoration.
+            // Until restoration completes, the live format is uncertain. Never run a revoked
+            // restore target, or replace it with code that assumes restoration has finished.
+            if self.recovery || self.revoked.contains(&self.active.version) {
+                self.recovery = true;
+                return events;
+            }
             self.boot_pending = true;
             events.push(Event::Started);
             return events;
         }
-        let rollback = self.failures >= 2 || self.revoked.contains(&self.active.version);
-        if rollback && self.active.version != embedded.version {
+        let rollback =
+            self.recovery || self.failures >= 2 || self.revoked.contains(&self.active.version);
+        if rollback
+            && self
+                .staged
+                .as_ref()
+                .is_some_and(|s| s.release.data_format != self.active.data_format)
+        {
+            self.staged = None;
+        }
+        let replacement = self
+            .staged
+            .as_ref()
+            .filter(|s| {
+                s.release.data_format == self.active.data_format
+                    && !self.revoked.contains(&s.release.version)
+            })
+            .cloned();
+        if rollback && let Some(staged) = replacement {
+            self.activate(staged);
+        } else if rollback {
             let fallback = self
                 .previous
                 .iter()
                 .chain(std::iter::once(embedded))
                 .find(|bundle| {
-                    !self.revoked.contains(&bundle.version)
+                    *bundle != &self.active
+                        && !self.revoked.contains(&bundle.version)
                         && (bundle.data_format == self.active.data_format
-                            || self.snapshot.as_ref() == Some(&bundle.version))
+                            || (self.snapshot.as_ref() == Some(&bundle.version)
+                                && self.snapshot_bundle.as_ref() == Some(bundle)))
                 })
                 .cloned();
             let Some(fallback) = fallback else {
-                // Keep the only code known to understand the live workspace.
-                self.boot_pending = true;
-                events.push(Event::Started);
+                self.recovery = true;
                 return events;
             };
             self.restore = if fallback.data_format == self.active.data_format {
@@ -126,6 +167,7 @@ impl State {
             } else {
                 self.snapshot.take()
             };
+            self.snapshot_bundle = None;
             if self.restore.is_some() {
                 self.restore_backup =
                     Some(format!("kinetik-update-recovery-{}", uuid::Uuid::new_v4()));
@@ -137,35 +179,46 @@ impl State {
             self.healthy_starts = 0;
             self.first_use_pending = false;
             self.notify_update = false;
+            self.recovery = false;
             events.push(Event::RolledBack);
-        } else if self.restore.is_none()
-            && let Some(staged) = self.staged.clone()
-        {
-            if self.revoked.contains(&staged.release.version) {
-                self.staged = None;
-            } else if staged.release.data_format <= self.active.data_format || staged.snapshot_ready
+        } else if let Some(staged) = self.staged.clone() {
+            if self.revoked.contains(&staged.release.version)
+                || staged.release.data_format < self.active.data_format
             {
-                if staged.release.data_format > self.active.data_format {
-                    self.snapshot = Some(self.active.version.clone());
-                }
-                if self.healthy_starts > 0 {
-                    self.previous = Some(self.active.clone());
-                }
-                self.active = Bundle {
-                    version: staged.release.version,
-                    data_format: staged.release.data_format,
-                };
-                self.watermark = self.watermark.clone().max(self.active.version.clone());
                 self.staged = None;
-                self.failures = 0;
-                self.healthy_starts = 0;
-                self.first_use_pending = true;
-                self.notify_update = true;
+            } else if staged.release.data_format == self.active.data_format || staged.snapshot_ready
+            {
+                self.activate(staged);
             }
         }
         self.boot_pending = true;
         events.push(Event::Started);
         events
+    }
+    fn activate(&mut self, staged: Staged) {
+        if staged.release.data_format > self.active.data_format {
+            self.snapshot = Some(self.active.version.clone());
+            self.snapshot_bundle = Some(self.active.clone());
+        }
+        if self.healthy_starts > 0
+            && self.failures < 2
+            && !self.recovery
+            && !self.revoked.contains(&self.active.version)
+        {
+            self.previous = Some(self.active.clone());
+        }
+        self.active = Bundle {
+            source: Source::Downloaded,
+            version: staged.release.version,
+            data_format: staged.release.data_format,
+        };
+        self.watermark = self.watermark.clone().max(self.active.version.clone());
+        self.staged = None;
+        self.failures = 0;
+        self.healthy_starts = 0;
+        self.first_use_pending = true;
+        self.notify_update = true;
+        self.recovery = false;
     }
     pub fn first_use(&mut self, ok: bool) -> Option<Event> {
         if !self.first_use_pending {
@@ -179,13 +232,14 @@ impl State {
         })
     }
     pub fn ready(&mut self, embedded: &Bundle) -> bool {
-        let updated = self.notify_update && self.active.version != embedded.version;
+        let updated = self.notify_update && self.active != *embedded;
         self.notify_update = false;
         self.boot_pending = false;
         self.failures = 0;
         self.healthy_starts = self.healthy_starts.saturating_add(1);
         if self.healthy_starts >= 3 {
             self.snapshot = None;
+            self.snapshot_bundle = None;
         }
         updated
     }

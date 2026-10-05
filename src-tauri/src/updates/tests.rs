@@ -9,6 +9,7 @@ fn version(v: &str) -> Version {
 }
 fn embedded() -> Bundle {
     Bundle {
+        source: Source::Embedded,
         version: version("1.0.0"),
         data_format: 1,
     }
@@ -213,6 +214,7 @@ fn revoked_previous_falls_back_to_embedded_and_revoked_staged_never_runs() {
     assert!(s.staged.is_none());
     s.active.version = version("1.2.0");
     s.previous = Some(Bundle {
+        source: Source::Downloaded,
         version: version("1.1.0"),
         data_format: 1,
     });
@@ -518,13 +520,14 @@ fn rollback_never_runs_a_different_data_format_without_a_matching_snapshot() {
     s.boot(&e);
     assert_eq!(
         s.active.data_format, 2,
-        "keep newer code when its rollback data is gone"
+        "preserve live-format metadata when rollback data is gone"
     );
     assert!(s.restore.is_none());
 
     // A format-2 snapshot cannot make format-1 embedded code safe.
     let mut s = State::new(e.clone());
     s.active = Bundle {
+        source: Source::Downloaded,
         version: version("1.1.0"),
         data_format: 2,
     };
@@ -646,6 +649,7 @@ fn interrupted_directory_commit_keeps_snapshot_and_recovers_a_committed_generati
         let e = embedded();
         let mut s = State::new(e.clone());
         s.active = Bundle {
+            source: Source::Downloaded,
             version: version("1.1.0"),
             data_format: 2,
         };
@@ -696,6 +700,7 @@ fn startup_recovers_without_opening_newer_data_and_state_write_failure_keeps_rec
     let e = embedded();
     let mut s = State::new(e.clone());
     s.active = Bundle {
+        source: Source::Downloaded,
         version: version("2.0.0"),
         data_format: 2,
     };
@@ -739,6 +744,7 @@ fn pending_restore_survives_repeated_failed_starts() {
     let e = embedded();
     let mut s = State::new(e.clone());
     s.active = Bundle {
+        source: Source::Downloaded,
         version: version("1.1.0"),
         data_format: 1,
     };
@@ -943,10 +949,12 @@ fn rollback_reports_abandoned_and_running_versions_after_failures_or_revocation(
         config.health_url = Some("https://example.com/health".into());
         let mut s = State::new(e.clone());
         s.active = Bundle {
+            source: Source::Downloaded,
             version: version("1.2.0"),
             data_format: 1,
         };
         s.previous = Some(Bundle {
+            source: Source::Downloaded,
             version: version("1.1.0"),
             data_format: 1,
         });
@@ -1005,4 +1013,297 @@ fn rollback_reports_abandoned_and_running_versions_after_failures_or_revocation(
             "existing queues remain readable"
         );
     }
+}
+
+#[test]
+fn native_upgrade_with_matching_version_keeps_the_downloaded_data_format() {
+    let root = tempfile::tempdir().unwrap();
+    let keys = Keys::new();
+    let shell = Bundle {
+        source: Source::Embedded,
+        version: version("2.0.0"),
+        data_format: 1,
+    };
+    let mut state = State::new(embedded());
+    state.active = Bundle {
+        source: Source::Downloaded,
+        version: version("2.0.0"),
+        data_format: 2,
+    };
+    state.watermark = state.active.version.clone();
+    let downloaded = root.path().join("versions/2.0.0");
+    download::atomic_write(&downloaded.join("index.html"), b"format 2 code").unwrap();
+    persistence::commit(root.path(), &state).unwrap();
+    let launched = start(keys.config(), root.path().to_path_buf(), shell.clone());
+    assert_eq!(launched.assets, Some(downloaded.clone()));
+    assert!(launched.recovery.is_none());
+    // Missing format-2 assets must not be satisfied by the format-1 native shell.
+    std::fs::remove_dir_all(downloaded).unwrap();
+    let missing = start(keys.config(), root.path().to_path_buf(), shell);
+    assert!(missing.assets.is_none());
+    assert!(missing.recovery.is_some());
+}
+
+#[test]
+fn disabled_updates_repair_compatible_backup_once_without_resetting_metadata() {
+    let root = tempfile::tempdir().unwrap();
+    let e = embedded();
+    let _ownership = ownership::acquire(root.path()).unwrap();
+    let mut s = State::new(e.clone());
+    s.watermark = version("3.0.0");
+    s.reports_enabled = false;
+    persistence::commit(root.path(), &s).unwrap();
+    std::fs::write(root.path().join("state.json"), b"corrupt").unwrap();
+    let first = configured_start(None, root.path().to_path_buf(), e.clone());
+    assert!(first.recovery.is_some());
+    assert!(first.assets.is_none());
+    assert!(first.engine.is_none());
+    let repaired = persistence::load(root.path(), &e).unwrap();
+    assert!(
+        !repaired.recovered,
+        "the first disabled launch must repair the primary"
+    );
+    assert_eq!(repaired.state.watermark, version("3.0.0"));
+    assert!(!repaired.state.reports_enabled);
+    let second = configured_start(None, root.path().to_path_buf(), e);
+    assert!(second.recovery.is_none());
+    assert!(second.assets.is_none());
+    assert!(second.engine.is_none());
+}
+
+#[test]
+fn unsafe_fallback_enters_embedded_recovery_without_executing_the_abandoned_bundle() {
+    for revoked in [false, true] {
+        let root = tempfile::tempdir().unwrap();
+        let keys = Keys::new();
+        let e = embedded();
+        let mut s = State::new(e.clone());
+        s.active = Bundle {
+            source: Source::Downloaded,
+            version: version("2.0.0"),
+            data_format: 2,
+        };
+        s.previous = Some(e.clone());
+        s.watermark = s.active.version.clone();
+        s.healthy_starts = 3;
+        if revoked {
+            s.revoked.push(s.active.version.clone());
+        } else {
+            s.failures = 2;
+        }
+        download::atomic_write(
+            &root.path().join("versions/2.0.0/index.html"),
+            b"must not execute",
+        )
+        .unwrap();
+        persistence::commit(root.path(), &s).unwrap();
+        for _ in 0..2 {
+            let boot = start(keys.config(), root.path().to_path_buf(), e.clone());
+            assert!(
+                boot.assets.is_none(),
+                "failed or revoked code must not run again"
+            );
+            assert!(boot.recovery.is_some());
+            let engine = boot.engine.expect("recovery keeps the updater available");
+            assert_eq!(
+                engine.state.active.data_format, 2,
+                "preserve live-data metadata"
+            );
+            assert!(engine.status().enabled);
+        }
+    }
+}
+
+#[test]
+fn recovery_stages_the_newest_compatible_signed_replacement_and_opens_it_on_restart() {
+    let root = tempfile::tempdir().unwrap();
+    let keys = Keys::new();
+    let e = embedded();
+    let mut state = State::new(e.clone());
+    state.active = Bundle {
+        source: Source::Downloaded,
+        version: version("2.0.0"),
+        data_format: 2,
+    };
+    state.watermark = state.active.version.clone();
+    state.revoked.push(state.active.version.clone());
+    // A previously staged format upgrade cannot trap recovery behind an unusable release.
+    let mut unusable = release("2.8.0");
+    unusable.data_format = 3;
+    state.staged = Some(Staged {
+        release: unusable,
+        at: 0,
+        snapshot_ready: true,
+    });
+    state.generation = 1;
+    download::atomic_write(&root.path().join("versions/2.8.0/index.html"), b"format 3").unwrap();
+    download::atomic_write(&root.path().join("snapshots/2.0.0.json"), b"saved format 2").unwrap();
+    persistence::commit(root.path(), &state).unwrap();
+    let boot = start(keys.config(), root.path().to_path_buf(), e.clone());
+    assert!(boot.assets.is_none());
+    let mut engine = boot.engine.unwrap();
+    let bytes = archive(false);
+    let mut feed = manifest();
+    feed.releases.clear();
+    for (version, format) in [
+        ("2.1.0", 2),
+        ("2.2.0", 2),
+        ("2.3.0", 1),
+        ("2.4.0", 3),
+        ("2.5.0", 2),
+    ] {
+        let mut r = release(version);
+        r.data_format = format;
+        r.archive = archive_info(&bytes);
+        feed.releases.push(r);
+    }
+    feed.revoked.push(version("2.5.0"));
+    let signed = serde_json::to_vec(&feed).unwrap();
+    let verified =
+        manifest::verify(&signed, &keys.sign(&signed, 1), &keys.config(), Utc::now()).unwrap();
+    let replacement = engine
+        .candidate(verified)
+        .unwrap()
+        .expect("recovery must allow a replacement");
+    assert_eq!(replacement.version, version("2.2.0"));
+    download::unpack(
+        &bytes,
+        &replacement.archive,
+        &root.path().join("versions/2.2.0"),
+    )
+    .unwrap();
+    let mut next = engine.state.clone();
+    next.staged = Some(Staged {
+        release: replacement,
+        at: Utc::now().timestamp(),
+        snapshot_ready: false,
+    });
+    engine.save(next).unwrap();
+    assert!(
+        engine.status().restart,
+        "recovery offers restart immediately"
+    );
+    let resumed = start(keys.config(), root.path().to_path_buf(), e);
+    assert!(resumed.recovery.is_none());
+    assert_eq!(resumed.assets, Some(root.path().join("versions/2.2.0")));
+    let state = resumed.engine.unwrap().state;
+    assert!(!state.recovery);
+    assert!(state.restore.is_none());
+    assert!(state.snapshot.is_none());
+    assert_eq!(state.active.data_format, 2);
+}
+
+#[test]
+fn legacy_bundle_provenance_and_snapshot_format_do_not_alias_a_new_native_shell() {
+    let root = tempfile::tempdir().unwrap();
+    let shell = embedded();
+    let mut s = State::new(shell.clone());
+    s.active.data_format = 2;
+    let mut legacy = serde_json::to_value(&s).unwrap();
+    legacy["active"].as_object_mut().unwrap().remove("source");
+    download::atomic_write(
+        &root.path().join("state.json"),
+        &serde_json::to_vec(&legacy).unwrap(),
+    )
+    .unwrap();
+    let unknown = persistence::load(root.path(), &shell).unwrap().state;
+    assert_eq!(unknown.active.source, Source::Unknown);
+    download::atomic_write(&root.path().join("versions/1.0.0/index.html"), b"format 2").unwrap();
+    let identified = persistence::load(root.path(), &shell).unwrap().state;
+    assert_eq!(identified.active.source, Source::Downloaded);
+    assert_eq!(identified.active.data_format, 2);
+    let mut s = identified;
+    s.active.version = version("2.0.0");
+    s.active.data_format = 3;
+    s.snapshot = Some(shell.version.clone());
+    s.snapshot_bundle = Some(Bundle {
+        source: Source::Embedded,
+        version: shell.version.clone(),
+        data_format: 2,
+    });
+    s.revoked.push(s.active.version.clone());
+    s.boot(&shell);
+    assert!(
+        s.recovery,
+        "a matching snapshot version does not make format-1 code compatible"
+    );
+    assert!(s.restore.is_none());
+}
+
+#[test]
+fn active_revocation_allows_same_format_replacement_before_the_next_cold_start() {
+    let root = tempfile::tempdir().unwrap();
+    let keys = Keys::new();
+    let mut s = State::new(embedded());
+    s.active = Bundle {
+        source: Source::Downloaded,
+        version: version("2.0.0"),
+        data_format: 2,
+    };
+    s.watermark = s.active.version.clone();
+    let mut engine = Engine {
+        config: keys.config(),
+        root: root.path().to_path_buf(),
+        state: s,
+        embedded: embedded(),
+        ready: true,
+        blocked: None,
+    };
+    let mut feed = manifest();
+    feed.revoked.push(version("2.0.0"));
+    let mut newer = release("2.1.0");
+    newer.data_format = 2;
+    feed.releases = vec![newer];
+    assert_eq!(
+        engine.candidate(feed).unwrap().unwrap().version,
+        version("2.1.0")
+    );
+    assert!(
+        !engine.state.recovery,
+        "the running process switches to recovery only on cold start"
+    );
+}
+
+#[test]
+fn replacement_preserves_the_healthy_fallback_and_its_snapshot() {
+    let e = embedded();
+    let mut s = State::new(e.clone());
+    s.active = Bundle {
+        source: Source::Downloaded,
+        version: version("2.0.0"),
+        data_format: 2,
+    };
+    s.previous = Some(e.clone());
+    s.snapshot = Some(e.version.clone());
+    s.snapshot_bundle = Some(e.clone());
+    s.failures = 2;
+    s.healthy_starts = 3;
+    let mut r = release("2.1.0");
+    r.data_format = 2;
+    s.staged = Some(Staged {
+        release: r.clone(),
+        at: 0,
+        snapshot_ready: false,
+    });
+    let mut feed = manifest();
+    feed.revoked.push(r.version.clone());
+    s.accept_manifest(&feed).unwrap();
+    assert_eq!(
+        s.snapshot,
+        Some(e.version.clone()),
+        "revoking a replacement must not discard the active rollback snapshot"
+    );
+    r.version = version("2.2.0");
+    s.staged = Some(Staged {
+        release: r,
+        at: 0,
+        snapshot_ready: false,
+    });
+    s.boot(&e);
+    assert_eq!(s.active.version, version("2.2.0"));
+    assert_eq!(
+        s.previous,
+        Some(e),
+        "failed code must not replace the last healthy fallback"
+    );
 }

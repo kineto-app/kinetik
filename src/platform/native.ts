@@ -21,8 +21,11 @@ export function connectNative() {
   }));
 }
 async function boot() {
-  const updateState = await invoke<{ recovery?: string | null }>('updates_status');
-  if (updateState.recovery) throw new Error(updateState.recovery);
+  const updateState = await invoke<import('./updates').UpdateStatus>('updates_status');
+  if (updateState.recovery) {
+    (await import('./update-recovery')).showUpdateRecovery(updateState);
+    throw new Error(updateState.recovery);
+  }
   // Only the trusted application uses native transport. Sandboxed MCP frames do not inherit it.
   globalThis.fetch = platformFetch;
   const base = new URL('./', document.baseURI);

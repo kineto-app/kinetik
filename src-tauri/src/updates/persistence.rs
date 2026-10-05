@@ -1,6 +1,6 @@
 use super::{
     Result, download,
-    state::{Bundle, State},
+    state::{Bundle, Source, State},
 };
 use std::{fs, path::Path};
 pub struct Loaded {
@@ -46,12 +46,37 @@ pub fn load(root: &Path, embedded: &Bundle) -> Result<Loaded> {
         });
     }
     copies.sort_by_key(|(_, s)| s.generation);
-    let (name, state) = copies.pop().unwrap();
+    let (name, mut state) = copies.pop().unwrap();
     let recovered = damaged
         || (name != "state.json"
             && !copies
                 .iter()
                 .any(|(n, s)| *n == "state.json" && s.generation == state.generation));
+    // Older state did not record provenance. Prefer existing downloaded assets; otherwise
+    // embedded identity requires both version and format. Unknown identities stay unavailable.
+    for bundle in std::iter::once(&mut state.active).chain(state.previous.iter_mut()) {
+        if bundle.source == Source::Unknown {
+            if root
+                .join("versions")
+                .join(bundle.version.to_string())
+                .join("index.html")
+                .is_file()
+            {
+                bundle.source = Source::Downloaded;
+            } else if bundle.version == embedded.version
+                && bundle.data_format == embedded.data_format
+            {
+                bundle.source = Source::Embedded;
+            }
+        }
+    }
+    if state.snapshot_bundle.is_none() {
+        state.snapshot_bundle = state
+            .previous
+            .as_ref()
+            .filter(|bundle| state.snapshot.as_ref() == Some(&bundle.version))
+            .cloned();
+    }
     Ok(Loaded { state, recovered })
 }
 pub fn commit(root: &Path, state: &State) -> Result<()> {

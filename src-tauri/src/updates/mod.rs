@@ -15,7 +15,7 @@ mod tests;
 use chrono::Utc;
 use health::Event;
 use serde::Serialize;
-use state::{Bundle, Staged, State};
+use state::{Bundle, Source, Staged, State};
 use std::{
     path::PathBuf,
     sync::{Arc, OnceLock},
@@ -40,6 +40,45 @@ struct Engine {
     blocked: Option<String>,
 }
 impl Engine {
+    fn candidate(&mut self, mut manifest: manifest::Manifest) -> Result<Option<manifest::Release>> {
+        let mut next = self.state.clone();
+        next.accept_manifest(&manifest)?;
+        if (next.recovery || next.failures >= 2 || next.revoked.contains(&next.active.version))
+            && next
+                .staged
+                .as_ref()
+                .is_some_and(|s| s.release.data_format != next.active.data_format)
+        {
+            next.staged = None;
+        }
+        self.save(next)?;
+        let s = &self.state;
+        manifest.revoked = s.revoked.clone();
+        let replacement = s.recovery || s.failures >= 2 || s.revoked.contains(&s.active.version);
+        if s.staged.is_some()
+            || s.restore.is_some()
+            || (!replacement
+                && (s.snapshot.is_some() || (s.active != self.embedded && s.healthy_starts < 3)))
+        {
+            return Ok(None);
+        }
+        manifest.releases.retain(|r| {
+            if replacement {
+                r.data_format == s.active.data_format
+            } else {
+                r.data_format >= s.active.data_format
+            }
+        });
+        Ok(manifest::eligible(
+            &manifest,
+            &s.active.version,
+            &s.watermark,
+            &self.embedded.version,
+            &s.install_id,
+        )
+        .cloned())
+    }
+
     fn ensure_writable(&self) -> Result<()> {
         self.blocked.clone().map_or(Ok(()), Err)
     }
@@ -64,9 +103,9 @@ impl Engine {
         let staged = self.state.staged.as_ref();
         Status {
             enabled: self.blocked.is_none(),
-            recovery: self.blocked.clone(),
-            rollback_blocked: self.state.revoked.contains(&self.state.active.version)
-                || self.state.failures >= 2,
+            recovery: self.blocked.clone().or_else(|| {
+                self.state.recovery.then(|| "Kinetik needs a compatible update before opening your workspace. Your data has been kept.".into())
+            }),
             health_configured: self.config.health_url.is_some(),
             reports_enabled: self.state.reports_enabled,
             staged: staged.map(|s| s.release.version.to_string()),
@@ -74,13 +113,16 @@ impl Engine {
                 s.release.data_format > self.state.active.data_format && !s.snapshot_ready
             }),
             restart: staged.is_some_and(|s| {
-                (s.release.data_format <= self.state.active.data_format || s.snapshot_ready)
-                    && (s.release.urgent || Utc::now().timestamp() - s.at > 3 * 86400)
+                let compatible = s.release.data_format == self.state.active.data_format;
+                let prepared_upgrade = !self.state.recovery
+                    && s.release.data_format > self.state.active.data_format && s.snapshot_ready;
+                self.state.restore.is_none() && (compatible || prepared_upgrade)
+                    && (self.state.recovery || s.release.urgent || Utc::now().timestamp() - s.at > 3 * 86400)
             }),
         }
     }
     fn cleanup(&self) {
-        if self.blocked.is_some() {
+        if self.blocked.is_some() || self.state.recovery {
             return;
         }
         let keep: Vec<String> = std::iter::once(self.state.active.version.to_string())
@@ -124,7 +166,6 @@ impl Engine {
 pub struct Status {
     enabled: bool,
     recovery: Option<String>,
-    rollback_blocked: bool,
     health_configured: bool,
     reports_enabled: bool,
     staged: Option<String>,
@@ -156,27 +197,11 @@ pub fn initialize<R: Runtime>(app: &tauri::App<R>, source: assets::Source) -> Re
         )))
         .map_err(|e| e.to_string())?;
         let embedded = Bundle {
+            source: Source::Embedded,
             version: app.package_info().version.clone(),
             data_format: 1,
         };
-        if let Some(config) = config {
-            config.validate()?;
-            Ok(start(config, root, embedded))
-        } else {
-            // Disabling updates must not let embedded code migrate an unknown newer workspace.
-            let loaded = persistence::load(&root, &embedded)?;
-            if loaded.recovered
-                || loaded.state.active.data_format != embedded.data_format
-                || loaded.state.restore.is_some()
-            {
-                return Err("Workspace requires its compatible native app".into());
-            }
-            Ok(Startup {
-                engine: None,
-                recovery: None,
-                assets: None,
-            })
-        }
+        Ok(configured_start(config, root, embedded))
     })()
     .unwrap_or_else(|_| Startup::recovery());
     let _ = source.set(startup.assets);
@@ -198,6 +223,34 @@ impl Startup {
     fn recovery() -> Self {
         Self { engine: None, assets: None, recovery: Some("Kinetik could not safely open its update state. Your workspace has been kept. Close other copies of Kinetik and check available storage. If reopening does not help, recover the saved update state or install a compatible native app.".into()) }
     }
+}
+fn configured_start(config: Option<config::Config>, root: PathBuf, embedded: Bundle) -> Startup {
+    (|| -> Result<Startup> {
+        if let Some(config) = config {
+            config.validate()?;
+            Ok(start(config, root, embedded))
+        } else {
+            // Disabling updates must not let embedded code migrate an unknown newer workspace.
+            let loaded = persistence::load(&root, &embedded)?;
+            if loaded.recovered {
+                let mut repaired = loaded.state;
+                repaired.generation = repaired.generation.checked_add(1).ok_or("Update state generation exhausted")?;
+                persistence::commit(&root, &repaired)?;
+                return Ok(Startup { engine: None, assets: None, recovery: Some("Kinetik recovered its saved update state. Close and reopen Kinetik to continue.".into()) });
+            }
+            if loaded.state.active.data_format != embedded.data_format
+                || loaded.state.restore.is_some()
+                || loaded.state.revoked.contains(&embedded.version)
+            {
+                return Err("Workspace requires its compatible native app".into());
+            }
+            Ok(Startup {
+                engine: None,
+                recovery: None,
+                assets: None,
+            })
+        }
+    })().unwrap_or_else(|_| Startup::recovery())
 }
 fn start(config: config::Config, root: PathBuf, embedded: Bundle) -> Startup {
     let Ok(loaded) = persistence::load(&root, &embedded) else {
@@ -229,7 +282,9 @@ fn start(config: config::Config, root: PathBuf, embedded: Bundle) -> Startup {
         .is_lt()
         && next.active.data_format == engine.embedded.data_format
         && next.restore.is_none()
+        && !next.revoked.contains(&engine.embedded.version)
     {
+        next.recovery = false;
         next.active = engine.embedded.clone();
         next.previous = None;
         next.staged = None;
@@ -239,13 +294,14 @@ fn start(config: config::Config, root: PathBuf, embedded: Bundle) -> Startup {
         next.watermark = next.watermark.max(engine.embedded.version.clone());
     }
     let exists = |b: &Bundle| {
-        b.version == engine.embedded.version
-            || engine
-                .root
-                .join("versions")
-                .join(b.version.to_string())
-                .join("index.html")
-                .is_file()
+        b == &engine.embedded
+            || (b.source == Source::Downloaded
+                && engine
+                    .root
+                    .join("versions")
+                    .join(b.version.to_string())
+                    .join("index.html")
+                    .is_file())
     };
     if !exists(&next.active) {
         next.failures = 2;
@@ -300,7 +356,7 @@ fn start(config: config::Config, root: PathBuf, embedded: Bundle) -> Startup {
             event,
         );
     }
-    if !exists(&next.active) {
+    if !next.recovery && !exists(&next.active) {
         return Startup::recovery();
     }
     if engine.save(next).is_err() {
@@ -310,7 +366,14 @@ fn start(config: config::Config, root: PathBuf, embedded: Bundle) -> Startup {
             assets: None,
         };
     }
-    let assets = (engine.state.active.version != engine.embedded.version).then(|| {
+    if engine.state.recovery {
+        return Startup {
+            recovery: engine.status().recovery,
+            engine: Some(engine),
+            assets: None,
+        };
+    }
+    let assets = (engine.state.active.source == Source::Downloaded).then(|| {
         engine
             .root
             .join("versions")

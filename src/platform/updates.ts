@@ -6,7 +6,6 @@ import { captureUpdateSnapshot, restoreWorkspace } from './update-workspace';
 export interface UpdateStatus {
   enabled: boolean;
   recovery?: string | null;
-  rollbackBlocked?: boolean;
   healthConfigured: boolean;
   reportsEnabled: boolean;
   staged: string | null;
@@ -33,11 +32,6 @@ export async function setupNativeUpdates() {
   const status = await invoke<UpdateStatus>('updates_status');
   if (status.recovery) throw new Error(status.recovery);
   if (!status.enabled) return;
-  if (status.rollbackBlocked)
-    toast({
-      text: 'A compatible app update is needed for recovery. Your workspace has been kept.',
-      ms: 10000,
-    });
   // Two frames let the browser paint the rendered screen before acknowledging this boot.
   await new Promise<void>((resolve) =>
     requestAnimationFrame(() => requestAnimationFrame(() => resolve())),

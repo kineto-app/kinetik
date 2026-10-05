@@ -2,19 +2,13 @@ use super::*;
 
 #[tauri::command]
 pub async fn updates_status(updates: tauri::State<'_, Updates>) -> Result<Status> {
+    let guard = updates.engine.lock().await;
+    let mut status = guard.as_ref().map(Engine::status).unwrap_or_default();
     if let Some(reason) = &updates.startup_recovery {
-        return Ok(Status {
-            recovery: Some(reason.clone()),
-            ..Default::default()
-        });
+        status.recovery = status.recovery.or_else(|| Some(reason.clone()));
+        status.enabled &= guard.as_ref().is_some_and(|e| e.state.recovery);
     }
-    Ok(updates
-        .engine
-        .lock()
-        .await
-        .as_ref()
-        .map(Engine::status)
-        .unwrap_or_default())
+    Ok(status)
 }
 #[tauri::command]
 pub async fn updates_ready(updates: tauri::State<'_, Updates>) -> Result<bool> {
@@ -22,7 +16,11 @@ pub async fn updates_ready(updates: tauri::State<'_, Updates>) -> Result<bool> {
     let Some(engine) = guard.as_mut() else {
         return Ok(false);
     };
-    if engine.ready || engine.state.restore.is_some() {
+    if updates.startup_recovery.is_some()
+        || engine.state.recovery
+        || engine.ready
+        || engine.state.restore.is_some()
+    {
         return Ok(false);
     }
     let mut next = engine.state.clone();
@@ -50,7 +48,7 @@ pub async fn updates_check(updates: tauri::State<'_, Updates>) -> Result<Status>
     let mut signature_url = url::Url::parse(&config.manifest_url).map_err(|e| e.to_string())?;
     signature_url.set_path(&format!("{}.minisig", signature_url.path()));
     let signature = download::fetch(&client, signature_url.as_str(), 8192).await?;
-    let mut manifest = manifest::verify(
+    let manifest = manifest::verify(
         &bytes,
         std::str::from_utf8(&signature).map_err(|e| e.to_string())?,
         &config,
@@ -59,33 +57,13 @@ pub async fn updates_check(updates: tauri::State<'_, Updates>) -> Result<Status>
     let candidate = {
         let mut guard = updates.engine.lock().await;
         let engine = guard.as_mut().unwrap();
-        let mut next = engine.state.clone();
-        next.accept_manifest(&manifest)?;
-        engine.save(next)?;
-        let s = &engine.state;
-        manifest.revoked = s.revoked.clone();
-        if s.staged.is_some()
-            || s.snapshot.is_some()
-            || s.restore.is_some()
-            || s.revoked.contains(&s.active.version)
-            || (s.active.version != engine.embedded.version && s.healthy_starts < 3)
-        {
-            None
-        } else {
-            manifest::eligible(
-                &manifest,
-                &s.active.version,
-                &s.watermark,
-                &engine.embedded.version,
-                &s.install_id,
-            )
-            .map(|r| {
-                (
-                    r.clone(),
-                    engine.root.join("versions").join(r.version.to_string()),
-                )
-            })
-        }
+        engine.candidate(manifest)?.map(|release| {
+            let destination = engine
+                .root
+                .join("versions")
+                .join(release.version.to_string());
+            (release, destination)
+        })
     };
     if let Some((release, destination)) = candidate {
         let bytes = download::fetch(&client, &release.archive.url, release.archive.size).await?;
@@ -274,6 +252,9 @@ pub async fn updates_workspace_write(updates: tauri::State<'_, Updates>) -> Resu
         return Ok(false);
     };
     engine.ensure_writable()?;
+    if engine.state.recovery {
+        return Err("Workspace is closed for recovery".into());
+    }
     let mut next = engine.state.clone();
     let Some(staged) = next.staged.as_mut() else {
         return Ok(false);
