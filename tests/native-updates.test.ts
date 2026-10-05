@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   invoke: vi.fn(),
-  rpc: vi.fn(),
+  capture: vi.fn(),
   toast: vi.fn(),
   replace: vi.fn(),
   parseArchive: vi.fn(),
@@ -10,13 +10,11 @@ const mocks = vi.hoisted(() => ({
   feedback: { textContent: '' },
 }));
 vi.mock('@tauri-apps/api/core', () => ({ invoke: mocks.invoke }));
-vi.mock('../src/browser/client', () => ({ rpc: mocks.rpc }));
 vi.mock('../src/ui/toast', () => ({ toast: mocks.toast }));
 vi.mock('../src/ui/update-banner', () => ({ updateBanner: () => mocks }));
-vi.mock('../src/platform/secure-store', () => ({
-  NativeStore: class {
-    replace = mocks.replace;
-  },
+vi.mock('../src/platform/update-workspace', () => ({
+  captureUpdateSnapshot: mocks.capture,
+  restoreWorkspace: mocks.replace,
 }));
 vi.mock('../src/core/archive', () => ({ parseArchive: mocks.parseArchive }));
 import {
@@ -57,9 +55,12 @@ beforeEach(() => {
     if (command === 'updates_status' || command === 'updates_check') return { ...status };
     if (command === 'updates_ready') return true;
     if (command === 'updates_restore') return null;
+    if (command === 'updates_recovery_copy') return 'recovery-db';
     if (command === 'updates_snapshot') status.snapshotNeeded = false;
   });
-  mocks.rpc.mockResolvedValue('{}');
+  mocks.capture.mockImplementation(async () => {
+    status.snapshotNeeded = false;
+  });
   mocks.replace.mockResolvedValue(undefined);
 });
 afterEach(() => {
@@ -117,18 +118,24 @@ test('foreground, online and visible interval check; hidden interval does not', 
   await vi.advanceTimersByTimeAsync(15 * 60 * 1000);
   expect(mocks.invoke).toHaveBeenCalledWith('updates_check');
 });
-test('busy workspace leaves a format upgrade waiting and retries when online', async () => {
+test('busy snapshot export still checks revocations and retries its snapshot when online', async () => {
   status.staged = '1.1.0';
   status.snapshotNeeded = true;
-  mocks.rpc.mockRejectedValueOnce(new Error('Work is running'));
+  mocks.capture.mockRejectedValue(new Error('Work is running'));
+
   const setup = setupNativeUpdates();
   await paint();
   await setup;
   await settle();
   expect(mocks.invoke).not.toHaveBeenCalledWith('updates_snapshot', expect.anything());
+  expect(mocks.invoke).toHaveBeenCalledWith('updates_check');
+  mocks.capture.mockImplementation(async () => {
+    status.snapshotNeeded = false;
+  });
   events.online();
   await settle();
-  expect(mocks.invoke).toHaveBeenCalledWith('updates_snapshot', { version: '1.1.0', text: '{}' });
+  expect(mocks.capture).toHaveBeenCalledWith('1.1.0');
+  expect(status.snapshotNeeded).toBe(false);
 });
 test('failed feeds preserve the staged restart hint and do not reject startup', async () => {
   status.restart = true;
@@ -146,12 +153,7 @@ test('restores snapshots before acknowledgement and retains connection configura
   mocks.invoke.mockResolvedValueOnce('snapshot');
   mocks.parseArchive.mockResolvedValue([['filesystem', {}]]);
   await restoreUpdateSnapshot();
-  expect(mocks.replace).toHaveBeenCalledWith([['filesystem', {}]], expect.any(Function));
-  const retain = mocks.replace.mock.calls[0][1];
-  expect(retain('connection-token:a')).toBe(true);
-  expect(retain('deployment-config')).toBe(true);
-  expect(retain('conversation:a')).toBe(false);
-  expect(mocks.invoke).toHaveBeenLastCalledWith('updates_restore', { complete: true });
+  expect(mocks.replace).toHaveBeenCalledWith([['filesystem', {}]], 'recovery-db');
 });
 test('failed restore keeps the native snapshot for the next boot', async () => {
   mocks.invoke.mockResolvedValueOnce('snapshot');

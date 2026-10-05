@@ -403,6 +403,7 @@ fn readiness_persists_and_cleanup_keeps_only_live_versions() {
         state: s,
         embedded: e,
         ready: false,
+        blocked: None,
     };
     for v in ["1.0.0", "1.1.0", "0.9.0"] {
         std::fs::create_dir_all(root.path().join("versions").join(v)).unwrap();
@@ -433,6 +434,7 @@ fn restart_hint_waits_three_days_unless_urgent_and_requires_snapshot() {
         state: State::new(e.clone()),
         embedded: e,
         ready: false,
+        blocked: None,
     };
     stage(&mut engine.state, 1);
     engine.state.staged.as_mut().unwrap().at = Utc::now().timestamp();
@@ -497,4 +499,264 @@ fn a_prepared_snapshot_is_not_restored_before_its_release_activates() {
     s.boot(&e);
     assert_eq!(s.active.version, e.version);
     assert!(s.restore.is_none());
+}
+
+#[test]
+fn rollback_never_runs_a_different_data_format_without_a_matching_snapshot() {
+    let e = embedded();
+    let mut s = State::new(e.clone());
+    s.ready(&e);
+    stage(&mut s, 2);
+    s.staged.as_mut().unwrap().snapshot_ready = true;
+    s.boot(&e);
+    for _ in 0..3 {
+        s.ready(&e);
+        s.boot(&e);
+    }
+    assert!(s.snapshot.is_none());
+    s.revoked.push(s.active.version.clone());
+    s.boot(&e);
+    assert_eq!(
+        s.active.data_format, 2,
+        "keep newer code when its rollback data is gone"
+    );
+    assert!(s.restore.is_none());
+
+    // A format-2 snapshot cannot make format-1 embedded code safe.
+    let mut s = State::new(e.clone());
+    s.active = Bundle {
+        version: version("1.1.0"),
+        data_format: 2,
+    };
+    s.ready(&e);
+    let mut r = release("1.2.0");
+    r.data_format = 3;
+    s.staged = Some(Staged {
+        release: r,
+        at: 0,
+        snapshot_ready: true,
+    });
+    s.boot(&e);
+    s.revoked = vec![version("1.1.0"), version("1.2.0")];
+    s.boot(&e);
+    assert_eq!(s.active.data_format, 3);
+    assert!(s.restore.is_none());
+}
+
+#[test]
+fn signed_manifest_replay_cannot_erase_a_persisted_revocation() {
+    let keys = Keys::new();
+    let config = keys.config();
+    let older = manifest();
+    let mut newer = manifest();
+    newer.created_at = older.created_at + chrono::Duration::seconds(1);
+    newer.revoked = vec![version("1.1.0")];
+    let verified = |m: &Manifest| {
+        let bytes = serde_json::to_vec(m).unwrap();
+        manifest::verify(&bytes, &keys.sign(&bytes, 0), &config, Utc::now()).unwrap()
+    };
+    let mut s = State::new(embedded());
+    s.accept_manifest(&verified(&newer)).unwrap();
+    let bytes = serde_json::to_vec(&s).unwrap();
+    let mut restarted: State = serde_json::from_slice(&bytes).unwrap();
+    assert!(restarted.accept_manifest(&verified(&older)).is_err());
+    // Even a newer feed cannot reuse a revoked version.
+    newer.created_at += chrono::Duration::seconds(1);
+    newer.revoked.clear();
+    restarted.accept_manifest(&verified(&newer)).unwrap();
+    assert!(restarted.revoked.contains(&version("1.1.0")));
+}
+
+#[test]
+fn workspace_owner_probe() {
+    let Some(root) = std::env::var_os("KINETIK_TEST_OWNER_ROOT") else {
+        return;
+    };
+    let root = std::path::PathBuf::from(root);
+    if let Ok(_ownership) = ownership::acquire(&root) {
+        // Models an older process's stale in-memory state.
+        download::atomic_write(
+            &root.join("state.json"),
+            &serde_json::to_vec(&State::new(embedded())).unwrap(),
+        )
+        .unwrap();
+    }
+}
+#[test]
+fn second_process_cannot_overwrite_watermark_or_consent() {
+    let root = tempfile::tempdir().unwrap();
+    let _ownership = ownership::acquire(root.path()).unwrap();
+    let mut s = State::new(embedded());
+    s.watermark = version("2.0.0");
+    s.reports_enabled = false;
+    download::atomic_write(
+        &root.path().join("state.json"),
+        &serde_json::to_vec(&s).unwrap(),
+    )
+    .unwrap();
+    let child = std::process::Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", "updates::tests::workspace_owner_probe"])
+        .env("KINETIK_TEST_OWNER_ROOT", root.path())
+        .output()
+        .unwrap();
+    assert!(child.status.success());
+    let kept: State =
+        serde_json::from_slice(&std::fs::read(root.path().join("state.json")).unwrap()).unwrap();
+    assert_eq!(kept.watermark, version("2.0.0"));
+    assert!(!kept.reports_enabled);
+}
+
+#[test]
+fn corrupt_primary_recovers_committed_consent_watermark_and_format_without_resetting() {
+    let root = tempfile::tempdir().unwrap();
+    let keys = Keys::new();
+    let e = embedded();
+    let mut engine = Engine {
+        root: root.path().to_path_buf(),
+        config: keys.config(),
+        state: State::new(e.clone()),
+        embedded: e.clone(),
+        ready: false,
+        blocked: None,
+    };
+    let mut next = engine.state.clone();
+    next.watermark = version("2.0.0");
+    next.reports_enabled = false;
+    next.active.data_format = 2;
+    engine.save(next).unwrap();
+    std::fs::write(root.path().join("state.json"), b"broken state").unwrap();
+    let recovered =
+        persistence::load(root.path(), &e).expect("corrupt primary must have a recovery path");
+    assert!(recovered.recovered);
+    assert!(!recovered.state.reports_enabled);
+    assert_eq!(recovered.state.watermark, version("2.0.0"));
+    assert_eq!(recovered.state.active.data_format, 2);
+    assert!(std::fs::read_dir(root.path()).unwrap().flatten().any(|f| {
+        f.file_name()
+            .to_string_lossy()
+            .starts_with("state.corrupt-")
+    }));
+}
+
+#[test]
+fn interrupted_directory_commit_keeps_snapshot_and_recovers_a_committed_generation() {
+    for failed_name in ["state.backup.json", "state.json"] {
+        let root = tempfile::tempdir().unwrap();
+        let keys = Keys::new();
+        let e = embedded();
+        let mut s = State::new(e.clone());
+        s.active = Bundle {
+            version: version("1.1.0"),
+            data_format: 2,
+        };
+        s.snapshot = Some(e.version.clone());
+        s.healthy_starts = 2;
+        let mut engine = Engine {
+            root: root.path().to_path_buf(),
+            config: keys.config(),
+            state: s,
+            embedded: e.clone(),
+            ready: false,
+            blocked: None,
+        };
+        engine.save(engine.state.clone()).unwrap();
+        let old = std::fs::read(root.path().join(failed_name)).unwrap();
+        let snapshot = root.path().join("snapshots/1.0.0.json");
+        download::atomic_write(&snapshot, b"snapshot").unwrap();
+        durability::fail_next_parent_sync(failed_name);
+        let mut next = engine.state.clone();
+        next.ready(&e);
+        assert!(
+            engine.save(next).is_err(),
+            "commit must wait for directory durability"
+        );
+        engine.cleanup();
+        assert!(
+            snapshot.exists(),
+            "failed commit must never prune recovery data"
+        );
+        // Model the unflushed rename being lost at power failure.
+        std::fs::write(root.path().join(failed_name), old).unwrap();
+        let recovered = persistence::load(root.path(), &e).unwrap();
+        if let Some(version) = recovered.state.snapshot {
+            assert!(
+                root.path()
+                    .join("snapshots")
+                    .join(format!("{version}.json"))
+                    .exists()
+            );
+        }
+    }
+}
+
+#[test]
+fn startup_recovers_without_opening_newer_data_and_state_write_failure_keeps_recovery() {
+    let root = tempfile::tempdir().unwrap();
+    let keys = Keys::new();
+    let e = embedded();
+    let mut s = State::new(e.clone());
+    s.active = Bundle {
+        version: version("2.0.0"),
+        data_format: 2,
+    };
+    s.watermark = s.active.version.clone();
+    s.reports_enabled = false;
+    download::atomic_write(
+        &root.path().join("versions/2.0.0/index.html"),
+        b"newer code",
+    )
+    .unwrap();
+    persistence::commit(root.path(), &s).unwrap();
+    std::fs::write(root.path().join("state.json"), b"broken").unwrap();
+    let recovery = start(keys.config(), root.path().to_path_buf(), e.clone());
+    assert!(recovery.assets.is_none());
+    assert!(recovery.recovery.is_some());
+    let recovered = recovery.engine.unwrap();
+    assert_eq!(recovered.state.active.data_format, 2);
+    assert!(!recovered.state.reports_enabled);
+    let reopened = start(keys.config(), root.path().to_path_buf(), e.clone());
+    assert!(reopened.recovery.is_none());
+    assert_eq!(reopened.assets.unwrap(), root.path().join("versions/2.0.0"));
+    durability::fail_next_parent_sync("state.json");
+    let failed = start(keys.config(), root.path().to_path_buf(), e.clone());
+    assert!(failed.assets.is_none());
+    assert!(failed.recovery.is_some());
+    assert!(root.path().join("versions/2.0.0/index.html").is_file());
+    let saved = persistence::load(root.path(), &e).unwrap().state;
+    assert_eq!(saved.watermark, version("2.0.0"));
+    assert!(!saved.reports_enabled);
+    for name in ["state.json", "state.backup.json"] {
+        std::fs::write(root.path().join(name), b"broken").unwrap();
+    }
+    let lost = start(keys.config(), root.path().to_path_buf(), e);
+    assert!(lost.recovery.is_some());
+    assert!(lost.engine.is_none());
+    assert!(lost.assets.is_none());
+}
+
+#[test]
+fn pending_restore_survives_repeated_failed_starts() {
+    let e = embedded();
+    let mut s = State::new(e.clone());
+    s.active = Bundle {
+        version: version("1.1.0"),
+        data_format: 1,
+    };
+    s.restore = Some(version("1.1.0"));
+    s.restore_backup = Some("recovery-test".into());
+    for _ in 0..4 {
+        s.boot(&e);
+    }
+    assert_eq!(s.active.version, version("1.1.0"));
+    assert_eq!(s.restore, Some(version("1.1.0")));
+    assert_eq!(s.restore_backup.as_deref(), Some("recovery-test"));
+}
+
+#[test]
+fn first_use_error_is_not_overwritten_by_later_success() {
+    let mut s = State::new(embedded());
+    s.first_use_pending = true;
+    assert_eq!(s.first_use(false), Some(Event::FirstUseError));
+    let mut restarted: State = serde_json::from_slice(&serde_json::to_vec(&s).unwrap()).unwrap();
+    assert_eq!(restarted.first_use(true), None);
 }

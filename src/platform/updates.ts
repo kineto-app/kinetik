@@ -1,10 +1,12 @@
 import { invoke } from '@tauri-apps/api/core';
-import { rpc } from '../browser/client';
 import { toast } from '../ui/toast';
 import { updateBanner } from '../ui/update-banner';
+import { captureUpdateSnapshot, restoreWorkspace } from './update-workspace';
 
 export interface UpdateStatus {
   enabled: boolean;
+  recovery?: string | null;
+  rollbackBlocked?: boolean;
   healthConfigured: boolean;
   reportsEnabled: boolean;
   staged: string | null;
@@ -16,13 +18,10 @@ export interface UpdateStatus {
 export async function restoreUpdateSnapshot() {
   const text = await invoke<string | null>('updates_restore', { complete: false });
   if (text === null) return;
-  const { NativeStore } = await import('./secure-store');
   const { parseArchive } = await import('../core/archive');
-  await new NativeStore().replace(
-    await parseArchive(text),
-    (key) => key.startsWith('connection') || key === 'deployment-config',
-  );
-  await invoke('updates_restore', { complete: true });
+  const records = await parseArchive(text);
+  const backupName = await invoke<string>('updates_recovery_copy');
+  await restoreWorkspace(records, backupName);
 }
 
 export function reportUpdateFirstUse(ok: boolean) {
@@ -32,7 +31,13 @@ export function reportUpdateFirstUse(ok: boolean) {
 /** The caller has loaded the local chat list and rendered the main screen. */
 export async function setupNativeUpdates() {
   const status = await invoke<UpdateStatus>('updates_status');
+  if (status.recovery) throw new Error(status.recovery);
   if (!status.enabled) return;
+  if (status.rollbackBlocked)
+    toast({
+      text: 'A compatible app update is needed for recovery. Your workspace has been kept.',
+      ms: 10000,
+    });
   // Two frames let the browser paint the rendered screen before acknowledging this boot.
   await new Promise<void>((resolve) =>
     requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
@@ -48,9 +53,7 @@ export async function setupNativeUpdates() {
   };
   const snapshot = async (value: UpdateStatus) => {
     if (!value.snapshotNeeded || !value.staged) return;
-    // Existing export refuses while foreground or background work is running.
-    const text = await rpc<string>('archiveExport');
-    await invoke('updates_snapshot', { version: value.staged, text });
+    await captureUpdateSnapshot(value.staged);
   };
   const inspect = async () => {
     if (checking) return;
@@ -60,13 +63,13 @@ export async function setupNativeUpdates() {
       // A previous download may only be waiting for idle workspace export.
       let value = await invoke<UpdateStatus>('updates_status');
       render(value);
-      await snapshot(value);
+      await snapshot(value).catch(() => {});
       try {
         value = await invoke<UpdateStatus>('updates_check');
       } catch {
         value = await invoke<UpdateStatus>('updates_status');
       }
-      await snapshot(value);
+      await snapshot(value).catch(() => {});
       render(await invoke<UpdateStatus>('updates_status'));
     } catch {
       // Offline feeds and a busy workspace leave the running bundle usable.
@@ -74,6 +77,18 @@ export async function setupNativeUpdates() {
       checking = false;
     }
   };
+  let snapshotTimer: ReturnType<typeof setTimeout>;
+  window.addEventListener('kinetik-workspace-changed', () => {
+    banner.hidden = true;
+    clearTimeout(snapshotTimer);
+    snapshotTimer = setTimeout(() => {
+      void invoke<UpdateStatus>('updates_status')
+        .then(snapshot)
+        .then(() => invoke<UpdateStatus>('updates_status'))
+        .then(render)
+        .catch(() => {});
+    }, 1000);
+  });
   window.addEventListener('online', () => void inspect());
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden) void inspect();

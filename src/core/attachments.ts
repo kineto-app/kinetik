@@ -1,3 +1,4 @@
+import { OperationFailure } from './connection-error';
 import type { Store } from './ports';
 import type { createFilesystem } from '../browser/filesystem';
 import { digest, type Plugins } from '../plugins/loader';
@@ -117,12 +118,22 @@ export class Attachments {
         path = directory + '/' + file.name;
         await fs.writeFile(path, bytes);
       } else {
-        ({ path } = await abortable(
-          upload!({ id: file.id, name: file.name, bytes }, signal),
-          signal,
-        ));
+        try {
+          ({ path } = await abortable(
+            upload!({ id: file.id, name: file.name, bytes }, signal),
+            signal,
+          ));
+        } catch (error) {
+          throw new OperationFailure(
+            error instanceof Error ? error.message : String(error),
+            'network',
+          );
+        }
         if (typeof path !== 'string' || !path || path.length > 4096 || /[\x00-\x1f]/.test(path))
-          throw new Error('The connection returned an invalid attachment path.');
+          throw new OperationFailure(
+            'The connection returned an invalid attachment path.',
+            'model',
+          );
       }
       const uploaded = { id: file.id, name: file.name, size: file.size, path, provider };
       await this.chats.update(id, (value) => ({

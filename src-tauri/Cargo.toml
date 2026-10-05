@@ -44,6 +44,12 @@ tokio = { version = "1", features = ["net", "io-util", "sync", "time"] }
 url = "2"
 uuid = { version = "1", features = ["v4"] }
 
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tauri-plugin-single-instance = "2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem", "Win32_Foundation"] }
+
 [dev-dependencies]
 minisign = "0.9"
 

@@ -118,7 +118,7 @@ export class Store implements StorePort {
   async replace(records: [string, unknown][], retain: (key: string) => boolean): Promise<void> {
     const db = await this.open();
     return new Promise((resolve, reject) => {
-      const tx = db.transaction('records', 'readwrite');
+      const tx = db.transaction('records', 'readwrite', { durability: 'strict' });
       const objectStore = tx.objectStore('records');
       const cursorRequest = objectStore.openCursor();
       cursorRequest.onsuccess = () => {

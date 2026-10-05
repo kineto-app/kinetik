@@ -22,6 +22,8 @@ pub struct Staged {
 #[serde(rename_all = "camelCase")]
 pub struct State {
     pub install_id: String,
+    #[serde(default)]
+    pub generation: u64,
     pub active: Bundle,
     pub previous: Option<Bundle>,
     pub staged: Option<Staged>,
@@ -30,8 +32,12 @@ pub struct State {
     pub failures: u32,
     pub healthy_starts: u32,
     pub revoked: Vec<Version>,
+    #[serde(default)]
+    pub manifest_dates: std::collections::BTreeMap<String, chrono::DateTime<chrono::Utc>>,
     pub snapshot: Option<Version>,
     pub restore: Option<Version>,
+    #[serde(default)]
+    pub restore_backup: Option<String>,
     pub reports_enabled: bool,
     pub reports: Vec<Report>,
     pub first_use_pending: bool,
@@ -41,6 +47,7 @@ impl State {
     pub fn new(embedded: Bundle) -> Self {
         Self {
             install_id: uuid::Uuid::new_v4().to_string(),
+            generation: 0,
             watermark: embedded.version.clone(),
             active: embedded,
             previous: None,
@@ -49,13 +56,40 @@ impl State {
             failures: 0,
             healthy_starts: 0,
             revoked: vec![],
+            manifest_dates: Default::default(),
             snapshot: None,
             restore: None,
+            restore_backup: None,
             reports_enabled: true,
             reports: vec![],
             first_use_pending: false,
             notify_update: false,
         }
+    }
+    pub fn accept_manifest(&mut self, manifest: &super::manifest::Manifest) -> Result<(), String> {
+        if self
+            .manifest_dates
+            .get(&manifest.channel)
+            .is_some_and(|at| manifest.created_at < *at)
+        {
+            return Err("Older update manifest rejected".into());
+        }
+        self.manifest_dates
+            .insert(manifest.channel.clone(), manifest.created_at);
+        for version in &manifest.revoked {
+            if !self.revoked.contains(version) {
+                self.revoked.push(version.clone());
+            }
+        }
+        if self
+            .staged
+            .as_ref()
+            .is_some_and(|s| self.revoked.contains(&s.release.version))
+        {
+            self.staged = None;
+            self.snapshot = None;
+        }
+        Ok(())
     }
     pub fn boot(&mut self, embedded: &Bundle) -> Vec<Event> {
         let mut events = vec![];
@@ -63,14 +97,41 @@ impl State {
             self.failures = self.failures.saturating_add(1);
             events.push(Event::FailedStart);
         }
+        if self.restore.is_some() {
+            // The live data may still be the outgoing format until JS finishes restoration.
+            self.boot_pending = true;
+            events.push(Event::Started);
+            return events;
+        }
         let rollback = self.failures >= 2 || self.revoked.contains(&self.active.version);
         if rollback && self.active.version != embedded.version {
-            self.active = self
+            let fallback = self
                 .previous
-                .take()
-                .filter(|b| !self.revoked.contains(&b.version))
-                .unwrap_or_else(|| embedded.clone());
-            self.restore = self.snapshot.take();
+                .iter()
+                .chain(std::iter::once(embedded))
+                .find(|bundle| {
+                    !self.revoked.contains(&bundle.version)
+                        && (bundle.data_format == self.active.data_format
+                            || self.snapshot.as_ref() == Some(&bundle.version))
+                })
+                .cloned();
+            let Some(fallback) = fallback else {
+                // Keep the only code known to understand the live workspace.
+                self.boot_pending = true;
+                events.push(Event::Started);
+                return events;
+            };
+            self.restore = if fallback.data_format == self.active.data_format {
+                None
+            } else {
+                self.snapshot.take()
+            };
+            if self.restore.is_some() {
+                self.restore_backup =
+                    Some(format!("kinetik-update-recovery-{}", uuid::Uuid::new_v4()));
+            }
+            self.active = fallback;
+            self.previous = None;
             self.staged = None;
             self.failures = 0;
             self.healthy_starts = 0;
@@ -105,6 +166,17 @@ impl State {
         self.boot_pending = true;
         events.push(Event::Started);
         events
+    }
+    pub fn first_use(&mut self, ok: bool) -> Option<Event> {
+        if !self.first_use_pending {
+            return None;
+        }
+        self.first_use_pending = false;
+        Some(if ok {
+            Event::FirstUseOk
+        } else {
+            Event::FirstUseError
+        })
     }
     pub fn ready(&mut self, embedded: &Bundle) -> bool {
         let updated = self.notify_update && self.active.version != embedded.version;

@@ -1,4 +1,4 @@
-use super::manifest::Archive;
+use super::{durability, manifest::Archive};
 use sha2::{Digest, Sha256};
 use std::{
     fs,
@@ -41,7 +41,7 @@ pub fn unpack(bytes: &[u8], archive: &Archive, destination: &Path) -> Result<(),
         return Err("Archive size or SHA-256 mismatch".into());
     }
     let parent = destination.parent().ok_or("Missing version directory")?;
-    fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    durability::create_dir_all(parent)?;
     let temp = tempfile::tempdir_in(parent).map_err(|e| e.to_string())?;
     let mut tar = tar::Archive::new(flate2::read::GzDecoder::new(bytes));
     let mut total = 0u64;
@@ -96,16 +96,18 @@ pub fn unpack(bytes: &[u8], archive: &Archive, destination: &Path) -> Result<(),
     {
         return Err("Invalid bundle contents".into());
     }
-    fs::rename(temp.path(), destination).map_err(|e| e.to_string())?;
+    durability::sync_tree(temp.path())?;
+    durability::rename(temp.path(), destination)?;
     Ok(())
 }
 pub fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), String> {
     let parent = path.parent().ok_or("Missing parent directory")?;
-    fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    durability::create_dir_all(parent)?;
     let mut file = tempfile::NamedTempFile::new_in(parent).map_err(|e| e.to_string())?;
     file.write_all(bytes)
         .and_then(|_| file.as_file().sync_all())
         .map_err(|e| e.to_string())?;
-    file.persist(path).map_err(|e| e.to_string())?;
+    let temp_path = file.into_temp_path();
+    durability::rename(&temp_path, path)?;
     Ok(())
 }

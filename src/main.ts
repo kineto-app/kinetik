@@ -1,3 +1,4 @@
+import { failureKind } from './core/connection-error';
 import { MessageBubble } from './ui/message';
 import { makePreview, trayItem } from './ui/attachments';
 import { ModelPicker } from './ui/model-picker';
@@ -622,7 +623,6 @@ byId('composer').onsubmit = (event) => {
     const attachments = current()?.attachments?.map((file) => file.id) ?? [];
     if ((!text.trim() && !attachments.length) || submitting || pickingFile) return;
     submitting = true;
-    let localOperation = false;
     renderAttachments();
     updateComposer();
     try {
@@ -634,15 +634,12 @@ byId('composer').onsubmit = (event) => {
           return;
         }
       }
-      localOperation = true;
       if (!current()) selected = (await rpc<Conversation>('create')).id;
       followNextMessage = true;
       // Sending the same draft again after a failure reuses its id, so it is never posted twice.
       const sending = JSON.stringify([selected, text, attachments]);
       if (unsent?.draft !== sending) unsent = { draft: sending, id: crypto.randomUUID() };
-      localOperation = false;
       await rpc('submit', { id: selected, text, attachments, queue, messageId: unsent.id });
-      localOperation = true;
       unsent = undefined;
       input.value = '';
       updateComposer();
@@ -652,7 +649,7 @@ byId('composer').onsubmit = (event) => {
       reportFirstUse(true);
     } catch (error) {
       // Uploads and provider requests are external failures, not bundle failures.
-      if (localOperation) reportFirstUse(false);
+      if (failureKind(error) === 'app') reportFirstUse(false);
       throw error;
     } finally {
       submitting = false;

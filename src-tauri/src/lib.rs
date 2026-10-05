@@ -1,3 +1,6 @@
+#[cfg(desktop)]
+use tauri::Manager;
+
 mod auth;
 mod updates;
 
@@ -6,6 +9,14 @@ pub fn run() {
     let mut context = tauri::generate_context!();
     let updates = updates::install(&mut context);
     let builder = tauri::Builder::default();
+    #[cfg(desktop)]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _, _| {
+        if let Some(window) = app.get_webview_window("main") {
+            let _ = window.unminimize();
+            let _ = window.show();
+            let _ = window.set_focus();
+        }
+    }));
     #[cfg(target_os = "android")]
     let builder = builder.invoke_system(include_str!("android-ipc.js"));
     builder
@@ -19,7 +30,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![auth::auth_prepare, auth::auth_wait, auth::auth_open, auth::auth_cancel,
             updates::updates_status, updates::updates_ready, updates::updates_check,
             updates::updates_snapshot, updates::updates_restore, updates::updates_reports,
-            updates::updates_first_use, updates::updates_flush])
+            updates::updates_first_use, updates::updates_flush, updates::updates_workspace_write, updates::updates_recovery_copy])
          .setup(move |app| {
             updates::initialize(app, updates).map_err(std::io::Error::other)?;
             let config = app.config().app.windows.first().expect("main window configuration");

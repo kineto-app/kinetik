@@ -1,3 +1,4 @@
+import { OperationFailure } from '../core/connection-error';
 import { addPluginListener, invoke } from '@tauri-apps/api/core';
 import { protocolVersion, type Op } from '../core/protocol';
 import { platformFetch } from './native-fetch';
@@ -20,6 +21,8 @@ export function connectNative() {
   }));
 }
 async function boot() {
+  const updateState = await invoke<{ recovery?: string | null }>('updates_status');
+  if (updateState.recovery) throw new Error(updateState.recovery);
   // Only the trusted application uses native transport. Sandboxed MCP frames do not inherit it.
   globalThis.fetch = platformFetch;
   const base = new URL('./', document.baseURI);
@@ -116,7 +119,7 @@ export async function nativeRPC<T>(op: Op, data: Record<string, unknown> = {}): 
     void host
       .handle({ op, ...data, protocol: protocolVersion }, (reply) => {
         if (reply.ok) resolve(reply.result as T);
-        else reject(new Error(reply.error));
+        else reject(new OperationFailure(reply.error, reply.failureKind));
       })
       .catch(reject);
   });
