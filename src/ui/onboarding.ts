@@ -539,13 +539,14 @@ export function setupConnections(changed: (state: SetupState) => void) {
       const settled =
         laterChosen() ||
         (await rpc<CustomModelState>('customModel', { action: 'state' })).configured;
+      // A build without Charms has nothing to connect there, so ChatGPT alone completes setup.
+      const ready =
+        (!state.charms.available || state.charms.status === 'connected') && state.chatgpt.connected;
       if (
-        (state.installation.required &&
-          !settled &&
-          !(state.charms.status === 'connected' && state.chatgpt.connected)) ||
+        (state.installation.required && !settled && !ready) ||
         callback ||
         sessionStorage.getItem('kinetik-setup') ||
-        (requested && !(state.charms.status === 'connected' && state.chatgpt.connected))
+        (requested && !ready)
       )
         open();
       if (requested && requested !== 'charms')
