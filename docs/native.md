@@ -29,7 +29,7 @@ For Windows, run `npm run desktop:build` on a Windows machine with the Tauri bui
 
 ### iOS Simulator
 
-No iPhone or Apple developer account is needed. On a Mac:
+No iPhone or Apple developer account is needed. On a Mac with Apple silicon:
 
 1. Install Xcode from the App Store, open it once, accept the license, and add the iOS platform when it offers (or later in **Xcode → Settings → Components**).
 2. Point the command-line tools at Xcode, add the Rust simulator target, and install CocoaPods:

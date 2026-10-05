@@ -3,7 +3,9 @@
 # so Keychain access works. Simulator only: physical devices use a real provisioning profile.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-[ -d src-tauri/gen/apple ] || npm run tauri -- ios init --ci
+project=src-tauri/gen/apple/kinetik.xcodeproj/project.pbxproj
+# The directory is generated; an interrupted init leaves it without a project, so start over.
+[ -f "$project" ] || { rm -rf src-tauri/gen/apple; npm run tauri -- ios init --ci; }
 identity=src-tauri/gen/apple/simulator-identity
 cat > "$identity.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -14,4 +16,4 @@ cat > "$identity.plist" <<'PLIST'
 </dict></plist>
 PLIST
 /usr/bin/derq query -f xml -i "$identity.plist" -o "$identity.der" --raw
-python3 scripts/configure-ios-simulator.py src-tauri/gen/apple/kinetik.xcodeproj/project.pbxproj "$identity"
+python3 scripts/configure-ios-simulator.py "$project" "$identity"

@@ -25,13 +25,14 @@ for config in configurations:
     key = "OTHER_LDFLAGS[sdk=iphonesimulator*]"
     flags = settings.get(key, settings.get("OTHER_LDFLAGS", ["$(inherited)"]))
     flags = shlex.split(flags) if isinstance(flags, str) else list(flags)
-    for section, suffix in [("__entitlements", ".plist"), ("__ents_der", ".der")]:
+    sections = [("__entitlements", ".plist"), ("__ents_der", ".der")]
+    # Replace identities configured earlier from another path instead of linking both.
+    flags = [f for f in flags if not any(f.startswith(f"-Wl,-sectcreate,__TEXT,{s},") for s, _ in sections)]
+    for section, suffix in sections:
         path = identity.with_suffix(suffix)
         if not path.is_file():
             raise SystemExit(f"Missing simulator identity: {path}")
-        flag = f"-Wl,-sectcreate,__TEXT,{section},{path}"
-        if flag not in flags:
-            flags.append(flag)
+        flags.append(f"-Wl,-sectcreate,__TEXT,{section},{path}")
     settings[key] = flags
     updated += 1
 if not updated:
