@@ -77,29 +77,74 @@ The same durable runtime journals tool calls and background jobs on every platfo
 
 ## Frontend updates
 
-Native updates use `tauri-plugin-hot-update` with signed manifests, SHA-256 archive verification, a minimum native version, atomic activation, and startup rollback. The default source build disables this channel. A distributor enables it at native-build time:
+The built-in updater silently stages signed web bundles for the next cold start. It is disabled by default on every platform. A distributor enables it at native-build time by setting `KINETIK_UPDATES_CONFIG` to a JSON file:
 
-```sh
-KINETIK_UPDATE_URL=https://updates.example.com/manifest.json \
-KINETIK_UPDATE_PUBLIC_KEY='RW...public-minisign-key...' \
-KINETIK_SIGNING_PROPERTIES=/path/to/signing.properties \
-npm run android:release
+```json
+{
+  "manifestUrl": "https://updates.example.com/manifest.json",
+  "channel": "everyone",
+  "publicKeys": ["<active minisign public key>", "<spare minisign public key>"],
+  "healthUrl": "https://updates.example.com/health"
+}
 ```
 
-Generate a minisign keypair once and keep the private key outside Git. Build the frontend with the same public connection configuration as the installed app, then sign it:
+Use the base64 public-key lines from two distinct minisign keypairs. The placeholders above are not keys. `healthUrl` is optional. Configuration is validated and embedded by the Rust build; invalid configuration fails the build. Keep private keys outside the repository. The manifest, signature, archive and health endpoints require HTTPS; redirects, URL credentials and fragments are rejected. A distributor can rotate signing from the active key to the spare without a shell release; replacing the trusted key set requires a native release.
+
+```sh
+KINETIK_UPDATES_CONFIG=/path/to/updates.json npm run android:release
+```
+
+Build `dist-native` with the same connection configuration as the installed app, then package it:
 
 ```sh
 npm run build:native
-KINETIK_UPDATE_SIGNING_KEY=/path/to/frontend-update.key \
-npm run package:native-update -- 0.1.2 0.1.1 https://updates.example.com/
+npm run package:native-update -- 0.2.0 0.1.15 1 https://updates.example.com/
 ```
 
-Upload the three files from `release/frontend/0.1.2/` to the configured host. Publish the archive before its manifest and signature. Never reuse an update version for different bytes. Changing the native bridge, permissions, signing trust, or platform capabilities requires a new native build. Downloadable code must also comply with the relevant store's distribution rules.
+The command writes `release/frontend/0.2.0/bundle-0.2.0.tar.gz` and `release.json`, and prints the unsigned release entry. Arguments are bundle version, minimum native shell version, workspace data format, and archive base URL. Archives contain the contents of `dist-native` at their root. Only regular files and directories are accepted; links, path traversal, duplicate files, and archives without `index.html` are rejected. Limits are 64 MiB compressed, 256 MiB extracted and 10,000 entries. The embedded workspace data format is currently `1`.
 
-Checks are passive. The user clicks Update to download and stage a bundle, then closes and reopens the app to activate it. No live chat reload is forced. A new bundle must reach the UI-ready acknowledgement; after two consecutive launches without that acknowledgement, the next cold launch returns to the prior working bundle. The embedded assets remain the final fallback. An update feed outage leaves the installed app usable.
+Each channel has one manifest with this shape. Replace the archive hash and size with the packager's output, and use a current validity period:
+
+```json
+{
+  "schema": 1,
+  "channel": "everyone",
+  "createdAt": "2026-10-01T00:00:00Z",
+  "expiresAt": "2026-11-01T00:00:00Z",
+  "releases": [
+    {
+      "version": "0.2.0",
+      "minShellVersion": "0.1.15",
+      "dataFormat": 1,
+      "urgent": false,
+      "rollout": 100,
+      "archive": {
+        "url": "https://updates.example.com/bundle-0.2.0.tar.gz",
+        "sha256": "<SHA-256 from release.json>",
+        "size": 12345
+      }
+    }
+  ],
+  "revoked": []
+}
+```
+
+Signing and publishing belong to the distributor. Sign the exact UTF-8 manifest bytes with minisign and serve the detached signature at the manifest path plus `.minisig`, such as `manifest.json.minisig`. Publish archives before the manifest and signature. Never reuse a version for different bytes. The app verifies the signature with either trusted key before parsing the manifest, then rejects malformed, expired, future-dated, or wrong-channel manifests.
+
+A release must exceed both the active version and a persistent version watermark, support the current native shell, and not be revoked. The updater chooses the highest eligible version. Rollout uses the entire SHA-256 digest of the installation UUID followed immediately by the version string, interpreted as a big-endian integer modulo 100. That bucket must be below `rollout`. The UUID is generated once and kept in app data; neither rollback nor opting out of reports changes it.
+
+Checks run after local UI readiness, on foreground, when connectivity returns, and every 15 minutes while visible. Downloads are bounded, checked against size and SHA-256, unpacked in a temporary directory, then renamed atomically. The running app never reloads. A small “Restart to update” pill appears for urgent updates or after a staged release has waited more than three days; close and reopen the app to apply it. There is no native Update button. The browser retains its separate service-worker update flow.
+
+The native shell selects assets before creating the webview, using Tauri's [`Context::set_assets`](https://docs.rs/tauri/latest/tauri/struct.Context.html#method.set_assets). The webview origin and local storage stay unchanged. The main screen must paint and the local chat list must load before JavaScript calls `updates_ready`. Two consecutive starts without that acknowledgement cause rollback on the following cold start. A revoked active version also rolls back on the next cold start. The fallback is the previous healthy bundle, or the embedded bundle if the previous one is revoked or absent. Embedded, previous good, current and staged bundles are retained. The first healthy start of a new bundle shows “Kinetik was updated”. Native bridge, permission, signing trust and platform changes still require a native release. Desktop full-app updates use a separate updater.
+
+Before activating a release with a higher `dataFormat`, the old code saves the existing workspace export to `<app data>/updates/snapshots/<from-version>.json`. Export waits until work is idle; activation stays blocked until it succeeds. Rollback restores that snapshot before runtime initialization, then deletes it. Restore follows workspace import semantics: credentials stay on the device, imported plugins are disabled, and routines are paused. Changes made after the snapshot are not in the restored workspace. A snapshot is removed after three healthy starts of the new version. Further releases wait for that observation period to finish. Snapshots contain private workspace data and are never sent with reports.
+
+If `healthUrl` is configured, Settings offers “Send anonymous update reports”, enabled by default. Reports contain only `{ installId, platform, shellVersion, bundleVersion, channel, event, at }`. Events are `started`, `failed_start`, `rolled_back`, `first_use_ok` and `first_use_error`. First use means opening a chat or submitting a message after an update; model and network failures are not update failures. Reports are stored locally, retried with exponential backoff, and capped at 100 queued events. Opting out clears queued reports. A request already sent may finish. No chats, credentials, or exception text are included. Manifest outages and report failures do not block the UI.
+
+The initial switch from a shell without this module requires a native release. Downloaded code must comply with the target store's distribution rules. Device acceptance testing is still required before distributing an enabled build.
 
 ## Validation
 
-`npm run check` covers the shared runtime and browser interface. `cargo test --manifest-path src-tauri/Cargo.toml` covers callback validation; `cargo test --manifest-path native-plugin/Cargo.toml` covers desktop encryption boundaries. Native CI builds supplement these checks and upload Android debug APKs, Windows installers, and an iOS simulator app. Windows CI launches the app and checks that the accessibility tree contains the ChatGPT sign-in action; iOS CI checks the launch screenshot for usable onboarding. Both checks upload their launch evidence. These artifacts do not prove real account login or physical-device lifecycle behavior.
+`npm run check` covers the shared runtime and browser interface. `cargo test --manifest-path src-tauri/Cargo.toml` covers callback validation and updater signatures, eligibility, extraction, rollback, snapshots, health gating and a signed loopback feed. Install `minisign` to generate fresh test keys; tests commit no keys. The loopback integration test injects an HTTP client only in test code; production enforces HTTPS. `cargo test --manifest-path native-plugin/Cargo.toml` covers desktop encryption boundaries. Native CI builds supplement these checks and upload Android debug APKs, Windows installers, and an iOS simulator app. Windows CI launches the app and checks that the accessibility tree contains the ChatGPT sign-in action; iOS CI checks the launch screenshot for usable onboarding. Both checks upload their launch evidence. These artifacts do not prove real account login or physical-device lifecycle behavior.
 
 Before distributing a native release, test a real subscription-backed response, Charms tools and skills, native file selection, widget isolation/fullscreen, screen lock, notification Stop, process-loss recovery, signed APK upgrades, and signed frontend update/rollback on devices. `tests/native/device-probe.ts` is an optional debug-WebView test fixture and is never bundled into the app.
