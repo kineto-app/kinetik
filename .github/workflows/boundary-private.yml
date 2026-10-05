@@ -1,0 +1,36 @@
+name: Boundary (private rules)
+# Runs the base branch's scanner over a pull request as data, with the maintainers' private rules.
+# Nothing from the pull request is executed, and a finding reports only the rule and place. A
+# separate workflow, so no skipped run of this job can stand in for the real one.
+on:
+  pull_request_target:
+    types: [opened, edited, synchronize, reopened]
+permissions:
+  contents: read
+jobs:
+  private:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      BOUNDARY_OCR: required
+      BOUNDARY_RULES: ${{ secrets.BOUNDARY_RULES }}
+      BASE: ${{ github.event.pull_request.base.sha }}
+      HEAD: ${{ github.event.pull_request.head.sha }}
+      NUMBER: ${{ github.event.pull_request.number }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - run: git fetch --no-tags origin "pull/$NUMBER/head"
+      - run: sudo apt-get install -y -qq tesseract-ocr > /dev/null
+      - name: Commits, files, images, messages and identities
+        run: node scripts/boundary.mjs --range "$BASE" "$HEAD"
+      - name: Title and description
+        shell: bash
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+          BODY: ${{ github.event.pull_request.body }}
+        run: |
+          set -o pipefail
+          printf '%s\n\n%s\n' "$TITLE" "$BODY" | node scripts/boundary.mjs -
