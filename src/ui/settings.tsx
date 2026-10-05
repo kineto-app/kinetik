@@ -530,6 +530,8 @@ function UpdateReports() {
           <span class="settings-label">Send anonymous update reports</span>
           <input
             type="checkbox"
+            role="switch"
+            class="settings-switch"
             checked={enabled()}
             disabled={saving()}
             aria-describedby="update-reports-note"
