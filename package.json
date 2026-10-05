@@ -36,6 +36,7 @@
     "android:build": "tauri android build",
     "ios:dev": "tauri ios dev",
     "ios:build": "tauri ios build",
+    "ios:simulator": "bash scripts/ios-simulator.sh",
     "desktop:build": "tauri build",
     "build:native": "node scripts/build.mjs --native",
     "android:release": "node scripts/build-android.mjs",
