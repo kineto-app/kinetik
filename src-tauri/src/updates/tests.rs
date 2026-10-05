@@ -760,3 +760,249 @@ fn first_use_error_is_not_overwritten_by_later_success() {
     let mut restarted: State = serde_json::from_slice(&serde_json::to_vec(&s).unwrap()).unwrap();
     assert_eq!(restarted.first_use(true), None);
 }
+
+async fn health_receiver(
+    statuses: Vec<u16>,
+) -> (String, Arc<std::sync::Mutex<Vec<serde_json::Value>>>) {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}/health", listener.local_addr().unwrap());
+    let received = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let requests = received.clone();
+    tokio::spawn(async move {
+        loop {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut bytes = Vec::new();
+            let body = loop {
+                let mut chunk = [0; 4096];
+                let count = stream.read(&mut chunk).await.unwrap();
+                assert_ne!(count, 0);
+                bytes.extend_from_slice(&chunk[..count]);
+                if let Some(end) = bytes.windows(4).position(|part| part == b"\r\n\r\n") {
+                    let headers = String::from_utf8_lossy(&bytes[..end]);
+                    let size: usize = headers
+                        .lines()
+                        .find_map(|line| {
+                            let (key, value) = line.split_once(':')?;
+                            key.eq_ignore_ascii_case("content-length")
+                                .then(|| value.trim().parse().unwrap())
+                        })
+                        .unwrap();
+                    if bytes.len() >= end + 4 + size {
+                        break bytes[end + 4..end + 4 + size].to_vec();
+                    }
+                }
+            };
+            let status = {
+                let mut requests = requests.lock().unwrap();
+                let status = statuses.get(requests.len()).copied().unwrap_or(200);
+                requests.push(serde_json::from_slice(&body).unwrap());
+                status
+            };
+            stream
+                .write_all(
+                    format!(
+                        "HTTP/1.1 {status} Result\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                    )
+                    .as_bytes(),
+                )
+                .await
+                .unwrap();
+        }
+    });
+    (url, received)
+}
+fn reporting_updates(root: &std::path::Path, url: String) -> Updates {
+    let keys = Keys::new();
+    let mut config = keys.config();
+    config.health_url = Some(url);
+    let mut state = State::new(embedded());
+    for n in 1..=6 {
+        health::enqueue(
+            &mut state,
+            &config,
+            "1.0.0",
+            &format!("1.0.{n}"),
+            Event::Started,
+        );
+    }
+    let mut engine = Engine {
+        config,
+        root: root.to_path_buf(),
+        state,
+        embedded: embedded(),
+        ready: true,
+        blocked: None,
+    };
+    engine.save(engine.state.clone()).unwrap();
+    Updates {
+        engine: Mutex::new(Some(engine)),
+        _ownership: None,
+        startup_recovery: None,
+        checking: Mutex::new(()),
+        reporting: Mutex::new(()),
+    }
+}
+#[test]
+fn one_flush_delivers_all_due_health_reports_in_queue_order() {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(async {
+            let root = tempfile::tempdir().unwrap();
+            let (url, received) = health_receiver(vec![]).await;
+            let updates = reporting_updates(root.path(), url);
+            commands::flush(&updates, &reqwest::Client::new())
+                .await
+                .unwrap();
+            let payloads = received.lock().unwrap();
+            assert_eq!(payloads.len(), 6, "one flush must drain the backlog");
+            assert_eq!(
+                payloads
+                    .iter()
+                    .map(|p| p["bundleVersion"].as_str().unwrap())
+                    .collect::<Vec<_>>(),
+                vec!["1.0.1", "1.0.2", "1.0.3", "1.0.4", "1.0.5", "1.0.6"]
+            );
+            assert!(
+                persistence::load(root.path(), &embedded())
+                    .unwrap()
+                    .state
+                    .reports
+                    .is_empty()
+            );
+        });
+}
+
+#[test]
+fn health_flush_stops_at_failure_and_preserves_order_through_backoff_and_restart() {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(async {
+            let root = tempfile::tempdir().unwrap();
+            let (url, received) = health_receiver(vec![200, 503]).await;
+            let updates = reporting_updates(root.path(), url);
+            let client = reqwest::Client::new();
+            commands::flush(&updates, &client).await.unwrap();
+            assert_eq!(
+                received.lock().unwrap().len(),
+                2,
+                "stop on the first failed response"
+            );
+            let saved = persistence::load(root.path(), &embedded()).unwrap().state;
+            assert_eq!(saved.reports.len(), 5);
+            assert_eq!(saved.reports[0].attempts, 1);
+            assert!(saved.reports[0].next_at > Utc::now().timestamp());
+            assert!(saved.reports[1..].iter().all(|r| r.attempts == 0));
+            updates.engine.lock().await.as_mut().unwrap().state = saved;
+            commands::flush(&updates, &client).await.unwrap();
+            assert_eq!(
+                received.lock().unwrap().len(),
+                2,
+                "backoff must not allow later events to overtake the failure"
+            );
+            {
+                let mut guard = updates.engine.lock().await;
+                let engine = guard.as_mut().unwrap();
+                let mut next = engine.state.clone();
+                next.reports[0].next_at = 0;
+                engine.save(next).unwrap();
+            }
+            commands::flush(&updates, &client).await.unwrap();
+            assert_eq!(
+                received
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .map(|p| p["bundleVersion"].as_str().unwrap().to_owned())
+                    .collect::<Vec<_>>(),
+                vec![
+                    "1.0.1", "1.0.2", "1.0.2", "1.0.3", "1.0.4", "1.0.5", "1.0.6"
+                ]
+            );
+            assert!(
+                persistence::load(root.path(), &embedded())
+                    .unwrap()
+                    .state
+                    .reports
+                    .is_empty()
+            );
+        });
+}
+
+#[test]
+fn rollback_reports_abandoned_and_running_versions_after_failures_or_revocation() {
+    for revoked in [false, true] {
+        let root = tempfile::tempdir().unwrap();
+        let keys = Keys::new();
+        let e = embedded();
+        let mut config = keys.config();
+        config.health_url = Some("https://example.com/health".into());
+        let mut s = State::new(e.clone());
+        s.active = Bundle {
+            version: version("1.2.0"),
+            data_format: 1,
+        };
+        s.previous = Some(Bundle {
+            version: version("1.1.0"),
+            data_format: 1,
+        });
+        s.watermark = s.active.version.clone();
+        for v in ["1.1.0", "1.2.0"] {
+            download::atomic_write(
+                &root.path().join("versions").join(v).join("index.html"),
+                b"code",
+            )
+            .unwrap();
+        }
+        if revoked {
+            s.revoked = vec![version("1.2.0"), version("1.1.0")];
+        }
+        persistence::commit(root.path(), &s).unwrap();
+        // Failure rollback is reached through three actual cold starts without acknowledgement.
+        for _ in 0..if revoked { 1 } else { 3 } {
+            assert!(
+                start(config.clone(), root.path().to_path_buf(), e.clone())
+                    .recovery
+                    .is_none()
+            );
+        }
+        let saved = persistence::load(root.path(), &e).unwrap().state;
+        let rollback = saved
+            .reports
+            .iter()
+            .find(|r| r.payload.event == Event::RolledBack)
+            .unwrap();
+        let payload = serde_json::to_value(&rollback.payload).unwrap();
+        assert_eq!(
+            payload["bundleVersion"], "1.2.0",
+            "identify the abandoned code"
+        );
+        assert_eq!(
+            payload["runningBundleVersion"],
+            if revoked { "1.0.0" } else { "1.1.0" }
+        );
+        assert!(
+            saved
+                .reports
+                .iter()
+                .filter(|r| r.payload.event != Event::RolledBack)
+                .all(|r| serde_json::to_value(&r.payload)
+                    .unwrap()
+                    .get("runningBundleVersion")
+                    .is_none())
+        );
+        let mut legacy = payload;
+        legacy
+            .as_object_mut()
+            .unwrap()
+            .remove("runningBundleVersion");
+        assert!(
+            serde_json::from_value::<health::Payload>(legacy).is_ok(),
+            "existing queues remain readable"
+        );
+    }
+}

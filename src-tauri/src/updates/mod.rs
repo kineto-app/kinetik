@@ -287,7 +287,7 @@ fn start(config: config::Config, root: PathBuf, embedded: Bundle) -> Startup {
     }
     let old_version = next.active.version.to_string();
     for event in next.boot(&engine.embedded) {
-        let version = if event == Event::FailedStart {
+        let version = if matches!(event, Event::FailedStart | Event::RolledBack) {
             old_version.clone()
         } else {
             next.active.version.to_string()

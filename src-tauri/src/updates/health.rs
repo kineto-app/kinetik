@@ -18,6 +18,8 @@ pub struct Payload {
     pub platform: String,
     pub shell_version: String,
     pub bundle_version: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub running_bundle_version: Option<String>,
     pub channel: String,
     pub event: Event,
     pub at: DateTime<Utc>,
@@ -43,6 +45,8 @@ pub fn enqueue(state: &mut State, config: &Config, shell: &str, bundle: &str, ev
             platform: std::env::consts::OS.into(),
             shell_version: shell.into(),
             bundle_version: bundle.into(),
+            running_bundle_version: (event == Event::RolledBack)
+                .then(|| state.active.version.to_string()),
             channel: config.channel.clone(),
             event,
             at: Utc::now(),

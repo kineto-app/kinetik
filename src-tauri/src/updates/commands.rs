@@ -207,51 +207,60 @@ pub async fn updates_first_use(updates: tauri::State<'_, Updates>, ok: bool) -> 
 }
 #[tauri::command]
 pub async fn updates_flush(updates: tauri::State<'_, Updates>) -> Result<()> {
+    flush(&updates, &download::client()?).await
+}
+
+// A supplied client lets tests exercise the real delivery path with a local receiver.
+pub(super) async fn flush(updates: &Updates, client: &reqwest::Client) -> Result<()> {
     let Ok(_sending) = updates.reporting.try_lock() else {
         return Ok(());
     };
-    let pending = {
-        let guard = updates.engine.lock().await;
-        let Some(engine) = guard.as_ref() else {
+    loop {
+        let pending = {
+            let guard = updates.engine.lock().await;
+            let Some(engine) = guard.as_ref() else {
+                return Ok(());
+            };
+            engine.ensure_writable()?;
+            if !engine.state.reports_enabled {
+                return Ok(());
+            }
+            engine.config.health_url.as_ref().and_then(|url| {
+                engine
+                    .state
+                    .reports
+                    .first()
+                    .filter(|r| r.next_at <= Utc::now().timestamp())
+                    .map(|r| (url.clone(), r.clone()))
+            })
+        };
+        let Some((url, report)) = pending else {
             return Ok(());
         };
-        engine.ensure_writable()?;
-        if !engine.state.reports_enabled {
+        let result = client
+            .post(url)
+            .timeout(std::time::Duration::from_secs(5))
+            .json(&report.payload)
+            .send()
+            .await;
+        let sent = result.is_ok_and(|r| r.status().is_success());
+        let mut guard = updates.engine.lock().await;
+        let Some(engine) = guard.as_mut() else {
+            return Ok(());
+        };
+        let mut next = engine.state.clone();
+        if let Some(index) = next.reports.iter().position(|r| r.id == report.id) {
+            if sent {
+                next.reports.remove(index);
+            } else {
+                health::retry(&mut next.reports[index]);
+            }
+            engine.save(next)?;
+        }
+        if !sent {
             return Ok(());
         }
-        engine.config.health_url.as_ref().and_then(|url| {
-            engine
-                .state
-                .reports
-                .iter()
-                .find(|r| r.next_at <= Utc::now().timestamp())
-                .map(|r| (url.clone(), r.clone()))
-        })
-    };
-    let Some((url, report)) = pending else {
-        return Ok(());
-    };
-    let result = download::client()?
-        .post(url)
-        .timeout(std::time::Duration::from_secs(5))
-        .json(&report.payload)
-        .send()
-        .await;
-    let sent = result.is_ok_and(|r| r.status().is_success());
-    let mut guard = updates.engine.lock().await;
-    let Some(engine) = guard.as_mut() else {
-        return Ok(());
-    };
-    let mut next = engine.state.clone();
-    if let Some(index) = next.reports.iter().position(|r| r.id == report.id) {
-        if sent {
-            next.reports.remove(index);
-        } else {
-            health::retry(&mut next.reports[index]);
-        }
-        engine.save(next)?;
     }
-    Ok(())
 }
 
 /// Called under the workspace lock, before any IndexedDB mutation.
