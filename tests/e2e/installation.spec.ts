@@ -72,6 +72,22 @@ test('after "Later", setup does not open by itself again; the connect button sti
   await expect(page.getByRole('heading', { name: 'Connect ChatGPT' })).toBeVisible();
 });
 
+test('a build without Charms counts setup as done once ChatGPT is connected', async ({
+  page,
+  request,
+}, info) => {
+  await request.get(base + 'without-charms');
+  await request.post(base + 'connections/chatgpt/callback', { data: {} });
+  for (const launch of ['first', 'next']) {
+    if (launch === 'first') await page.goto(base);
+    else await page.reload();
+    // Setup decides once the app is ready, so wait for that before checking it stayed closed.
+    await expect(page.locator('#status')).toHaveText('Ready');
+    await expect(page.locator('#connection-setup')).toBeHidden();
+  }
+  await page.screenshot({ path: info.outputPath('without-charms-relaunch.png') });
+});
+
 test('with a custom model set up, setup does not open by itself on the next launch', async ({
   page,
 }, info) => {

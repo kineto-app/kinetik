@@ -5,6 +5,7 @@ import { extname, resolve, sep } from 'node:path';
 const base = 'http://127.0.0.1:4174';
 const prefix = '/onboarding/';
 let installRequired = false;
+let withoutCharms = false;
 let browserChatGPT = false;
 let modelRelay = false;
 let failActivation = false;
@@ -47,6 +48,10 @@ export async function onboardingFixture(req, res) {
   };
   if (url.pathname === prefix + 'require-install') {
     installRequired = true;
+    return reply({});
+  }
+  if (url.pathname === prefix + 'without-charms') {
+    withoutCharms = true;
     return reply({});
   }
   if (url.pathname === prefix + 'browser-chatgpt') {
@@ -107,6 +112,7 @@ export async function onboardingFixture(req, res) {
     browserChatGPT = false;
     modelRelay = false;
     installRequired = false;
+    withoutCharms = false;
     connected = false;
     revoked = false;
     flows.clear();
@@ -119,14 +125,16 @@ export async function onboardingFixture(req, res) {
   if (url.pathname === prefix + 'config.json')
     return reply({
       installation: { required: installRequired },
-      connections: {
-        charms: {
-          url: base + prefix + 'connections/charms/mcp',
-          resource: base + '/resource',
-          issuer: base + '/fixture-oauth',
-          metadataUrl: base + prefix + 'connections/charms/metadata',
-        },
-      },
+      connections: withoutCharms
+        ? {}
+        : {
+            charms: {
+              url: base + prefix + 'connections/charms/mcp',
+              resource: base + '/resource',
+              issuer: base + '/fixture-oauth',
+              metadataUrl: base + prefix + 'connections/charms/metadata',
+            },
+          },
       chatgpt: browserChatGPT
         ? {
             mode: 'browser',

@@ -1,10 +1,3 @@
 {
-  "connections": {
-    "charms": {
-      "url": "https://kineto.app/api/charms/mcp",
-      "resource": "https://kineto.app/api/charms/mcp",
-      "issuer": "https://kineto.app/mcpoauth",
-      "metadataUrl": "https://kineto.app/.well-known/oauth-authorization-server/mcpoauth"
-    }
-  }
+  "connections": {}
 }

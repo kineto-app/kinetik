@@ -145,9 +145,13 @@ jobs:
             xcrun simctl spawn "$KINETIK_SIMULATOR" log show --last 3m --style compact --predicate 'process == "Kinetik" OR process == "securityd" OR process == "SpringBoard"'
             exit 1
           fi
-          sleep 8
-          xcrun simctl io "$KINETIK_SIMULATOR" screenshot ios-launch.png
-          swift scripts/verify-ios-launch.swift ios-launch.png
+          # A cold simulator can take well over ten seconds to draw the first screen.
+          for attempt in $(seq 1 20); do
+            sleep 2
+            xcrun simctl io "$KINETIK_SIMULATOR" screenshot ios-launch.png
+            swift scripts/verify-ios-launch.swift ios-launch.png && exit 0
+          done
+          exit 1
       - name: Upload launch screenshot
         if: always()
         uses: actions/upload-artifact@v4
