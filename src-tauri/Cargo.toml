@@ -44,6 +44,9 @@ tokio = { version = "1", features = ["net", "io-util", "sync", "time"] }
 url = "2"
 uuid = { version = "1", features = ["v4"] }
 
+[dev-dependencies]
+minisign = "0.9"
+
 [profile.release]
 strip = true
 lto = "thin"

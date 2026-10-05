@@ -2,10 +2,7 @@ use super::*;
 use manifest::{Archive, Manifest, Release};
 use semver::Version;
 use sha2::{Digest, Sha256};
-use std::{
-    io::{Read, Write},
-    process::Command,
-};
+use std::io::{Read, Write};
 
 fn version(v: &str) -> Version {
     Version::parse(v).unwrap()
@@ -41,59 +38,37 @@ fn manifest() -> Manifest {
     }
 }
 struct Keys {
-    dir: tempfile::TempDir,
-    public: Vec<String>,
+    pairs: Vec<minisign::KeyPair>,
 }
 impl Keys {
     fn new() -> Self {
-        let dir = tempfile::tempdir().unwrap();
-        let mut public = vec![];
-        for index in 0..3 {
-            assert!(
-                Command::new("minisign")
-                    .args(["-G", "-W", "-s"])
-                    .arg(dir.path().join(format!("{index}.key")))
-                    .arg("-p")
-                    .arg(dir.path().join(format!("{index}.pub")))
-                    .output()
-                    .expect("Tests require minisign")
-                    .status
-                    .success()
-            );
-            public.push(
-                std::fs::read_to_string(dir.path().join(format!("{index}.pub")))
-                    .unwrap()
-                    .lines()
-                    .nth(1)
-                    .unwrap()
-                    .into(),
-            );
+        Self {
+            pairs: (0..3)
+                .map(|_| minisign::KeyPair::generate_unencrypted_keypair().unwrap())
+                .collect(),
         }
-        Self { dir, public }
     }
     fn config(&self) -> config::Config {
         config::Config {
             manifest_url: "https://example.com/manifest.json".into(),
             channel: "test".into(),
-            public_keys: self.public[..2].to_vec(),
+            public_keys: self.pairs[..2]
+                .iter()
+                .map(|pair| pair.pk.to_base64())
+                .collect(),
             health_url: None,
         }
     }
     fn sign(&self, bytes: &[u8], key: usize) -> String {
-        let path = self.dir.path().join("manifest.json");
-        std::fs::write(&path, bytes).unwrap();
-        assert!(
-            Command::new("minisign")
-                .args(["-S", "-s"])
-                .arg(self.dir.path().join(format!("{key}.key")))
-                .arg("-m")
-                .arg(&path)
-                .output()
-                .unwrap()
-                .status
-                .success()
-        );
-        std::fs::read_to_string(path.with_extension("json.minisig")).unwrap()
+        minisign::sign(
+            None,
+            &self.pairs[key].sk,
+            std::io::Cursor::new(bytes),
+            Some("update test"),
+            None,
+        )
+        .unwrap()
+        .into_string()
     }
 }
 #[test]
