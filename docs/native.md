@@ -55,7 +55,7 @@ An unsigned simulator build needs an app identity for Keychain access. `scripts/
 
 A physical iOS build needs an Apple development team and signing identity. Set `APPLE_DEVELOPMENT_TEAM`. Do not regenerate Android project files without reviewing the resulting manifest and signing changes.
 
-`src-tauri/gen/apple` is generated, so every iOS build runs one shared step after `tauri ios init` and before building:
+`src-tauri/gen/apple` is generated, so every iOS build runs one shared step right after `tauri ios init`, before any other change to the generated project or its `Info.plist`, and before building:
 
 ```sh
 npm run tauri -- ios init --ci
@@ -63,7 +63,7 @@ scripts/prepare-ios.sh
 npm run tauri -- ios build
 ```
 
-It is safe to repeat. It copies the privacy manifest, `src-tauri/ios/PrivacyInfo.xcprivacy`, into the app's resources and adds `$(PRODUCT_BUNDLE_IDENTIFIER).run.*` to `BGTaskSchedulerPermittedIdentifiers` in `Info.plist`, which work that continues in the background needs. No background mode or entitlement is added for it; device validation is still pending. Set `KINETIK_PRIVACY_MANIFEST` to ship your own manifest instead, for example when your connection's service collects other data. Check a build with `plutil -p Kinetik.app/PrivacyInfo.xcprivacy`.
+It is safe to repeat and needs XcodeGen, which `tauri ios init` uses too. It copies the privacy manifest, `src-tauri/ios/PrivacyInfo.xcprivacy`, into the generated sources folder, regenerates the project with XcodeGen so the manifest becomes an app resource and the project keeps Xcode's text format, and then adds `$(PRODUCT_BUNDLE_IDENTIFIER).run.*` to `BGTaskSchedulerPermittedIdentifiers` in `Info.plist`, which work that continues in the background needs. No background mode or entitlement is added for it; device validation is still pending. Set `KINETIK_PRIVACY_MANIFEST` to ship your own manifest instead, for example when your connection's service collects other data; the step refuses a manifest that is not a dictionary of the four privacy manifest keys with their expected types. Check a build with `plutil -p Kinetik.app/PrivacyInfo.xcprivacy`.
 
 The manifest declares no tracking. Collected data: messages and files (other user content, photos or videos) go to the model provider and the configured connection, the connection knows the signed-in user (user ID), and update reports send anonymous diagnostics when a distributor enables them; all for app functionality. Required-reason APIs come from the app's own code and its libraries: file timestamps (`stat` family; C617.1 for files in the app container, 3B52.1 for files the user picks).
 
@@ -94,8 +94,8 @@ Features are shared; where a platform truly differs, the app reads a capability 
 | -------------------------------- | --- | --- | ------- | ------- |
 | Add plugins from a link          | Yes | No  | Yes     | Yes     |
 | Routines run only while open     | Yes | Yes | No      | No      |
-| Work continues after leaving     | No  | 26+ | Yes     | No      |
-| Notifications when work finishes | Yes | Yes | Yes     | No      |
+| Work continues after leaving     | No  | Off | Yes     | No      |
+| Notifications when work finishes | Yes | Off | Yes     | No      |
 
 A native app that cannot tell its operating system (an older app shell, where an iPad can look like a Mac) gets the most restrictive column: plugins from a link do not run (they stay turned on for when the app can tell), no notifications, and routines only while open.
 
@@ -121,9 +121,9 @@ Work a user starts continues for a while after they leave the app where the plat
 
 Android starts a foreground service while user work or sign-in is active. Its notification has a Stop action. A wake lock and heartbeat support the existing JavaScript runtime; an absent heartbeat stops the service. It is not an always-on daemon and does not start on device boot. OEM power restrictions, force stop, and process loss can interrupt work.
 
-The same durable runtime journals tool calls and background jobs on every platform. On reopening, remote jobs with recovery support are recovered without launching them again. Interrupted local commands cannot resume mid-command; uncertain effects are shown for review rather than blindly repeated. On iOS 26 and later, starting work asks the system for a continued-processing task. This is implemented but not yet validated on a device; the iOS Simulator declines the request, so work there resumes on return. The task shows its progress outside the app and keeps the app running for a while after the user leaves. The system decides how long, may decline or end it at any time, and the app ends it when the JavaScript runtime stops reporting progress for two minutes; the work then resumes when the user returns. The request is made while the app is in front, at most once per stretch of work. Earlier iOS versions and the web resume on return, without continuous execution after suspension.
+The same durable runtime journals tool calls and background jobs on every platform. On reopening, remote jobs with recovery support are recovered without launching them again. Interrupted local commands cannot resume mid-command; uncertain effects are shown for review rather than blindly repeated. iOS and the web resume on return, without continuous execution after suspension. The iOS app also carries support for continuing on iOS 26 and later, but it is off: the agent runs in the webview, which iOS may suspend whatever the app asks, and it has not been validated on devices. `iosContinuesAfterLeaving` in `src/platform/environment.ts` turns it on without a native change. When on, a run the user started (not a routine, queued or recovered work) asks the system for a continued-processing task while the app is in front, at most once per stretch of work. The system shows its progress, decides how long it lasts and may decline it; when the user or the system ends it, the work stops, as with Android's Stop. The app ends the task itself when the JavaScript runtime stops reporting progress for two minutes, and the work resumes on return.
 
-Android and iOS use native notifications. iOS asks for permission when **Notify me when work finishes** is turned on; posting a notification and opening the chat from a tap while the app is still running are implemented and still need device validation.
+Android uses native notifications. The iOS app has them too (permission when the switch is turned on, a local notification for finished work, a tap that opens the chat, including after a cold start), but the switch stays hidden with the same flag, since work cannot finish while the app is away; this still needs device validation.
 
 ## Frontend updates
 

@@ -122,7 +122,7 @@ Deleting a chat does not ask: it disappears with "Deleted · Undo" for 8 seconds
 
 On Android the window ends at the keyboard and follows its animation, so the composer stays visible while you type. After **Later**, or once a custom model is set up, setup no longer opens by itself on each launch; the connection button still opens it.
 
-**Notifications.** When a chat you are not looking at finishes, asks a question or needs a look, a toast says so with **Open**, and the chat gets a dot in the list until you open it. **Settings → Notify me when work finishes** adds system notifications when no Kinetik window is in front; Kinetik also offers this once, after the first task that took over 15 seconds. Tapping a notification opens its chat. The web app shows them from the service worker where the browser supports notifications; the Android app uses a native notification. iOS and desktop do not notify yet, and the desktop apps hide the switch.
+**Notifications.** When a chat you are not looking at finishes, asks a question or needs a look, a toast says so with **Open**, and the chat gets a dot in the list until you open it. **Settings → Notify me when work finishes** adds system notifications when no Kinetik window is in front; Kinetik also offers this once, after the first task that took over 15 seconds. Tapping a notification opens its chat. The web app shows them from the service worker where the browser supports notifications; the Android app uses a native notification. iOS and desktop do not notify yet and hide the switch.
 
 ## Plugins and skills
 
