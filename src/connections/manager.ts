@@ -1,6 +1,7 @@
 import type { Store } from '../core/ports';
 import { allowedURL, Plugins } from '../plugins/loader';
-import type { Configuration, ConnectionPreset } from './config';
+import { clientPlatform, type ClientPlatform } from '../platform/environment';
+import type { AppDetails, Configuration, ConnectionPreset } from './config';
 import { credentialKey, usable, type Credential } from './credentials';
 
 interface Connection {
@@ -26,6 +27,8 @@ export interface ConnectionState {
 }
 export interface SetupState {
   native?: boolean;
+  platform: ClientPlatform;
+  app: AppDetails;
   installation: { required: boolean };
   charms: ConnectionState;
   chatgpt: {
@@ -137,6 +140,8 @@ export class Connections {
     }
     return {
       native: this.config.native,
+      platform: clientPlatform(),
+      app: this.config.app ?? {},
       installation: { required: this.config.installation?.required === true },
       charms: {
         available: Boolean(preset),
@@ -222,7 +227,7 @@ export class Connections {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          client_name: 'Kinetik OSS',
+          client_name: this.config.app?.clientName ?? 'Kinetik OSS',
           redirect_uris: [redirectUri],
           token_endpoint_auth_method: 'none',
           grant_types: ['authorization_code'],

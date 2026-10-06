@@ -6,6 +6,7 @@ import { RuntimeHost } from '../core/host';
 import { BrowserChatGPT } from '../connections/chatgpt';
 import { parseConfiguration, type Configuration } from '../connections/config';
 import { NativeStore } from './secure-store';
+import { capabilities, guessNativePlatform, setClientPlatform } from './environment';
 
 declare const __NATIVE_CONFIG__: unknown;
 let host: RuntimeHost;
@@ -26,6 +27,10 @@ async function boot() {
     (await import('./update-recovery')).showUpdateRecovery(updateState);
     throw new Error(updateState.recovery);
   }
+  // Older native shells cannot report their operating system.
+  setClientPlatform(
+    await invoke<string>('client_platform').catch(() => guessNativePlatform(navigator.userAgent)),
+  );
   // Only the trusted application uses native transport. Sandboxed MCP frames do not inherit it.
   globalThis.fetch = platformFetch;
   const base = new URL('./', document.baseURI);
@@ -38,6 +43,9 @@ async function boot() {
   const chatgpt = new BrowserChatGPT(
     config.chatgpt!.mode === 'browser' ? config.chatgpt!.jwksUrl : '',
     new NativeStore('chatgpt', true),
+    undefined,
+    undefined,
+    config.app?.clientName,
   );
   host = new RuntimeHost(
     new NativeStore(),
@@ -63,7 +71,7 @@ async function boot() {
   await addPluginListener('native', 'open-chat', ({ id }: { id: string }) =>
     window.dispatchEvent(new CustomEvent('kinetik-open-chat', { detail: id })),
   ).catch(() => {});
-  if (/Android/i.test(navigator.userAgent))
+  if (capabilities().continuesAfterLeaving)
     await addPluginListener('native', 'background-stop', async () => {
       const jobs = await host.store.entries<{ conversationId: string; state: string }>(
         'background:',

@@ -4,6 +4,12 @@ use tauri::Manager;
 mod auth;
 mod updates;
 
+/// The operating system, which the app reports to the connections it is configured with.
+#[tauri::command]
+fn client_platform() -> &'static str {
+    std::env::consts::OS
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let mut context = tauri::generate_context!();
@@ -27,7 +33,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_deep_link::init())
-        .invoke_handler(tauri::generate_handler![auth::auth_prepare, auth::auth_wait, auth::auth_open, auth::auth_cancel,
+        .invoke_handler(tauri::generate_handler![client_platform, auth::auth_prepare, auth::auth_wait, auth::auth_open, auth::auth_cancel,
             updates::updates_status, updates::updates_ready, updates::updates_check,
             updates::updates_snapshot, updates::updates_restore, updates::updates_reports,
             updates::updates_first_use, updates::updates_flush, updates::updates_workspace_write, updates::updates_recovery_copy])

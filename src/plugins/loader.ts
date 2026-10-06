@@ -1,4 +1,4 @@
-import { isNative } from '../platform/environment';
+import { clientPlatform, isNative } from '../platform/environment';
 import type { Store } from '../core/ports';
 import {
   errorText,
@@ -212,6 +212,7 @@ export class Plugins {
           managed
             ? (value) => invalidateToken(this.store, installed.manifest.id, value)
             : undefined,
+          managed ? { 'X-Client-Platform': clientPlatform() } : undefined,
         );
       },
     });

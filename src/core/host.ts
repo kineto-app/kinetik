@@ -14,6 +14,7 @@ import { Connections } from '../connections/manager';
 import { CompatModel } from '../models/compat';
 import { MockModel } from '../models/mock';
 import { httpTransport, OpenAIModel } from '../models/openai';
+import { capabilities } from '../platform/environment';
 import { ModelRouter } from '../models/router';
 
 export interface HostReply {
@@ -54,6 +55,7 @@ export class RuntimeHost {
         undefined,
         undefined,
         config.chatgpt.modelRelay,
+        config.app?.clientName,
       );
     const chatgptModel = chatgpt
       ? new OpenAIModel(
@@ -363,6 +365,7 @@ export class RuntimeHost {
             Object.values(settings).some((v) => typeof v !== 'string')
           )
             throw new Error('Plugin settings must be a JSON object of strings.');
+          this.assertPluginSource(string(data.source));
           await runtime.plugins.install(string(data.source), settings as Record<string, string>);
           break;
         }
@@ -371,11 +374,16 @@ export class RuntimeHost {
             await navigator.locks.request('kinetik-connection:charms', () =>
               connections.setEnabled(data.enabled === true),
             );
-          else await runtime.plugins.enable(string(data.id), data.enabled === true);
+          else {
+            const plugin = (await runtime.plugins.list()).find((p) => p.manifest.id === data.id);
+            if (plugin && data.enabled === true) this.assertPluginSource(plugin.source);
+            await runtime.plugins.enable(string(data.id), data.enabled === true);
+          }
           break;
         case 'update': {
           const plugin = (await runtime.plugins.list()).find((p) => p.manifest.id === data.id);
           if (!plugin) throw new Error('Plugin not found.');
+          this.assertPluginSource(plugin.source);
           await runtime.plugins.install(plugin.source, plugin.settings, plugin.manifest.id);
           break;
         }
@@ -411,6 +419,18 @@ export class RuntimeHost {
     } finally {
       await runtime.background.drain();
     }
+  }
+  /** Where plugins cannot come from a link, only the ones served with the app may run. */
+  private assertPluginSource(source: string) {
+    if (capabilities().linkPlugins) return;
+    let origin = '';
+    try {
+      origin = new URL(source, this.scope).origin;
+    } catch {
+      /* Rejected below. */
+    }
+    if (origin !== this.scope.origin)
+      throw new Error('On this device, Kinetik uses only the connections that come with the app.');
   }
 }
 
