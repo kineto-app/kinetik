@@ -2,7 +2,11 @@
 mod config;
 fn main() {
     println!("cargo:rerun-if-env-changed=KINETIK_UPDATES_CONFIG");
-    let text = match std::env::var("KINETIK_UPDATES_CONFIG") {
+    println!("cargo:rerun-if-env-changed=TAURI_KINETIK_UPDATES_CONFIG");
+    // iOS builds run inside Xcode, which receives only TAURI_*, CARGO_* and RUST_* variables.
+    let path = std::env::var("KINETIK_UPDATES_CONFIG")
+        .or_else(|_| std::env::var("TAURI_KINETIK_UPDATES_CONFIG"));
+    let text = match path {
         Ok(path) => {
             println!("cargo:rerun-if-changed={path}");
             let text = std::fs::read_to_string(path).expect("Read update configuration");

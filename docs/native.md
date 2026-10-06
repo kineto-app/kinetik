@@ -146,6 +146,8 @@ Use the base64 public-key lines from two distinct minisign keypairs. The placeho
 KINETIK_UPDATES_CONFIG=/path/to/updates.json npm run android:release
 ```
 
+For iOS, set `TAURI_KINETIK_UPDATES_CONFIG` instead (or as well): the Rust part of an iOS build runs inside Xcode, which receives only `TAURI_*`, `CARGO_*` and `RUST_*` environment variables.
+
 Build `dist-native` with the same connection configuration as the installed app, then package it:
 
 ```sh
