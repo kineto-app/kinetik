@@ -154,3 +154,25 @@ test('a message sent while picked photos load waits for all of them', async ({ p
   await send(page, 'Use these photos');
   await expect(replies(page).last()).toContainText('I can see 2 photos');
 });
+
+test('Send waits until the chat shows every picked photo', async ({ page, request }) => {
+  // Slow chat reads, as on a busy phone: each staged photo also announces a change, and the
+  // reload that schedules starts while the composer's own reload of the tray is still running.
+  await page.addInitScript(() => {
+    const post = ServiceWorker.prototype.postMessage;
+    ServiceWorker.prototype.postMessage = function (
+      this: ServiceWorker,
+      ...args: Parameters<ServiceWorker['postMessage']>
+    ) {
+      if ((args[0] as { op?: string })?.op !== 'state') return post.apply(this, args);
+      setTimeout(() => post.apply(this, args), 200);
+    } as ServiceWorker['postMessage'];
+  });
+  await open(page, request);
+  await page.locator('#upload').setInputFiles([
+    { name: 'one.png', mimeType: 'image/png', buffer: await photo(page, 20) },
+    { name: 'two.png', mimeType: 'image/png', buffer: await photo(page, 200) },
+  ]);
+  await send(page, 'Use these photos');
+  await expect(replies(page).last()).toContainText('I can see 2 photos');
+});

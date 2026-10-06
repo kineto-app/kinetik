@@ -121,6 +121,7 @@ renderSolid(
 const uiStorage = isNative ? localStorage : sessionStorage;
 let selected = uiStorage.getItem('kinetik-conversation') ?? '';
 let refreshGeneration = 0;
+let shownGeneration = 0;
 let lastMessages = '';
 let followNextMessage = false;
 let disposeContent: (() => void)[] = [];
@@ -529,13 +530,18 @@ async function refresh() {
     const value = await rpc<State>('state', { conversation: selected });
     return { ...value, conversations: value.conversations.filter((c) => !deleting.has(c.id)) };
   };
+  // Only a newer reload already shown, or another chat opened meanwhile, makes this one stale.
+  // So `await refresh()` leaves state read after the call: Send never sees an older tray.
+  const stale = (chat: string) => generation < shownGeneration || chat !== selected;
+  let chat = selected;
   let next = await load();
-  if (generation !== refreshGeneration) return;
+  if (stale(chat)) return;
   if (!next.conversations.some((c) => c.id === selected) && next.conversations.length) {
-    selected = next.conversations[0].id;
+    selected = chat = next.conversations[0].id;
     next = await load();
-    if (generation !== refreshGeneration) return;
+    if (stale(chat)) return;
   }
+  shownGeneration = generation;
   noticeFinished(state.conversations, next.conversations);
   state = next;
   if (unread().has(selected)) markRead(selected);
