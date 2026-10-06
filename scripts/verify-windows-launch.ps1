@@ -21,7 +21,7 @@ try {
             [System.Windows.Automation.Condition]::TrueCondition
         )
         $names = @($elements | Where-Object { -not $_.Current.IsOffscreen } | ForEach-Object { $_.Current.Name } | Where-Object { $_ })
-        if ($names -contains 'Continue with ChatGPT') { $ready = $true; break }
+        if ($names -contains 'Agree and continue') { $ready = $true; break }
     }
     $names | Set-Content windows-launch.txt
     $bounds = $window.Current.BoundingRectangle
