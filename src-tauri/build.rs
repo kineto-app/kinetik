@@ -2,7 +2,14 @@
 mod config;
 fn main() {
     println!("cargo:rerun-if-env-changed=KINETIK_UPDATES_CONFIG");
-    let text = match std::env::var("KINETIK_UPDATES_CONFIG") {
+    println!("cargo:rerun-if-env-changed=TAURI_KINETIK_UPDATES_CONFIG");
+    // The Tauri CLI starts iOS builds with a cleared environment that keeps only a few prefixes,
+    // TAURI_* among them, so iOS builds read the TAURI_-prefixed name.
+    let set = |name: &str| std::env::var(name).ok().filter(|path| !path.is_empty());
+    let path = set("KINETIK_UPDATES_CONFIG")
+        .or_else(|| set("TAURI_KINETIK_UPDATES_CONFIG"))
+        .ok_or(());
+    let text = match path {
         Ok(path) => {
             println!("cargo:rerun-if-changed={path}");
             let text = std::fs::read_to_string(path).expect("Read update configuration");
