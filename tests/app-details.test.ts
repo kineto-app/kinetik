@@ -182,3 +182,39 @@ test('a reply report is a plain email with the reply, shortened when long, and t
   expect(address.href.length).toBeLessThan(6000);
   expect(address.href).not.toContain('+');
 });
+
+test('on iOS the app scope decides which plugins came with it', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (url: unknown) =>
+      String(url).endsWith('plugin.json')
+        ? Response.json({
+            id: 'bundled',
+            name: 'B',
+            version: '1',
+            apiVersion: 1,
+            entry: 'plugin.js',
+          })
+        : new Response('return {};'),
+    ),
+  );
+  setClientPlatform('ios');
+  const scope = new URL('tauri://localhost/');
+  const host = new RuntimeHost(new Store(crypto.randomUUID()), scope, () => {}, {
+    connections: {},
+  });
+  const ask = (data: Record<string, unknown>) =>
+    new Promise<unknown>(
+      (resolve, reject) =>
+        void host.handle({ ...data, protocol: protocolVersion }, (reply) =>
+          reply.ok ? resolve(reply.result) : reject(new Error(reply.error)),
+        ),
+    );
+  await expect(ask({ op: 'install', source: 'https://plugins.example/demo/' })).rejects.toThrow(
+    'come with the app',
+  );
+  // A bundled path passes the guard; outside the native webview the loader then refuses `tauri:`.
+  await expect(
+    ask({ op: 'install', source: 'tauri://localhost/plugins/charms/plugin.json' }),
+  ).rejects.toThrow('Use HTTPS');
+});

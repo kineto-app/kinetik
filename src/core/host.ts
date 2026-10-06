@@ -423,13 +423,14 @@ export class RuntimeHost {
   /** Where plugins cannot come from a link, only the ones served with the app may run. */
   private assertPluginSource(source: string) {
     if (capabilities().linkPlugins) return;
-    let origin = '';
+    let address = '';
     try {
-      origin = new URL(source, this.scope).origin;
+      address = new URL(source, this.scope).href;
     } catch {
       /* Rejected below. */
     }
-    if (origin !== this.scope.origin)
+    // A path check, not an origin check: the iOS app's `tauri:` origin is opaque.
+    if (!address.startsWith(this.scope.href))
       throw new Error('On this device, Kinetik uses only the connections that come with the app.');
   }
 }
