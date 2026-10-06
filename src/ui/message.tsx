@@ -28,7 +28,10 @@ function ReportButton(props: { text: string }) {
               text: 'Report this reply? Your email app opens with the reply and app version.',
               action: {
                 label: 'Open email',
-                run: () => void openExternal(reportEmail(email(), props.text)).catch(() => {}),
+                run: () =>
+                  void openExternal(reportEmail(email(), props.text)).catch(() =>
+                    toast({ text: 'Could not open your email app.', ms: 6000 }),
+                  ),
               },
               ms: 10000,
             })

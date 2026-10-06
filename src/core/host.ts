@@ -101,6 +101,13 @@ export class RuntimeHost {
     const connections = new Connections(store, runtime.plugins, config, scope, () =>
       chatgpt!.status(),
     );
+    if (!capabilities().linkPlugins) {
+      // Plugins turned on before this rule applied stop too, including in saved chats and jobs.
+      runtime.plugins.allowed = (plugin) => this.fromApp(plugin.source);
+      for (const plugin of await runtime.plugins.list())
+        if (plugin.enabledAt !== null && !this.fromApp(plugin.source))
+          await runtime.plugins.enable(plugin.manifest.id, false);
+    }
     await runtime.recover();
     this.runtime = runtime;
     this.connections = connections;
@@ -420,18 +427,18 @@ export class RuntimeHost {
       await runtime.background.drain();
     }
   }
+  /** Served with the app. A path check, not an origin check: the iOS app's origin is opaque. */
+  private fromApp(source: string) {
+    try {
+      return new URL(source, this.scope).href.startsWith(this.scope.href);
+    } catch {
+      return false;
+    }
+  }
   /** Where plugins cannot come from a link, only the ones served with the app may run. */
   private assertPluginSource(source: string) {
-    if (capabilities().linkPlugins) return;
-    let address = '';
-    try {
-      address = new URL(source, this.scope).href;
-    } catch {
-      /* Rejected below. */
-    }
-    // A path check, not an origin check: the iOS app's `tauri:` origin is opaque.
-    if (!address.startsWith(this.scope.href))
-      throw new Error('On this device, Kinetik uses only the connections that come with the app.');
+    if (!capabilities().linkPlugins && !this.fromApp(source))
+      throw new Error('On this device, Kinetik runs only plugins that come with the app.');
   }
 }
 

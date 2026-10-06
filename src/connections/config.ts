@@ -104,7 +104,8 @@ function parseApp(value: unknown): AppDetails {
     // A plain address only, so it cannot add recipients or a body to the email.
     if (
       typeof input.supportEmail !== 'string' ||
-      !/^[A-Za-z0-9._+-]{1,64}@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$/.test(input.supportEmail) ||
+      !/^[\w+-]+(\.[\w+-]+)*@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$/.test(input.supportEmail) ||
+      input.supportEmail.split('@')[0].length > 64 ||
       input.supportEmail.length > 254
     )
       throw new Error('The app supportEmail must be a plain email address.');

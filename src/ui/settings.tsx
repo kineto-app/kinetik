@@ -125,7 +125,10 @@ const titles: Record<Exclude<Page, 'service'>, string> = {
   memory: 'Memory',
 };
 const top = () => stack().at(-1)!;
-const can = () => capabilities(setup()?.platform ?? 'web');
+/** Until the runtime answers, assume the most restrictive platform. */
+const can = () => setup()?.capabilities ?? capabilities('unknown');
+/** The web app can notify only where the browser offers notifications. */
+const canNotify = () => can().notifications && (isNative || 'Notification' in globalThis);
 const title = (entry: Entry) =>
   entry.page === 'service'
     ? (services().find((s) => s.key === entry.service)?.name ?? 'Connection')
@@ -639,7 +642,7 @@ export function SettingsDialog() {
             <span class="settings-value">{memory().trim() ? 'On' : 'Empty'}</span>
             <Icon name="chevron" />
           </button>
-          <Show when={can().notifications}>
+          <Show when={canNotify()}>
             <label class="settings-row">
               <Tile name="bell" color="var(--tile-notify)" />
               <span class="settings-label">Notify me when work finishes</span>

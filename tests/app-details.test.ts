@@ -5,8 +5,13 @@ import { Connections } from '../src/connections/manager';
 import { RuntimeHost } from '../src/core/host';
 import { protocolVersion } from '../src/core/protocol';
 import { Plugins } from '../src/plugins/loader';
-import { capabilities, setClientPlatform } from '../src/platform/environment';
-import { reportEmail } from '../src/ui/app-details';
+import {
+  capabilities,
+  clientPlatform,
+  guessNativePlatform,
+  setClientPlatform,
+} from '../src/platform/environment';
+import { mailtoLimit, reportEmail } from '../src/ui/app-details';
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -45,6 +50,9 @@ test('the app section is optional and every field is checked', () => {
     'help@service.example%0Abcc',
     'help @service.example',
     'help',
+    '.help@service.example',
+    'help.@service.example',
+    'he..lp@service.example',
   ])
     expect(() => parseConfiguration({ app: { supportEmail } }, base)).toThrow('supportEmail');
   for (const serviceName of ['', '  ', 'x'.repeat(61), 'Line\nbreak', 7])
@@ -111,6 +119,24 @@ test('the connection registers with the configured client name', async () => {
   expect(bodies.map((body) => body.client_name)).toEqual(['Kinetik OSS', 'Example App']);
 });
 
+test('a platform the app cannot name gets the most restrictive capabilities and no header', () => {
+  setClientPlatform('freebsd');
+  expect(clientPlatform()).toBe('unknown');
+  expect(capabilities()).toEqual({
+    linkPlugins: false,
+    routinesNeedOpenApp: true,
+    continuesAfterLeaving: false,
+    notifications: false,
+  });
+  // An iPad's webview looks like a Mac, so a Mac user agent proves nothing.
+  expect(guessNativePlatform('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit')).toBe(
+    'unknown',
+  );
+  expect(guessNativePlatform('Mozilla/5.0 (Linux; Android 15) AppleWebKit')).toBe('android');
+  expect(guessNativePlatform('Mozilla/5.0 (iPhone; CPU iPhone OS 18_6 like Mac OS X)')).toBe('ios');
+  expect(guessNativePlatform('Mozilla/5.0 (Windows NT 10.0; Win64; x64)')).toBe('windows');
+});
+
 test('platforms differ only through capabilities', () => {
   expect(capabilities('web')).toEqual({
     linkPlugins: true,
@@ -170,17 +196,30 @@ test('where plugins cannot come from a link, only plugins served with the app in
   await ask({ op: 'install', source: new URL('plugins/bundled/plugin.json', base).href });
 });
 
-test('a reply report is a plain email with the reply, shortened when long, and the app version', () => {
-  const address = new URL(reportEmail('help@service.example', 'Reply & more\n'.repeat(200)));
-  expect(address.protocol).toBe('mailto:');
-  expect(address.pathname).toBe('help@service.example');
-  expect([...new URLSearchParams(address.search).keys()]).toEqual(['subject', 'body']);
-  const body = new URLSearchParams(address.search).get('body')!;
+test('a reply report is a plain email under the length limit, cut between characters', () => {
+  const short = new URL(reportEmail('help@service.example', 'Reply & more'));
+  expect(short.protocol).toBe('mailto:');
+  expect(short.pathname).toBe('help@service.example');
+  expect([...new URLSearchParams(short.search).keys()]).toEqual(['subject', 'body']);
+  const body = new URLSearchParams(short.search).get('body')!;
   expect(body).toContain('Reply & more');
-  expect(body).toContain('[Reply shortened]');
+  expect(body).not.toContain('[Reply shortened]');
   expect(body).toMatch(/--- Kinetik \S+ \(web\) ---$/);
-  expect(address.href.length).toBeLessThan(6000);
-  expect(address.href).not.toContain('+');
+  for (const piece of ['Reply & more\n', 'Ответ модели. ', '模型的回答。', 'Done 👍🏽 ']) {
+    const reply = piece.repeat(400);
+    const address = reportEmail('help@service.example', reply);
+    expect(address.length).toBeLessThanOrEqual(mailtoLimit);
+    expect(address).not.toContain('+');
+    // Decoding throws on a split character.
+    const text = new URLSearchParams(new URL(address).search).get('body')!;
+    const kept = text.slice(
+      text.indexOf('--- Reply ---\n') + 14,
+      text.indexOf('\n[Reply shortened]'),
+    );
+    expect(kept.length).toBeGreaterThan(50);
+    expect(reply.startsWith(kept)).toBe(true);
+    expect(kept).not.toMatch(/[\uD800-\uDBFF]$/);
+  }
 });
 
 test('on iOS the app scope decides which plugins came with it', async () => {
@@ -217,4 +256,53 @@ test('on iOS the app scope decides which plugins came with it', async () => {
   await expect(
     ask({ op: 'install', source: 'tauri://localhost/plugins/charms/plugin.json' }),
   ).rejects.toThrow('Use HTTPS');
+});
+
+test('on iOS, a link plugin turned on before the upgrade is turned off and never runs', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (url: unknown) =>
+      String(url).endsWith('plugin.json')
+        ? Response.json({
+            id: 'linked',
+            name: 'L',
+            version: '1',
+            apiVersion: 1,
+            entry: 'plugin.js',
+          })
+        : new Response('return { tools: {} };'),
+    ),
+  );
+  const store = new Store(crypto.randomUUID());
+  const before = new Plugins(store);
+  await before.install('https://plugins.example/linked/plugin.json');
+  await before.enable('linked', true);
+  const [record] = await before.list();
+  setClientPlatform('ios');
+  const host = new RuntimeHost(store, base, () => {}, { connections: {} });
+  await host.initialize();
+  expect((await host.runtime.plugins.list())[0].enabledAt).toBeNull();
+  // Chats and jobs pin the records they started with; those are left out too.
+  const pinned = { ...record, enabledAt: 1 };
+  expect((await host.runtime.plugins.snapshot({}, [pinned])).sources).toEqual([]);
+  const bundled = { ...pinned, source: new URL('plugins/charms/plugin.json', base).href };
+  expect((await host.runtime.plugins.snapshot({}, [bundled])).sources).toHaveLength(1);
+});
+
+test('setup state says when ChatGPT replies pass through the service', async () => {
+  const store = new Store(crypto.randomUUID());
+  const config = parseConfiguration(
+    {
+      chatgpt: {
+        mode: 'browser',
+        jwksUrl: './connections/chatgpt/keys',
+        modelRelay: './connections/chatgpt/model/',
+      },
+    },
+    base,
+  );
+  const state = await new Connections(store, new Plugins(store), config, base, async () => ({
+    connected: false,
+  })).state();
+  expect(state.chatgpt.relay).toBe(true);
 });

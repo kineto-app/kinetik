@@ -256,7 +256,7 @@ async function offerNotifications() {
   try {
     if (
       localStorage.getItem('kinetik-notify-offered') ||
-      !capabilities(connectionState?.platform).notifications ||
+      !(connectionState?.capabilities ?? capabilities('unknown')).notifications ||
       !(isNative || ('Notification' in window && Notification.permission !== 'denied'))
     )
       return;
@@ -991,7 +991,7 @@ const connectionSetup = setupConnections((value) => {
   connectionState = value;
   setSettingsSetup(value);
   setAppDetails(value.app);
-  if (capabilities(value.platform).routinesNeedOpenApp)
+  if (value.capabilities.routinesNeedOpenApp)
     byId('automation-hint').textContent =
       'Runs while Kinetik is open. Paused routines catch up once when you return.';
   setModelState({

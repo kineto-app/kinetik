@@ -62,12 +62,12 @@ An optional `app` section tells users about the service behind the build. Every 
 - `privacyUrl`: **Settings → Privacy policy**, and a **Privacy** link beside each connection step's consent line.
 - `accountUrl`: **Settings → Manage account**, where users manage or delete their account.
 - `supportEmail`: a **Report reply** action on each reply. After a short confirmation it opens an email to this address with the reply text, the app version and the platform.
-- `serviceName`: names the service in the Charms consent line, "Skills run on Example Service's servers with the files you share." Without it the line says "the service's servers".
+- `serviceName`: names the service in the Charms consent line, "Skills run on Example Service's servers with the files you share.", and, when ChatGPT requests go through a `modelRelay`, in the ChatGPT line, "Your messages and files go to OpenAI through Example Service's servers to get replies." Without it both say "the service's servers".
 - `clientName`: the app name sign-in pages show, both for ChatGPT and in the client registration with the configured connection. Without it, both use `Kinetik OSS`.
 
 Addresses must be absolute HTTPS without credentials, query strings or fragments. `supportEmail` must be a plain address, and names are at most 60 characters. An invalid section fails configuration loading like an invalid connection.
 
-Every MCP request to the configured connection carries `X-Client-Platform`: `web` (installed web apps included), `ios`, `android`, `macos`, `windows` or `linux`. Its CORS policy must allow that header. Sign-in and file upload requests do not carry it.
+Every MCP request to the configured connection carries `X-Client-Platform`: `web` (installed web apps included), `ios`, `android`, `macos`, `windows` or `linux`. A native app that cannot tell its operating system leaves the header out. Its CORS policy must allow that header. Sign-in and file upload requests do not carry it.
 
 For experimental browser-owned sign-in, add:
 

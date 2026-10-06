@@ -1,4 +1,4 @@
-import { isNative } from '../platform/environment';
+import { capabilities, isNative } from '../platform/environment';
 import { setupInstallation } from '../browser/installation';
 import { rpc } from '../browser/client';
 import type { SetupState } from '../connections/manager';
@@ -7,7 +7,8 @@ import { icon } from './icons';
 import './onboarding.css';
 
 const initial: SetupState = {
-  platform: 'web',
+  platform: 'unknown',
+  capabilities: capabilities('unknown'),
   app: {},
   installation: { required: false },
   charms: { available: false, status: 'not-connected' },
@@ -161,12 +162,14 @@ export function setupConnections(changed: (state: SetupState) => void) {
     // Consent lines come from configuration, so they are set as text, never as markup.
     consent(
       'chatgpt',
-      'Your messages and files go to OpenAI to get replies.',
+      state.chatgpt.relay
+        ? `Your messages and files go to OpenAI through ${owner()} servers to get replies.`
+        : 'Your messages and files go to OpenAI to get replies.',
       !state.chatgpt.available || state.chatgpt.connected,
     );
     consent(
       'charms',
-      `Skills run on ${state.app.serviceName ? `${state.app.serviceName}'s` : "the service's"} servers with the files you share.`,
+      `Skills run on ${owner()} servers with the files you share.`,
       !state.charms.available,
     );
     $('callback').hidden = !signingIn;
@@ -201,6 +204,8 @@ export function setupConnections(changed: (state: SetupState) => void) {
       dialog.scrollTop = 0;
     }
   }
+  /** Whose servers: the configured service's name, or a neutral fallback. */
+  const owner = () => (state.app.serviceName ? `${state.app.serviceName}'s` : "the service's");
   function consent(step: 'chatgpt' | 'charms', text: string, hidden: boolean) {
     const line = $(`${step}-consent`);
     line.hidden = hidden;

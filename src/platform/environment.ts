@@ -4,19 +4,23 @@ export const isNative = typeof window !== 'undefined' && '__TAURI_INTERNALS__' i
 /** The platform a request comes from. An installed web app counts as `web`. */
 export type ClientPlatform = 'web' | 'ios' | 'android' | 'macos' | 'windows' | 'linux';
 const platforms: readonly string[] = ['web', 'ios', 'android', 'macos', 'windows', 'linux'];
-let platform: ClientPlatform = 'web';
+/** `unknown`: a native app that could not tell its operating system. */
+let platform: ClientPlatform | 'unknown' = 'web';
 export const clientPlatform = () => platform;
 /** Native startup records the operating system before the runtime starts. */
 export function setClientPlatform(value: string) {
-  if (platforms.includes(value)) platform = value as ClientPlatform;
+  platform = platforms.includes(value) ? (value as ClientPlatform) : 'unknown';
 }
-/** For native shells that cannot report their operating system. */
-export function guessNativePlatform(userAgent: string): ClientPlatform {
+/**
+ * For native shells that cannot report their operating system. An iPad's webview presents
+ * itself as a Mac, so a Mac user agent stays unknown.
+ */
+export function guessNativePlatform(userAgent: string): ClientPlatform | 'unknown' {
   if (/Android/i.test(userAgent)) return 'android';
   if (/iPhone|iPad|iPod/.test(userAgent)) return 'ios';
-  if (/Mac/.test(userAgent)) return 'macos';
   if (/Windows/.test(userAgent)) return 'windows';
-  return 'linux';
+  if (/Linux/.test(userAgent)) return 'linux';
+  return 'unknown';
 }
 
 /** What a platform allows. Features branch on these, never on the platform name. */
@@ -36,10 +40,11 @@ export interface Capabilities {
   /** The app can alert the user when work finishes while it is in the background. */
   notifications: boolean;
 }
-export function capabilities(value: ClientPlatform = platform): Capabilities {
+/** An unknown platform gets the most restrictive answer to every question. */
+export function capabilities(value: ClientPlatform | 'unknown' = platform): Capabilities {
   return {
-    linkPlugins: value !== 'ios',
-    routinesNeedOpenApp: value === 'ios' || value === 'web',
+    linkPlugins: value !== 'ios' && value !== 'unknown',
+    routinesNeedOpenApp: value === 'ios' || value === 'web' || value === 'unknown',
     continuesAfterLeaving: value === 'android',
     notifications: value === 'web' || value === 'android',
   };

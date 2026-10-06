@@ -127,6 +127,8 @@ export async function digest(text: string): Promise<string> {
   return [...new Uint8Array(bytes)].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 export class Plugins {
+  /** Whether a plugin may run here; snapshots leave out the others, even in saved chats. */
+  allowed: (plugin: InstalledPlugin) => boolean = () => true;
   constructor(
     private store: Store,
     private emit?: (name: string, text: string, id?: string) => Promise<void>,
@@ -212,7 +214,9 @@ export class Plugins {
           managed
             ? (value) => invalidateToken(this.store, installed.manifest.id, value)
             : undefined,
-          managed ? { 'X-Client-Platform': clientPlatform() } : undefined,
+          managed && clientPlatform() !== 'unknown'
+            ? { 'X-Client-Platform': clientPlatform() }
+            : undefined,
         );
       },
     });
@@ -252,7 +256,7 @@ export class Plugins {
     const bindings = Object.assign(Object.create(null) as Record<string, Binding>, builtins);
     const sources = [];
     for (const installed of (records ?? (await this.list()))
-      .filter((p) => p.enabledAt !== null)
+      .filter((p) => p.enabledAt !== null && this.allowed(p))
       .sort((a, b) => a.enabledAt! - b.enabledAt!)) {
       const plugin = await this.instantiate(installed);
       const provider = installed.manifest.id;

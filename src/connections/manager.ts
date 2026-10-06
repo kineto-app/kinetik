@@ -1,6 +1,11 @@
 import type { Store } from '../core/ports';
 import { allowedURL, Plugins } from '../plugins/loader';
-import { clientPlatform, type ClientPlatform } from '../platform/environment';
+import {
+  capabilities,
+  clientPlatform,
+  type Capabilities,
+  type ClientPlatform,
+} from '../platform/environment';
 import type { AppDetails, Configuration, ConnectionPreset } from './config';
 import { credentialKey, usable, type Credential } from './credentials';
 
@@ -27,7 +32,8 @@ export interface ConnectionState {
 }
 export interface SetupState {
   native?: boolean;
-  platform: ClientPlatform;
+  platform: ClientPlatform | 'unknown';
+  capabilities: Capabilities;
   app: AppDetails;
   installation: { required: boolean };
   charms: ConnectionState;
@@ -36,6 +42,8 @@ export interface SetupState {
     connected: boolean;
     apiBase?: string;
     browser?: boolean;
+    /** Model requests pass through the distributor's relay. */
+    relay?: boolean;
     model?: string;
   };
 }
@@ -141,6 +149,7 @@ export class Connections {
     return {
       native: this.config.native,
       platform: clientPlatform(),
+      capabilities: capabilities(),
       app: this.config.app ?? {},
       installation: { required: this.config.installation?.required === true },
       charms: {
@@ -158,6 +167,7 @@ export class Connections {
         connected,
         apiBase: this.config.chatgpt?.apiBase,
         browser: this.config.chatgpt?.mode === 'browser',
+        relay: this.config.chatgpt?.mode === 'browser' && Boolean(this.config.chatgpt.modelRelay),
         model,
       },
     };

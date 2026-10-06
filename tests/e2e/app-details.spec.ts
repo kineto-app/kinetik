@@ -94,3 +94,15 @@ test('on the web, routines say they run while Kinetik is open', async ({ page })
     'Runs while Kinetik is open. Paused routines catch up once when you return.',
   );
 });
+
+test('with a model relay, the ChatGPT line names the service it passes through', async ({
+  page,
+  request,
+}) => {
+  await request.get(base + 'app-details');
+  await request.get(base + 'browser-chatgpt?relay');
+  await page.goto(base + '?connect=charms');
+  await expect(page.locator('#setup-chatgpt-consent span')).toHaveText(
+    "Your messages and files go to OpenAI through Example Service's servers to get replies.",
+  );
+});
