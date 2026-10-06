@@ -17,6 +17,8 @@ export class McpClient {
     private url: string,
     private token?: string | (() => Promise<string>),
     private unauthorized?: (token: string) => Promise<void>,
+    /** Sent with every request; a configured connection learns the client platform. */
+    private extraHeaders: Record<string, string> = {},
   ) {}
   private async send(
     method: string,
@@ -33,6 +35,7 @@ export class McpClient {
       },
     };
     const headers: Record<string, string> = {
+      ...this.extraHeaders,
       'Content-Type': 'application/json',
       Accept: 'application/json, text/event-stream',
       'MCP-Protocol-Version': this.protocol,

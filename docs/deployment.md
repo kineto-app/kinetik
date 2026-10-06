@@ -43,6 +43,32 @@ The guided flow offers ChatGPT sign-in, prepares Charms, obtains authorization, 
 
 If tool or skill loading fails after sign-in, the setup clears the consumed return link and offers Enable Charms to retry activation with the saved credential. A manually disabled connection requires an explicit Turn on action in **Settings → Connections → Charms**. The sidebar **Connections** button reopens the guided flow only while ChatGPT or Charms is missing; once both are connected or Charms was turned off on purpose, it opens **Settings → Connections**. If the deployment configuration changes, existing settings are preserved rather than silently redirecting credentials to a new service.
 
+### App details
+
+An optional `app` section tells users about the service behind the build. Every field is optional; a feature whose field is unset stays hidden. Native builds read the same section from their embedded configuration.
+
+```json
+{
+  "app": {
+    "privacyUrl": "https://service.example/privacy",
+    "accountUrl": "https://service.example/account",
+    "supportEmail": "help@service.example",
+    "serviceName": "Example Service",
+    "clientName": "Example App"
+  }
+}
+```
+
+- `privacyUrl`: **Settings → Privacy policy**, and a **Privacy** link beside each connection step's consent line.
+- `accountUrl`: **Settings → Manage account**, where users manage or delete their account.
+- `supportEmail`: a **Report reply** action on each reply. After a short confirmation it opens an email to this address with the reply text, the app version and the platform.
+- `serviceName`: names the service in the Charms consent line, "Skills run on Example Service's servers with the files you share.", and, when ChatGPT requests go through a `modelRelay`, in the ChatGPT line, "Your messages and files go to OpenAI through Example Service's servers to get replies." Without it both say "the service's servers".
+- `clientName`: the app name sign-in pages show, both for ChatGPT and in the client registration with the configured connection. Without it, both use `Kinetik OSS`.
+
+Addresses must be absolute HTTPS without credentials, query strings or fragments. `supportEmail` must be a plain address, and names are at most 60 characters. An invalid section fails configuration loading like an invalid connection.
+
+Every MCP request to the configured connection carries `X-Client-Platform`: `web` (installed web apps included), `ios`, `android`, `macos`, `windows` or `linux`. A native app that cannot tell its operating system leaves the header out. Its CORS policy must allow that header. Sign-in and file upload requests do not carry it.
+
 For experimental browser-owned sign-in, add:
 
 ```json

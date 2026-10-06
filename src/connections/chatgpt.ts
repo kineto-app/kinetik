@@ -77,6 +77,8 @@ export class BrowserChatGPT {
     private store = new Store('kinetik-chatgpt-v1'),
     private request: typeof fetch = fetch.bind(globalThis),
     private modelRelay?: string,
+    /** The app name ChatGPT shows when it asks the user to allow this app. */
+    private clientName = 'Kinetik OSS',
   ) {}
   private async json(url: string, init: RequestInit = {}, stage = 'request') {
     let response: Response;
@@ -162,7 +164,7 @@ export class BrowserChatGPT {
             await crypto.subtle.digest('SHA-256', new TextEncoder().encode(pending.verifier)),
           ),
         ),
-        ...(!registration.clientId ? { agent_name_hint: 'Kinetik OSS' } : {}),
+        ...(!registration.clientId ? { agent_name_hint: this.clientName } : {}),
         ...(registration.clientId && retained?.idToken ? { id_token_hint: retained.idToken } : {}),
       }).toString();
       return { url: url.href };

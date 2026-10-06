@@ -6,6 +6,7 @@ const base = 'http://127.0.0.1:4174';
 const prefix = '/onboarding/';
 let installRequired = false;
 let withoutCharms = false;
+let appDetails = false;
 let browserChatGPT = false;
 let modelRelay = false;
 let failActivation = false;
@@ -48,6 +49,10 @@ export async function onboardingFixture(req, res) {
   };
   if (url.pathname === prefix + 'require-install') {
     installRequired = true;
+    return reply({});
+  }
+  if (url.pathname === prefix + 'app-details') {
+    appDetails = true;
     return reply({});
   }
   if (url.pathname === prefix + 'without-charms') {
@@ -113,6 +118,7 @@ export async function onboardingFixture(req, res) {
     modelRelay = false;
     installRequired = false;
     withoutCharms = false;
+    appDetails = false;
     connected = false;
     revoked = false;
     flows.clear();
@@ -125,6 +131,16 @@ export async function onboardingFixture(req, res) {
   if (url.pathname === prefix + 'config.json')
     return reply({
       installation: { required: installRequired },
+      ...(appDetails
+        ? {
+            app: {
+              privacyUrl: 'https://service.example/privacy',
+              accountUrl: 'https://service.example/account',
+              supportEmail: 'help@service.example',
+              serviceName: 'Example Service',
+            },
+          }
+        : {}),
       connections: withoutCharms
         ? {}
         : {

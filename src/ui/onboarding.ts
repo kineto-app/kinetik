@@ -1,4 +1,4 @@
-import { isNative } from '../platform/environment';
+import { capabilities, isNative } from '../platform/environment';
 import { setupInstallation } from '../browser/installation';
 import { rpc } from '../browser/client';
 import type { SetupState } from '../connections/manager';
@@ -7,6 +7,9 @@ import { icon } from './icons';
 import './onboarding.css';
 
 const initial: SetupState = {
+  platform: 'unknown',
+  capabilities: capabilities('unknown'),
+  app: {},
   installation: { required: false },
   charms: { available: false, status: 'not-connected' },
   chatgpt: { available: false, connected: false },
@@ -74,6 +77,7 @@ export function setupConnections(changed: (state: SetupState) => void) {
         </div>
         <div id="setup-connected" hidden><button id="setup-return-to-app" class="primary setup-primary">Return to Kinetik</button></div><div id="setup-handoff" hidden><label for="setup-charms-return">Return link for Kinetik</label><textarea id="setup-charms-return" readonly rows="3" spellcheck="false"></textarea><button id="setup-copy-return" class="primary setup-primary">${icon('copy')} Copy return link</button><p class="setup-hint">Keep this link private.</p></div>
         <div id="setup-charms">
+          <p id="setup-charms-consent" class="setup-consent"><span></span> <a class="setup-privacy" target="_blank" rel="noopener noreferrer" hidden>Privacy</a></p>
           <button id="setup-connect-charms" class="primary setup-primary">Connect Charms ${icon('external')}</button>
           <p id="setup-charms-hint" class="setup-hint">Opens Kineto, then brings you back here.</p>
           <a id="setup-charms-authorize" class="setup-authorize" target="_blank" rel="noopener noreferrer" hidden>Sign in to Kineto ${icon('external')}</a>
@@ -82,7 +86,8 @@ export function setupConnections(changed: (state: SetupState) => void) {
         </div>
         <div id="setup-chatgpt" hidden>
           <div id="setup-helper-missing" class="setup-notice" hidden>ChatGPT sign-in is unavailable here.</div>
-          <button id="setup-login" class="primary setup-primary">Continue with ChatGPT ${icon('external')}</button>
+          <p id="setup-chatgpt-consent" class="setup-consent"><span></span> <a class="setup-privacy" target="_blank" rel="noopener noreferrer" hidden>Privacy</a></p>
+          <button id="setup-login" class="primary setup-primary">Agree and continue ${icon('external')}</button>
           <button id="setup-resume-chatgpt" class="setup-quiet">Paste return link</button>
           <div id="setup-callback" hidden>
             <ol class="setup-instructions"><li><div><strong>Sign in to ChatGPT.</strong><a id="setup-authorize" target="_blank" rel="noopener noreferrer">Reopen sign-in ${icon('external')}</a></div></li>
@@ -154,6 +159,19 @@ export function setupConnections(changed: (state: SetupState) => void) {
     $('helper-missing').textContent = 'ChatGPT sign-in is unavailable here.';
     $('helper-missing').hidden = state.chatgpt.available;
     $('login').hidden = !state.chatgpt.available || state.chatgpt.connected;
+    // Consent lines come from configuration, so they are set as text, never as markup.
+    consent(
+      'chatgpt',
+      state.chatgpt.relay
+        ? `Your messages and files go to OpenAI through ${owner()} servers to get replies.`
+        : 'Your messages and files go to OpenAI to get replies.',
+      !state.chatgpt.available || state.chatgpt.connected,
+    );
+    consent(
+      'charms',
+      `Skills run on ${owner()} servers with the files you share.`,
+      !state.charms.available,
+    );
     $('callback').hidden = !signingIn;
     $('resume-chatgpt').hidden =
       isNative || signingIn || !state.chatgpt.available || state.chatgpt.connected;
@@ -185,6 +203,17 @@ export function setupConnections(changed: (state: SetupState) => void) {
       $('title').focus();
       dialog.scrollTop = 0;
     }
+  }
+  /** Whose servers: the configured service's name, or a neutral fallback. */
+  const owner = () => (state.app.serviceName ? `${state.app.serviceName}'s` : "the service's");
+  function consent(step: 'chatgpt' | 'charms', text: string, hidden: boolean) {
+    const line = $(`${step}-consent`);
+    line.hidden = hidden;
+    line.querySelector('span')!.textContent = text;
+    const privacy = line.querySelector<HTMLAnchorElement>('a')!;
+    if (state.app.privacyUrl) privacy.href = state.app.privacyUrl;
+    else privacy.removeAttribute('href');
+    privacy.hidden = !state.app.privacyUrl;
   }
   function renderInstallButtons() {
     const hidden = isNative || installation.standalone;

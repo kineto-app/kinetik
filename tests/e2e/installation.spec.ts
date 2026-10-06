@@ -142,7 +142,7 @@ test('installed launch resumes setup and completes a shared-storage Charms redir
   await page.goto(base);
   await expect(page.locator('#setup-install-open')).toBeHidden();
   const chatgpt = page.waitForEvent('popup');
-  await page.getByRole('button', { name: 'Continue with ChatGPT' }).click();
+  await page.getByRole('button', { name: 'Agree and continue' }).click();
   const signIn = await chatgpt;
   await expect(signIn.getByRole('heading', { name: 'ChatGPT sign-in fixture' })).toBeVisible();
   await signIn.close();

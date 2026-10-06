@@ -229,6 +229,49 @@ test('MCP requests advertise embedded app support on each tool call', async () =
   ).toEqual(['text/html;profile=mcp-app']);
 });
 
+test('only requests to the configured connection name the client platform', async () => {
+  const headers: Record<string, string>[] = [];
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (_url: unknown, init: RequestInit) => {
+      headers.push(init.headers as Record<string, string>);
+      const request = JSON.parse(String(init.body));
+      return Response.json({
+        jsonrpc: '2.0',
+        id: request.id,
+        result: request.method === 'initialize' ? { protocolVersion: '2025-11-25' } : { tools: [] },
+      });
+    }),
+  );
+  const store = new Store(crypto.randomUUID());
+  await store.put(credentialKey('charms'), {
+    token: 'placeholder-token',
+    revision: 'r',
+    ready: true,
+  });
+  const plugin = (settings: Record<string, string>) =>
+    new Plugins(store).instantiate({
+      manifest: { id: 'charms', name: 'Charms', version: '1', apiVersion: 1, entry: 'plugin.js' },
+      source: 'https://agent.example/app/plugins/charms/plugin.json',
+      resolvedSource: 'https://agent.example/app/plugins/charms/plugin.json',
+      code: 'return host.mcp(host.settings.url).tools().then(() => ({}));',
+      digest: 'x',
+      settings,
+      enabledAt: 1,
+    });
+  await plugin({
+    url: 'https://service.example/mcp',
+    connection: 'charms',
+    connectionRevision: 'r',
+  });
+  const managed = headers.splice(0);
+  await plugin({ url: 'https://other.example/mcp' });
+  expect(managed.length).toBeGreaterThan(0);
+  expect(managed.every((h) => h['X-Client-Platform'] === 'web')).toBe(true);
+  expect(headers.length).toBeGreaterThan(0);
+  expect(headers.some((h) => 'X-Client-Platform' in h)).toBe(false);
+});
+
 test('installation is opt-in deployment configuration', () => {
   expect(parseConfiguration({}, base).installation?.required).not.toBe(true);
   expect(

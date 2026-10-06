@@ -679,3 +679,17 @@ test('bug 3: a pinned model and level override the session for that request', as
   expect(sent.map((body) => body.model)).toEqual(['another-model', 'gpt-6.1-sol']);
   expect(sent[0].reasoning).toEqual({ effort: 'high', summary: 'auto' });
 });
+
+test('the first authorization names the app with the configured client name', async () => {
+  const named = new BrowserChatGPT(
+    base + 'connections/chatgpt/keys',
+    new Store(crypto.randomUUID()),
+    fetcher,
+    undefined,
+    'Example App',
+  );
+  const first = new URL((await named.login()).url);
+  expect(first.searchParams.get('agent_name_hint')).toBe('Example App');
+  await begin();
+  expect(flow.searchParams.get('agent_name_hint')).toBe('Kinetik OSS');
+});

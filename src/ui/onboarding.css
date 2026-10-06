@@ -554,3 +554,20 @@
     padding-top: max(20px, env(safe-area-inset-top));
   }
 }
+
+/* What leaves the device at this step, stated before the user agrees. */
+.setup-consent {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+  text-align: center;
+  margin: 0 0 12px;
+}
+.setup-consent[hidden] {
+  display: none;
+}
+.setup-consent a {
+  color: var(--accent-ink);
+  text-underline-offset: 3px;
+  white-space: nowrap;
+}

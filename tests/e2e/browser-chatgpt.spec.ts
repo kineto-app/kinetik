@@ -162,7 +162,7 @@ for (const relay of [false, true]) {
     );
     await page.goto(base + '?connect=charms');
     const popup = page.waitForEvent('popup');
-    await page.getByRole('button', { name: 'Continue with ChatGPT' }).click();
+    await page.getByRole('button', { name: 'Agree and continue' }).click();
     const auth = await popup;
     await expect(auth.getByRole('heading', { name: 'Sign in fixture' })).toBeVisible();
     await auth.close();
@@ -371,7 +371,7 @@ test('shows the failed request when browser sign-in cannot reach OpenAI', async 
   });
   await page.goto(base + '?connect=charms');
   const popup = page.waitForEvent('popup');
-  await page.getByRole('button', { name: 'Continue with ChatGPT' }).click();
+  await page.getByRole('button', { name: 'Agree and continue' }).click();
   const auth = await popup;
   await expect(auth.getByRole('heading', { name: 'Sign in fixture' })).toBeVisible();
   await auth.close();

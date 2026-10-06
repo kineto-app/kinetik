@@ -14,6 +14,7 @@ import { Connections } from '../connections/manager';
 import { CompatModel } from '../models/compat';
 import { MockModel } from '../models/mock';
 import { httpTransport, OpenAIModel } from '../models/openai';
+import { capabilities, clientPlatform } from '../platform/environment';
 import { ModelRouter } from '../models/router';
 
 export interface HostReply {
@@ -54,6 +55,7 @@ export class RuntimeHost {
         undefined,
         undefined,
         config.chatgpt.modelRelay,
+        config.app?.clientName,
       );
     const chatgptModel = chatgpt
       ? new OpenAIModel(
@@ -99,6 +101,16 @@ export class RuntimeHost {
     const connections = new Connections(store, runtime.plugins, config, scope, () =>
       chatgpt!.status(),
     );
+    if (!capabilities().linkPlugins) {
+      // Plugins from a link do not run, including in saved chats and jobs.
+      runtime.plugins.allowed = (plugin) => this.fromApp(plugin.source);
+      // Only a confirmed iOS app turns them off for good. An unknown platform may be an older
+      // shell on another system, which must keep its plugins for when it can tell.
+      if (clientPlatform() === 'ios')
+        for (const plugin of await runtime.plugins.list())
+          if (plugin.enabledAt !== null && !this.fromApp(plugin.source))
+            await runtime.plugins.enable(plugin.manifest.id, false);
+    }
     await runtime.recover();
     this.runtime = runtime;
     this.connections = connections;
@@ -363,6 +375,7 @@ export class RuntimeHost {
             Object.values(settings).some((v) => typeof v !== 'string')
           )
             throw new Error('Plugin settings must be a JSON object of strings.');
+          this.assertPluginSource(string(data.source));
           await runtime.plugins.install(string(data.source), settings as Record<string, string>);
           break;
         }
@@ -371,11 +384,16 @@ export class RuntimeHost {
             await navigator.locks.request('kinetik-connection:charms', () =>
               connections.setEnabled(data.enabled === true),
             );
-          else await runtime.plugins.enable(string(data.id), data.enabled === true);
+          else {
+            const plugin = (await runtime.plugins.list()).find((p) => p.manifest.id === data.id);
+            if (plugin && data.enabled === true) this.assertPluginSource(plugin.source);
+            await runtime.plugins.enable(string(data.id), data.enabled === true);
+          }
           break;
         case 'update': {
           const plugin = (await runtime.plugins.list()).find((p) => p.manifest.id === data.id);
           if (!plugin) throw new Error('Plugin not found.');
+          this.assertPluginSource(plugin.source);
           await runtime.plugins.install(plugin.source, plugin.settings, plugin.manifest.id);
           break;
         }
@@ -411,6 +429,19 @@ export class RuntimeHost {
     } finally {
       await runtime.background.drain();
     }
+  }
+  /** Served with the app. A path check, not an origin check: the iOS app's origin is opaque. */
+  private fromApp(source: string) {
+    try {
+      return new URL(source, this.scope).href.startsWith(this.scope.href);
+    } catch {
+      return false;
+    }
+  }
+  /** Where plugins cannot come from a link, only the ones served with the app may run. */
+  private assertPluginSource(source: string) {
+    if (!capabilities().linkPlugins && !this.fromApp(source))
+      throw new Error('On this device, Kinetik runs only plugins that come with the app.');
   }
 }
 
