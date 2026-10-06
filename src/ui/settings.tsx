@@ -6,7 +6,7 @@ import type { TraceEntry } from '../core/trace';
 import type { InstalledPlugin } from '../core/types';
 import type { MemoryChange } from '../core/memory';
 import { shortAge } from './time';
-import { isNative } from '../platform/environment';
+import { capabilities, isNative } from '../platform/environment';
 import { icon, type IconName } from './icons';
 import './settings.css';
 
@@ -125,6 +125,7 @@ const titles: Record<Exclude<Page, 'service'>, string> = {
   memory: 'Memory',
 };
 const top = () => stack().at(-1)!;
+const can = () => capabilities(setup()?.platform ?? 'web');
 const title = (entry: Entry) =>
   entry.page === 'service'
     ? (services().find((s) => s.key === entry.service)?.name ?? 'Connection')
@@ -202,6 +203,21 @@ function Info(props: { label: string; value: string }) {
       <span class="settings-label">{props.label}</span>
       <span class="settings-value">{props.value}</span>
     </div>
+  );
+}
+
+/** A distributor page, opened outside the app. */
+function ExternalRow(props: { href: string; label: string }) {
+  return (
+    <a
+      class="settings-row settings-link"
+      href={props.href}
+      target="_blank"
+      rel="noopener noreferrer"
+    >
+      <span class="settings-label">{props.label}</span>
+      <Icon name="external" />
+    </a>
   );
 }
 
@@ -494,6 +510,16 @@ function CustomModelForm() {
         <input ref={images} type="checkbox" checked={custom().images === true} />
         The model can read photos
       </label>
+      <p class="settings-note settings-consent">
+        Your messages go to the server you enter.{' '}
+        <Show when={setup()?.app.privacyUrl}>
+          {(url) => (
+            <a href={url()} target="_blank" rel="noopener noreferrer">
+              Privacy
+            </a>
+          )}
+        </Show>
+      </p>
       <div class="form-actions">
         <Show when={custom().configured}>
           <button type="button" class="secondary" onClick={() => send('remove')}>
@@ -613,20 +639,22 @@ export function SettingsDialog() {
             <span class="settings-value">{memory().trim() ? 'On' : 'Empty'}</span>
             <Icon name="chevron" />
           </button>
-          <label class="settings-row">
-            <Tile name="bell" color="var(--tile-notify)" />
-            <span class="settings-label">Notify me when work finishes</span>
-            <input
-              type="checkbox"
-              role="switch"
-              class="settings-switch"
-              checked={notifying()}
-              onChange={(event) => {
-                const enabled = event.currentTarget.checked;
-                void run(() => toggleNotifications(enabled));
-              }}
-            />
-          </label>
+          <Show when={can().notifications}>
+            <label class="settings-row">
+              <Tile name="bell" color="var(--tile-notify)" />
+              <span class="settings-label">Notify me when work finishes</span>
+              <input
+                type="checkbox"
+                role="switch"
+                class="settings-switch"
+                checked={notifying()}
+                onChange={(event) => {
+                  const enabled = event.currentTarget.checked;
+                  void run(() => toggleNotifications(enabled));
+                }}
+              />
+            </label>
+          </Show>
         </div>
         <div class="settings-group">
           <button class="settings-row" onClick={() => go('connections')}>
@@ -676,6 +704,16 @@ export function SettingsDialog() {
           Transfer chats, files, and paused routines. Sign-ins and connection settings stay on this
           device.
         </p>
+        <Show when={setup()?.app.privacyUrl || setup()?.app.accountUrl}>
+          <div class="settings-group">
+            <Show when={setup()?.app.privacyUrl}>
+              {(url) => <ExternalRow href={url()} label="Privacy policy" />}
+            </Show>
+            <Show when={setup()?.app.accountUrl}>
+              {(url) => <ExternalRow href={url()} label="Manage account" />}
+            </Show>
+          </div>
+        </Show>
         <input id="archive-file" type="file" accept="application/json,.json" hidden />
         <p id="archive-status" class="field-hint" role="status"></p>
         <UpdateReports />
@@ -697,12 +735,14 @@ export function SettingsDialog() {
             )}
           </Index>
         </div>
-        <div class="settings-group">
-          <button class="settings-row settings-action" onClick={() => go('add')}>
-            <Icon name="plus" />
-            <span>Add a connection</span>
-          </button>
-        </div>
+        <Show when={can().linkPlugins}>
+          <div class="settings-group">
+            <button class="settings-row settings-action" onClick={() => go('add')}>
+              <Icon name="plus" />
+              <span>Add a connection</span>
+            </button>
+          </div>
+        </Show>
       </section>
       <section class="settings-page" hidden={page() !== 'service'}>
         <Show when={current()}>{(service) => <ServicePage service={service()} />}</Show>

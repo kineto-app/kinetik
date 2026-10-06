@@ -6,6 +6,9 @@ import solid from 'vite-plugin-solid';
 export default defineConfig({
   plugins: [solid()],
   define: {
+    __APP_VERSION__: JSON.stringify(
+      JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')).version,
+    ),
     // Native apps ship with Charms; a distributor's file replaces the whole configuration.
     __NATIVE_CONFIG__: readFileSync(
       process.env.KINETIK_NATIVE_CONFIG ?? 'native.config.json',

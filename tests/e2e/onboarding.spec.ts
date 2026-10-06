@@ -34,7 +34,7 @@ test('guided setup authorizes Charms, loads native skills, connects ChatGPT and 
   await expect(page.getByRole('heading', { name: 'Connect ChatGPT' })).toBeVisible();
   expect((await rpc(page, 'state')).plugins[0].enabledAt).toBeNull();
   const popup = page.waitForEvent('popup');
-  await page.getByRole('button', { name: 'Continue with ChatGPT' }).click();
+  await page.getByRole('button', { name: 'Agree and continue' }).click();
   const signInPage = await popup;
   await expect(signInPage.getByRole('heading', { name: 'ChatGPT sign-in fixture' })).toBeVisible();
   await signInPage.close();

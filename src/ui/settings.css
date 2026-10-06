@@ -343,3 +343,16 @@ label.custom-check input {
   color: var(--accent-ink);
   font-weight: 600;
 }
+
+/* Distributor pages open outside the app. */
+.settings-link {
+  color: inherit;
+  text-decoration: none;
+}
+.settings-link .settings-label {
+  flex: 1;
+}
+.settings-consent a {
+  color: var(--accent-ink);
+  text-underline-offset: 3px;
+}

@@ -8,6 +8,36 @@ import { mountFile } from './files';
 import { attachmentCarousel } from './attachments';
 import { isInternalActivity } from './activity-data';
 import { plainNotice } from './notice';
+import { appDetails, openExternal, reportEmail } from './app-details';
+import { toast } from './toast';
+
+/** Asks first, then opens an email about this reply to the distributor's support address. */
+function ReportButton(props: { text: string }) {
+  return (
+    <Show when={appDetails().supportEmail}>
+      {(email) => (
+        <button
+          type="button"
+          class="copy-action"
+          aria-label="Report reply"
+          title="Report reply"
+          innerHTML={icon('flag')}
+          onClick={() =>
+            toast({
+              key: 'report-reply',
+              text: 'Report this reply? Your email app opens with the reply and app version.',
+              action: {
+                label: 'Open email',
+                run: () => void openExternal(reportEmail(email(), props.text)).catch(() => {}),
+              },
+              ms: 10000,
+            })
+          }
+        />
+      )}
+    </Show>
+  );
+}
 
 /** A message mounts once. Widget adapters retain their iframe through streaming and fullscreen. */
 export function MessageBubble(props: {
@@ -122,6 +152,7 @@ export function MessageBubble(props: {
       <Show when={item.role === 'assistant'}>
         <div class="message-actions">
           {copyButton(item.text, 'Copy reply')}
+          <ReportButton text={item.text} />
           {messageTime(item.createdAt)}
         </div>
       </Show>

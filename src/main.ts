@@ -5,7 +5,8 @@ import { ModelPicker } from './ui/model-picker';
 import { setupDataTransfer } from './ui/data-transfer';
 import { createSignal } from 'solid-js';
 import { ConversationList } from './ui/lists';
-import { isNative } from './platform/environment';
+import { capabilities, isNative } from './platform/environment';
+import { setAppDetails } from './ui/app-details';
 import { setupViewport } from './browser/viewport';
 import { renderRuns, renderToolActivity } from './ui/tool-activity';
 import { isInternalActivity } from './ui/activity-data';
@@ -255,6 +256,7 @@ async function offerNotifications() {
   try {
     if (
       localStorage.getItem('kinetik-notify-offered') ||
+      !capabilities(connectionState?.platform).notifications ||
       !(isNative || ('Notification' in window && Notification.permission !== 'denied'))
     )
       return;
@@ -988,6 +990,10 @@ const connectionSetup = setupConnections((value) => {
     (value.charms.status === 'connected' && connectionState?.charms.status !== 'connected');
   connectionState = value;
   setSettingsSetup(value);
+  setAppDetails(value.app);
+  if (capabilities(value.platform).routinesNeedOpenApp)
+    byId('automation-hint').textContent =
+      'Runs while Kinetik is open. Paused routines catch up once when you return.';
   setModelState({
     chatgpt: Boolean(value.chatgpt.connected && value.chatgpt.browser),
     hostChatgpt: Boolean(value.chatgpt.connected && !value.chatgpt.browser),
