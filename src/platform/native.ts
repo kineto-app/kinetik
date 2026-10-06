@@ -12,6 +12,9 @@ declare const __NATIVE_CONFIG__: unknown;
 let host: RuntimeHost;
 let ready: Promise<void> | undefined;
 let lastActive = false;
+let lastStarted = false;
+/** Chats the user sent or answered while the app was in front; routines and recovered work are not. */
+const userStarted = new Set<string>();
 let authenticating = false;
 let syncing: Promise<void> | undefined;
 
@@ -113,9 +116,16 @@ async function synchronizeBackground(heartbeat = false) {
           (c.status === 'waiting' && c.waitingFor !== 'signin'),
       ) ||
       jobs.some(([, j]) => ['running', 'waiting'].includes(j.state));
-    if (active !== lastActive || (heartbeat && active)) {
-      await invoke('plugin:native|background', { payload: { active } });
+    for (const id of userStarted)
+      if (!conversations.some((c) => c.id === id && c.status === 'running')) userStarted.delete(id);
+    // Only a run the user started may continue after they leave, and only where it can.
+    const started =
+      capabilities().continuesAfterLeaving &&
+      conversations.some((c) => userStarted.has(c.id) && c.status === 'running');
+    if (active !== lastActive || started !== lastStarted || (heartbeat && active)) {
+      await invoke('plugin:native|background', { payload: { active, started } });
       lastActive = active;
+      lastStarted = started;
     }
   })()
     .catch(report)
@@ -126,6 +136,12 @@ async function synchronizeBackground(heartbeat = false) {
 }
 export async function nativeRPC<T>(op: Op, data: Record<string, unknown> = {}): Promise<T> {
   await connectNative();
+  if (
+    ['submit', 'answer'].includes(op) &&
+    typeof data.id === 'string' &&
+    document.visibilityState === 'visible'
+  )
+    userStarted.add(data.id);
   return new Promise<T>((resolve, reject) => {
     void host
       .handle({ op, ...data, protocol: protocolVersion }, (reply) => {

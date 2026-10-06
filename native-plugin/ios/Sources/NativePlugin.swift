@@ -12,6 +12,8 @@ struct NativeArgs: Decodable {
     let value: String?
     let active: Bool?
     let url: String?
+    /// The work in progress includes a run the user started (not a routine or recovered work).
+    let started: Bool?
 }
 class NativePlugin: Plugin, ASWebAuthenticationPresentationContextProviding, UNUserNotificationCenterDelegate {
     private weak var webview: WKWebView?
@@ -19,9 +21,14 @@ class NativePlugin: Plugin, ASWebAuthenticationPresentationContextProviding, UNU
     private var authInvoke: Invoke?
     private var authID: UUID?
 
+    override init() {
+        super.init()
+        // Set before launch finishes, so a tap that launched the app is delivered too.
+        UNUserNotificationCenter.current().delegate = self
+    }
+
     override public func load(webview: WKWebView) {
         self.webview = webview
-        UNUserNotificationCenter.current().delegate = self
     }
 
     func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
@@ -122,26 +129,31 @@ class NativePlugin: Plugin, ASWebAuthenticationPresentationContextProviding, UNU
     }
     // MARK: Work that continues after the user leaves
 
-    /// While user-started work runs, JavaScript calls this with active=true about every 15 seconds,
-    /// and with active=false when it ends. On iOS 26 and later, a continued-processing task keeps
-    /// the app running for a while after the user leaves; the system shows its progress and may end
-    /// it at any time. Earlier versions, and any request the system declines, resume on return.
+    /// While work runs, JavaScript calls this with active=true about every 15 seconds, and with
+    /// active=false when it ends. For a run the user started (started=true), iOS 26 and later can
+    /// keep the app running for a while after the user leaves through a continued-processing task;
+    /// the system shows its progress and may end it at any time. JavaScript sends started=true only
+    /// where this is enabled. Otherwise, and on earlier versions, work resumes on return.
     @objc public func background(_ invoke: Invoke) throws {
-        let active = try invoke.parseArgs(NativeArgs.self).active == true
+        let args = try invoke.parseArgs(NativeArgs.self)
+        let active = args.active == true
+        let started = args.started == true
         DispatchQueue.main.async {
             #if compiler(>=6.2)
             if #available(iOS 26.0, *) {
-                if active { self.continueWork() } else { self.endWork(success: true) }
+                if active { self.continueWork(started: started) } else { self.endWork() }
                 invoke.resolve(["value": "continues"])
                 return
             }
+            #else
+            NSLog("Kinetik: built without the iOS 26 SDK; work resumes when the app returns")
             #endif
             invoke.resolve(["value": "resume"])
         }
     }
 
     private var workTask: BGTask?
-    /// One request per stretch of work: a declined or expired request is not retried until it ends.
+    /// One request per stretch of work: a declined or ended request is not retried until it ends.
     private var workRequested = false
     private var lastBeat = Date()
     private var beats: Int64 = 0
@@ -149,7 +161,7 @@ class NativePlugin: Plugin, ASWebAuthenticationPresentationContextProviding, UNU
 
     #if compiler(>=6.2)
     @available(iOS 26.0, *)
-    private func continueWork() {
+    private func continueWork(started: Bool) {
         lastBeat = Date()
         if let task = workTask as? BGContinuedProcessingTask {
             // The system ends tasks whose progress stalls; each heartbeat is real progress
@@ -159,9 +171,8 @@ class NativePlugin: Plugin, ASWebAuthenticationPresentationContextProviding, UNU
             task.progress.completedUnitCount = beats
             return
         }
-        // Requests are accepted only from the foreground, so work started just before leaving
-        // asks on the next heartbeat after the user returns.
-        guard !workRequested, UIApplication.shared.applicationState == .active,
+        // Requests are accepted only from the foreground, and only for runs the user started.
+        guard started, !workRequested, UIApplication.shared.applicationState == .active,
               let bundle = Bundle.main.bundleIdentifier else { return }
         workRequested = true
         // Registration takes the full identifier; Info.plist permits `<bundle id>.run.*`.
@@ -171,7 +182,12 @@ class NativePlugin: Plugin, ASWebAuthenticationPresentationContextProviding, UNU
                   let work = task as? BGContinuedProcessingTask else {
                 task.setTaskCompleted(success: false); return
             }
-            work.expirationHandler = { [weak self] in self?.dropWork() }
+            // The user cancelled it, or the system needs the time back: stop the work, like
+            // Android's Stop action.
+            work.expirationHandler = { [weak self] in
+                self?.dropWork()
+                self?.trigger("background-stop", data: [:])
+            }
             self.beats = 0
             work.progress.totalUnitCount = 1
             self.workTask = work
@@ -197,7 +213,6 @@ class NativePlugin: Plugin, ASWebAuthenticationPresentationContextProviding, UNU
     }
     #endif
 
-    /// The system took the time back, or JavaScript stopped: the work resumes when the user returns.
     private func dropWork() {
         watchdog?.invalidate()
         watchdog = nil
@@ -206,13 +221,13 @@ class NativePlugin: Plugin, ASWebAuthenticationPresentationContextProviding, UNU
         task?.setTaskCompleted(success: false)
     }
 
-    private func endWork(success: Bool) {
+    private func endWork() {
         workRequested = false
         watchdog?.invalidate()
         watchdog = nil
         let task = workTask
         workTask = nil
-        task?.setTaskCompleted(success: success)
+        task?.setTaskCompleted(success: true)
     }
 
     // MARK: Notifications
@@ -244,12 +259,28 @@ class NativePlugin: Plugin, ASWebAuthenticationPresentationContextProviding, UNU
         }
     }
 
+    /// A tap can arrive before the page listens (a cold start); it waits until the page asks.
+    private var pendingChat: String?
+    private var listening = false
+
     func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
                                 withCompletionHandler completionHandler: @escaping () -> Void) {
         if let chat = response.notification.request.content.userInfo["chat"] as? String {
-            trigger("open-chat", data: ["id": chat])
+            DispatchQueue.main.async {
+                if self.listening { self.trigger("open-chat", data: ["id": chat]) } else { self.pendingChat = chat }
+            }
         }
         completionHandler()
+    }
+
+    /// Called by the plugin once the page listens for open-chat.
+    @objc public func openPendingChat(_ invoke: Invoke) {
+        DispatchQueue.main.async {
+            self.listening = true
+            if let chat = self.pendingChat { self.trigger("open-chat", data: ["id": chat]) }
+            self.pendingChat = nil
+            invoke.resolve([:])
+        }
     }
 }
 @_cdecl("init_plugin_native")

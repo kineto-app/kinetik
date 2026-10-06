@@ -52,6 +52,12 @@ pub(crate) async fn register_listener<R: Runtime>(
         "registerListener",
         serde_json::json!({ "event": event, "handler": handler }),
     )?;
+    // iOS holds a notification tap from a cold start until the page listens for it.
+    #[cfg(target_os = "ios")]
+    if event == "open-chat" {
+        app.native()
+            .listener("openPendingChat", serde_json::json!({}))?;
+    }
     #[cfg(desktop)]
     let _ = (app, handler);
     Ok(())

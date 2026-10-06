@@ -164,6 +164,7 @@ pub async fn auth_open(app: tauri::AppHandle, url: String) -> Result<(), String>
                         key: None,
                         value: None,
                         active: None,
+                        started: None,
                     },
                 )
                 .map(|_| ())
@@ -201,6 +202,7 @@ pub async fn auth_cancel(app: tauri::AppHandle, state: State<'_, AuthState>) -> 
                     key: None,
                     value: None,
                     active: None,
+                    started: None,
                 },
             )
         })
