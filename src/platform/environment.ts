@@ -34,18 +34,28 @@ export interface Capabilities {
   routinesNeedOpenApp: boolean;
   /**
    * Work the user started keeps going for a while after they leave the app: a foreground
-   * service on Android. Elsewhere work resumes when the user returns.
+   * service on Android, and on iOS 26 and later a continued-processing task once
+   * `iosContinuesAfterLeaving` is on. Elsewhere work resumes when the user returns.
    */
   continuesAfterLeaving: boolean;
   /** The app can alert the user when work finishes while it is in the background. */
   notifications: boolean;
 }
+/**
+ * The iOS app has native support for continuing work in the background (iOS 26 and later), but
+ * the work runs in the webview, which iOS may suspend anyway. Off until validated on devices;
+ * turning it on needs no native change.
+ */
+export const iosContinuesAfterLeaving = false;
+
 /** An unknown platform gets the most restrictive answer to every question. */
 export function capabilities(value: ClientPlatform | 'unknown' = platform): Capabilities {
   return {
     linkPlugins: value !== 'ios' && value !== 'unknown',
     routinesNeedOpenApp: value === 'ios' || value === 'web' || value === 'unknown',
-    continuesAfterLeaving: value === 'android',
-    notifications: value === 'web' || value === 'android',
+    continuesAfterLeaving: value === 'android' || (value === 'ios' && iosContinuesAfterLeaving),
+    // An iOS notification would announce work that cannot finish while the app is away.
+    notifications:
+      value === 'web' || value === 'android' || (value === 'ios' && iosContinuesAfterLeaving),
   };
 }
