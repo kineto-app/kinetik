@@ -85,7 +85,7 @@ Features are shared; where a platform truly differs, the app reads a capability 
 | Work continues after leaving     | No  | No  | Yes     | No      |
 | Notifications when work finishes | Yes | No  | Yes     | No      |
 
-A native app that cannot tell its operating system (an older app shell, where an iPad can look like a Mac) gets the most restrictive column: no plugins from a link, no notifications, and routines only while open.
+A native app that cannot tell its operating system (an older app shell, where an iPad can look like a Mac) gets the most restrictive column: plugins from a link do not run (they stay turned on for when the app can tell), no notifications, and routines only while open.
 
 On iOS, only plugins that come with the app run, such as the bundled Charms adapter for a configured connection; its skills load as usual. **Add a connection** is hidden, plugins imported from another device cannot be turned on or updated there, and plugins added from a link before this rule are turned off at startup and left out of saved chats and jobs. Native apps report their operating system to the configured connection in the `X-Client-Platform` header. Android and desktop processes keep running while the app is in the background, so their routines keep the existing wording.
 

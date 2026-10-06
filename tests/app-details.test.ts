@@ -119,7 +119,7 @@ test('the connection registers with the configured client name', async () => {
   expect(bodies.map((body) => body.client_name)).toEqual(['Kinetik OSS', 'Example App']);
 });
 
-test('a platform the app cannot name gets the most restrictive capabilities and no header', () => {
+test('a platform the app cannot name gets the most restrictive capabilities and no header', async () => {
   setClientPlatform('freebsd');
   expect(clientPlatform()).toBe('unknown');
   expect(capabilities()).toEqual({
@@ -135,6 +135,36 @@ test('a platform the app cannot name gets the most restrictive capabilities and 
   expect(guessNativePlatform('Mozilla/5.0 (Linux; Android 15) AppleWebKit')).toBe('android');
   expect(guessNativePlatform('Mozilla/5.0 (iPhone; CPU iPhone OS 18_6 like Mac OS X)')).toBe('ios');
   expect(guessNativePlatform('Mozilla/5.0 (Windows NT 10.0; Win64; x64)')).toBe('windows');
+  const headers: Record<string, string>[] = [];
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (_url: unknown, init: RequestInit) => {
+      headers.push(init.headers as Record<string, string>);
+      const request = JSON.parse(String(init.body));
+      return Response.json({
+        jsonrpc: '2.0',
+        id: request.id,
+        result: request.method === 'initialize' ? { protocolVersion: '2025-11-25' } : { tools: [] },
+      });
+    }),
+  );
+  const store = new Store(crypto.randomUUID());
+  await store.put('connection-token:charms', {
+    token: 'placeholder-token',
+    revision: 'r',
+    ready: true,
+  });
+  await new Plugins(store).instantiate({
+    manifest: { id: 'charms', name: 'Charms', version: '1', apiVersion: 1, entry: 'plugin.js' },
+    source: new URL('plugins/charms/plugin.json', base).href,
+    resolvedSource: new URL('plugins/charms/plugin.json', base).href,
+    code: 'return host.mcp(host.settings.url).tools().then(() => ({}));',
+    digest: 'x',
+    settings: { url: 'https://service.example/mcp', connection: 'charms', connectionRevision: 'r' },
+    enabledAt: 1,
+  });
+  expect(headers.length).toBeGreaterThan(0);
+  expect(headers.some((h) => 'X-Client-Platform' in h)).toBe(false);
 });
 
 test('platforms differ only through capabilities', () => {
@@ -258,36 +288,40 @@ test('on iOS the app scope decides which plugins came with it', async () => {
   ).rejects.toThrow('Use HTTPS');
 });
 
-test('on iOS, a link plugin turned on before the upgrade is turned off and never runs', async () => {
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(async (url: unknown) =>
-      String(url).endsWith('plugin.json')
-        ? Response.json({
-            id: 'linked',
-            name: 'L',
-            version: '1',
-            apiVersion: 1,
-            entry: 'plugin.js',
-          })
-        : new Response('return { tools: {} };'),
-    ),
-  );
-  const store = new Store(crypto.randomUUID());
-  const before = new Plugins(store);
-  await before.install('https://plugins.example/linked/plugin.json');
-  await before.enable('linked', true);
-  const [record] = await before.list();
-  setClientPlatform('ios');
-  const host = new RuntimeHost(store, base, () => {}, { connections: {} });
-  await host.initialize();
-  expect((await host.runtime.plugins.list())[0].enabledAt).toBeNull();
-  // Chats and jobs pin the records they started with; those are left out too.
-  const pinned = { ...record, enabledAt: 1 };
-  expect((await host.runtime.plugins.snapshot({}, [pinned])).sources).toEqual([]);
-  const bundled = { ...pinned, source: new URL('plugins/charms/plugin.json', base).href };
-  expect((await host.runtime.plugins.snapshot({}, [bundled])).sources).toHaveLength(1);
-});
+for (const [platform, kept] of [
+  ['ios', false],
+  ['unknown', true],
+] as const)
+  test(`a link plugin turned on before: ${platform} ${kept ? 'blocks it but keeps it on' : 'turns it off'}`, async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: unknown) =>
+        String(url).endsWith('plugin.json')
+          ? Response.json({
+              id: 'linked',
+              name: 'L',
+              version: '1',
+              apiVersion: 1,
+              entry: 'plugin.js',
+            })
+          : new Response('return { tools: {} };'),
+      ),
+    );
+    const store = new Store(crypto.randomUUID());
+    const before = new Plugins(store);
+    await before.install('https://plugins.example/linked/plugin.json');
+    await before.enable('linked', true);
+    const [record] = await before.list();
+    setClientPlatform(platform);
+    const host = new RuntimeHost(store, base, () => {}, { connections: {} });
+    await host.initialize();
+    expect((await host.runtime.plugins.list())[0].enabledAt !== null).toBe(kept);
+    // Chats and jobs pin the records they started with; those never run it either.
+    const pinned = { ...record, enabledAt: 1 };
+    expect((await host.runtime.plugins.snapshot({}, [pinned])).sources).toEqual([]);
+    const bundled = { ...pinned, source: new URL('plugins/charms/plugin.json', base).href };
+    expect((await host.runtime.plugins.snapshot({}, [bundled])).sources).toHaveLength(1);
+  });
 
 test('setup state says when ChatGPT replies pass through the service', async () => {
   const store = new Store(crypto.randomUUID());

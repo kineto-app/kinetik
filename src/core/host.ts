@@ -14,7 +14,7 @@ import { Connections } from '../connections/manager';
 import { CompatModel } from '../models/compat';
 import { MockModel } from '../models/mock';
 import { httpTransport, OpenAIModel } from '../models/openai';
-import { capabilities } from '../platform/environment';
+import { capabilities, clientPlatform } from '../platform/environment';
 import { ModelRouter } from '../models/router';
 
 export interface HostReply {
@@ -102,11 +102,14 @@ export class RuntimeHost {
       chatgpt!.status(),
     );
     if (!capabilities().linkPlugins) {
-      // Plugins turned on before this rule applied stop too, including in saved chats and jobs.
+      // Plugins from a link do not run, including in saved chats and jobs.
       runtime.plugins.allowed = (plugin) => this.fromApp(plugin.source);
-      for (const plugin of await runtime.plugins.list())
-        if (plugin.enabledAt !== null && !this.fromApp(plugin.source))
-          await runtime.plugins.enable(plugin.manifest.id, false);
+      // Only a confirmed iOS app turns them off for good. An unknown platform may be an older
+      // shell on another system, which must keep its plugins for when it can tell.
+      if (clientPlatform() === 'ios')
+        for (const plugin of await runtime.plugins.list())
+          if (plugin.enabledAt !== null && !this.fromApp(plugin.source))
+            await runtime.plugins.enable(plugin.manifest.id, false);
     }
     await runtime.recover();
     this.runtime = runtime;
