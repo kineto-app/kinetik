@@ -9,6 +9,7 @@ import {
   capabilities,
   clientPlatform,
   guessNativePlatform,
+  iosContinuesAfterLeaving,
   setClientPlatform,
 } from '../src/platform/environment';
 import { mailtoLimit, reportEmail } from '../src/ui/app-details';
@@ -174,7 +175,14 @@ test('platforms differ only through capabilities', () => {
     continuesAfterLeaving: false,
     notifications: true,
   });
-  expect(capabilities('ios').linkPlugins).toBe(false);
+  // Continuing work and notifications on iOS wait for device validation, behind one flag.
+  expect(capabilities('ios')).toEqual({
+    linkPlugins: false,
+    routinesNeedOpenApp: true,
+    continuesAfterLeaving: iosContinuesAfterLeaving,
+    notifications: iosContinuesAfterLeaving,
+  });
+  expect(iosContinuesAfterLeaving).toBe(false);
   expect(capabilities('android')).toMatchObject({
     linkPlugins: true,
     routinesNeedOpenApp: false,

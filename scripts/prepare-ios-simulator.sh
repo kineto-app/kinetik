@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
-# Generates the Xcode project if needed and gives the unsigned simulator build an app identity,
+# Generates the Xcode project if needed, applies the shared iOS setup (scripts/prepare-ios.sh)
+# and gives the unsigned simulator build an app identity,
 # so Keychain access works. Simulator only: physical devices use a real provisioning profile.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 project=src-tauri/gen/apple/kinetik.xcodeproj/project.pbxproj
 # The directory is generated; an interrupted init leaves it without a project, so start over.
 [ -f "$project" ] || { rm -rf src-tauri/gen/apple; npm run tauri -- ios init --ci; }
+scripts/prepare-ios.sh
 identity=src-tauri/gen/apple/simulator-identity
 cat > "$identity.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
