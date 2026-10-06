@@ -1452,3 +1452,19 @@ fn unavailable_restore_target_can_download_signed_compatible_code_and_resume() {
         }
     }
 }
+
+#[test]
+fn production_client_refuses_plain_http_with_either_tls_backend() {
+    // A listener that would answer, so only the client's HTTPS-only rule can refuse the request.
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!("http://{}/manifest.json", listener.local_addr().unwrap());
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let error = runtime
+        .block_on(download::fetch(&download::client().unwrap(), &url, 1024))
+        .unwrap_err();
+    // reqwest refuses the scheme before connecting.
+    assert!(error.starts_with("builder error"), "{error}");
+}

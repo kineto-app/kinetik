@@ -26,7 +26,6 @@ minisign-verify = "0.2.5"
 sha2 = "0.10"
 semver = { version = "1", features = ["serde"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
 flate2 = "1"
 tar = "0.4"
 tempfile = "3"
@@ -35,7 +34,6 @@ serde = { version = "1.0", features = ["derive"] }
 tauri = { version = "2.12.0", features = [] }
 
 tauri-plugin-native = { path = "../native-plugin" }
-tauri-plugin-http = { version = "2", features = ["unsafe-headers"] }
 tauri-plugin-opener = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
@@ -43,6 +41,16 @@ tauri-plugin-deep-link = "2"
 tokio = { version = "1", features = ["net", "io-util", "sync", "time"] }
 url = "2"
 uuid = { version = "1", features = ["v4"] }
+
+# TLS: Apple's system implementation (Security framework) on iOS and macOS, rustls elsewhere.
+# The plugin's other default features are listed again because its defaults pick rustls.
+[target.'cfg(any(target_os = "ios", target_os = "macos"))'.dependencies]
+reqwest = { version = "0.12", default-features = false, features = ["native-tls", "native-tls-alpn", "json"] }
+tauri-plugin-http = { version = "2", default-features = false, features = ["unsafe-headers", "native-tls", "native-tls-alpn", "http2", "charset", "system-proxy", "cookies"] }
+
+[target.'cfg(not(any(target_os = "ios", target_os = "macos")))'.dependencies]
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+tauri-plugin-http = { version = "2", features = ["unsafe-headers"] }
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-single-instance = "2"
