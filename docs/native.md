@@ -8,7 +8,7 @@ Android uses a main-frame-only WebMessageListener for native IPC. The invoke key
 
 Native HTTP omits the synthetic WebView `Origin` by default. The HTTP plugin enables `unsafe-headers` so an empty `Origin` suppresses its automatic header; explicit caller origins remain supported. Local assets still use WebView fetch, and sandboxed widgets do not receive native transport. This prevents capability-authenticated uploads from being rejected by servers that do not allow the app's local origin.
 
-TLS for native HTTP and the updater comes from the operating system on iOS and macOS (Apple's Security framework, through `native-tls`) and from rustls on Android, Windows and Linux. The updater's rules do not depend on it: HTTPS only, no redirects, and the minisign signature check of each manifest. On Apple platforms the system TLS stack, through `native-tls`, currently tops out at TLS 1.2.
+TLS for native HTTP and the updater comes from the operating system on iOS and macOS (Apple's Security framework, through `native-tls`) and from rustls on Android, Windows and Linux. The updater's rules do not depend on it: HTTPS only, no redirects, and the minisign signature check of each manifest. On Apple platforms the system TLS stack, through `native-tls`, currently tops out at TLS 1.2, so servers that require TLS 1.3 can't be reached from iOS or macOS.
 
 Windows Tauri IPC uses the virtual `ipc.localhost` host. Those requests also retain WebView fetch unchanged; routing them through native HTTP would recursively invoke the HTTP plugin and stall startup.
 
