@@ -57,7 +57,7 @@ A physical iOS build needs an Apple development team and signing identity. Set `
 
 ## Distribution configuration
 
-Native builds embed a connection preset at build time. `native.config.json` is empty by default; set `KINETIK_NATIVE_CONFIG` to a JSON file in the connection format of [deployment.md](deployment.md#connections-and-guided-setup) to ship connections with your build. With a Charms preset, Kinetik installs the bundled Charms plugin on first launch, ready to sign in; `native.config.example.json` shows the shape with placeholder endpoints. Include only public service endpoints and UI configuration, never tokens, passwords, or private keys. Native ChatGPT authorization is configured by the native adapter.
+Native builds embed a connection preset at build time. The same file carries the optional [`app` section](deployment.md#app-details): privacy policy, account page, support address, service name and sign-in client name. `native.config.json` is empty by default; set `KINETIK_NATIVE_CONFIG` to a JSON file in the connection format of [deployment.md](deployment.md#connections-and-guided-setup) to ship connections with your build. With a Charms preset, Kinetik installs the bundled Charms plugin on first launch, ready to sign in; `native.config.example.json` shows the shape with placeholder endpoints. Include only public service endpoints and UI configuration, never tokens, passwords, or private keys. Native ChatGPT authorization is configured by the native adapter.
 
 To create a signed Android APK, keep a stable keystore and a private properties file outside the repository:
 
@@ -73,6 +73,19 @@ KINETIK_SIGNING_PROPERTIES=/absolute/path/to/signing.properties npm run android:
 ```
 
 The default target is ARM64. `KINETIK_ANDROID_TARGET` selects another Tauri Android target. The APK is written beneath `src-tauri/gen/android/app/build/outputs/apk/`. Back up the keystore, passwords, and frontend signing key securely. Losing the Android key prevents updating an existing sideloaded installation. Increment the app version in `package.json`, `src-tauri/tauri.conf.json`, and `src-tauri/Cargo.toml` for each native release. Keep the application identifier unchanged.
+
+## Platform differences
+
+Features are shared; where a platform truly differs, the app reads a capability rather than the platform name (`src/platform/environment.ts`):
+
+| Capability                       | Web | iOS | Android | Desktop |
+| -------------------------------- | --- | --- | ------- | ------- |
+| Add plugins from a link          | Yes | No  | Yes     | Yes     |
+| Routines run only while open     | Yes | Yes | No      | No      |
+| Work continues after leaving     | No  | No  | Yes     | No      |
+| Notifications when work finishes | Yes | No  | Yes     | No      |
+
+On iOS, only plugins that come with the app run, such as the bundled Charms adapter for a configured connection; its skills load as usual. **Add a connection** is hidden, and plugins imported from another device cannot be turned on or updated there. Native apps report their operating system to the configured connection in the `X-Client-Platform` header. Android and desktop processes keep running while the app is in the background, so their routines keep the existing wording.
 
 ## Authentication and storage
 
