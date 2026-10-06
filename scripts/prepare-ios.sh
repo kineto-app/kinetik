@@ -7,7 +7,10 @@
 # KINETIK_PRIVACY_MANIFEST ships a distributor's own privacy manifest instead.
 set -euo pipefail
 manifest=${KINETIK_PRIVACY_MANIFEST:-}
-[ -z "$manifest" ] || manifest=$(cd "$(dirname "$manifest")" && pwd)/$(basename "$manifest")
+if [ -n "$manifest" ]; then
+  [ -d "$(dirname "$manifest")" ] || { echo "KINETIK_PRIVACY_MANIFEST: no folder $(dirname "$manifest")" >&2; exit 1; }
+  manifest=$(cd "$(dirname "$manifest")" && pwd)/$(basename "$manifest")
+fi
 cd "$(dirname "$0")/.."
 manifest=${manifest:-src-tauri/ios/PrivacyInfo.xcprivacy}
 apple=src-tauri/gen/apple

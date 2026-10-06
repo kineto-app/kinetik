@@ -107,7 +107,7 @@ async function synchronizeBackground(heartbeat = false) {
   if (syncing) return syncing;
   syncing = (async () => {
     const conversations = await host.runtime.conversations(() => false);
-    const jobs = await host.store.entries<{ state: string }>('background:');
+    const jobs = await host.store.entries<{ state: string; conversationId: string }>('background:');
     const active =
       authenticating ||
       conversations.some(
@@ -116,12 +116,23 @@ async function synchronizeBackground(heartbeat = false) {
           (c.status === 'waiting' && c.waitingFor !== 'signin'),
       ) ||
       jobs.some(([, j]) => ['running', 'waiting'].includes(j.state));
+    // A run works while its turn runs or a background job of it does; it has ended once it is
+    // neither working nor queued or waiting.
+    const working = new Set([
+      ...conversations.filter((c) => c.status === 'running').map((c) => c.id),
+      ...jobs
+        .filter(([, j]) => ['running', 'waiting'].includes(j.state))
+        .map(([, j]) => j.conversationId),
+    ]);
     for (const id of userStarted)
-      if (!conversations.some((c) => c.id === id && c.status === 'running')) userStarted.delete(id);
+      if (
+        !working.has(id) &&
+        !conversations.some((c) => c.id === id && ['queued', 'waiting'].includes(c.status))
+      )
+        userStarted.delete(id);
     // Only a run the user started may continue after they leave, and only where it can.
     const started =
-      capabilities().continuesAfterLeaving &&
-      conversations.some((c) => userStarted.has(c.id) && c.status === 'running');
+      capabilities().continuesAfterLeaving && [...userStarted].some((id) => working.has(id));
     if (active !== lastActive || started !== lastStarted || (heartbeat && active)) {
       await invoke('plugin:native|background', { payload: { active, started } });
       lastActive = active;
