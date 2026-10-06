@@ -104,13 +104,18 @@ jobs:
       # Same project generation and simulator identity as `npm run ios:simulator`.
       - run: scripts/prepare-ios-simulator.sh
       - run: npm run ios:build -- --debug --target aarch64-sim --no-sign --ci
-      - name: Verify simulator identity sections
+      - name: Verify simulator identity sections and the shared iOS setup
         run: |
           python3 - <<'PYTHON'
-          import subprocess
-          headers = subprocess.check_output(['xcrun', 'otool', '-l', 'src-tauri/gen/apple/build/arm64-sim/Kinetik.app/Kinetik'], text=True)
+          import plistlib, subprocess
+          app = 'src-tauri/gen/apple/build/arm64-sim/Kinetik.app'
+          headers = subprocess.check_output(['xcrun', 'otool', '-l', app + '/Kinetik'], text=True)
           assert 'sectname __entitlements' in headers
           assert 'sectname __ents_der' in headers
+          with open(app + '/PrivacyInfo.xcprivacy', 'rb') as f:
+              assert plistlib.load(f)['NSPrivacyTracking'] is False
+          with open(app + '/Info.plist', 'rb') as f:
+              assert plistlib.load(f)['BGTaskSchedulerPermittedIdentifiers'] == ['app.kinetik.oss.run.*']
           PYTHON
       - name: Launch iOS simulator app
         run: |
