@@ -356,3 +356,6 @@ label.custom-check input {
   color: var(--accent-ink);
   text-underline-offset: 3px;
 }
+.custom-model .settings-consent {
+  margin-top: 16px;
+}
