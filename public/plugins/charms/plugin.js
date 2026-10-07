@@ -109,21 +109,29 @@ return (async () => {
         const entries = catalogPages.flatMap(page => page.charms ?? []);
         const first = catalogPages[0];
         if (!Array.isArray(first.charms) || entries.length !== first.total_count || new Set(entries.map(entry => entry.name)).size !== entries.length || catalogPages.some(page => page.catalog_version !== first.catalog_version)) throw new Error('Incomplete or changed Charms catalog.');
-        const skills = [];
-        for (const entry of entries) {
+        const load = async (entry) => {
           const old = previous?.skills.find(skill => skill.name === entry.name);
           if (old && old.version === entry.charm_version && !['kineto.connections', 'kineto.agents'].includes(entry.name)) {
-            skills.push({ ...old, description: entry.description });
-            continue;
+            return { ...old, description: entry.description };
           }
           if (!/^[\w.-]+$/.test(entry.name)) throw new Error('Invalid Charms skill name.');
           const parts = await pages('charms_skill_load', { name: entry.name }, signal);
           const body = parts.map((page, index) => index === 0 ? page.skill_md : page.content).join('');
           if (parts.some((page, index) => typeof (index === 0 ? page.skill_md : page.content) !== 'string')) throw new Error('Invalid Charms skill body.');
-          skills.push({ name: entry.name, description: entry.description,
+          return { name: entry.name, description: entry.description,
             path: entry.name + '/SKILL.md', version: entry.charm_version,
-            content: `Remote skill directory: ${parts[0].path}\nSupporting files and scripts live in the Charms sandbox. Read them with the remote read tool; execute them with remote exec.\n\n${body}` });
-        }
+            content: `Remote skill directory: ${parts[0].path}\nSupporting files and scripts live in the Charms sandbox. Read them with the remote read tool; execute them with remote exec.\n\n${body}` };
+        };
+        // Skills load a few at a time instead of one after another; the list keeps catalog order.
+        const skills = new Array(entries.length);
+        let next = 0;
+        let failed = false;
+        await Promise.all(Array.from({ length: Math.min(6, entries.length) }, async () => {
+          while (!failed && next < entries.length) {
+            const index = next++;
+            try { skills[index] = await load(entries[index]); } catch (error) { failed = true; throw error; }
+          }
+        }));
         return { revision: String(first.catalog_version), skills };
       },
     },
