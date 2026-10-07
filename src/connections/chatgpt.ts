@@ -54,6 +54,12 @@ interface Session {
   account: string;
 }
 
+/** The model and per-model reasoning chosen on this device. Signing out or in keeps it. */
+interface Preference {
+  model?: string;
+  efforts?: Record<string, string>;
+}
+
 /** A turn pins its model when it starts; later requests send it back. */
 const pinnedModel = (pin: { model?: unknown } | undefined, fallback: string) =>
   typeof pin?.model === 'string' && /^[\w.:-]{1,100}$/.test(pin.model) ? pin.model : fallback;
@@ -234,9 +240,17 @@ export class BrowserChatGPT {
       )
         throw new Error('ChatGPT plan access was not granted.');
       const session = this.session(tokens, String(claims.sub));
-      session.model = await this.selectModel(session, undefined, true);
-      // A fallback counts as chosen, so turns keep it; the picker offers the default once it appears.
-      if (session.model !== defaultModel) session.modelSelected = true;
+      const catalog = await this.catalog(session);
+      const preference = await this.preference();
+      const remembered = catalog.find((model) => model.slug === preference.model);
+      session.model =
+        remembered?.slug ?? (await this.selectModel(session, undefined, true, catalog));
+      // A remembered or fallback model counts as chosen, so turns keep it.
+      if (remembered || session.model !== defaultModel) session.modelSelected = true;
+      session.reasoning = this.rememberedEffort(
+        catalog.find((model) => model.slug === session.model),
+        preference,
+      );
       await this.store.put('registration', { ...registration, clientId, subject: claims.sub });
       await this.store.put('session', session);
       return { ok: true };
@@ -316,8 +330,27 @@ export class BrowserChatGPT {
   private effort(session: Session) {
     return session.reasoning ?? (session.model === defaultModel ? 'medium' : undefined);
   }
-  private async selectModel(session: Session, signal?: AbortSignal, firstSignIn = false) {
-    const catalog = await this.catalog(session, signal);
+  private async preference(): Promise<Preference> {
+    const value = await this.store.get<Preference | null>('preference');
+    return value && typeof value === 'object' ? value : {};
+  }
+  private async remember(update: (preference: Preference) => Preference) {
+    await this.store.update<Preference>('preference', (value) =>
+      update(value && typeof value === 'object' ? value : {}),
+    );
+  }
+  /** The level last chosen for `model`, if the model still offers it. */
+  private rememberedEffort(model: ChatGPTModel | undefined, preference: Preference) {
+    const effort = model && preference.efforts?.[model.slug];
+    return model?.reasoning?.some((level) => level.effort === effort) ? effort : undefined;
+  }
+  private async selectModel(
+    session: Session,
+    signal?: AbortSignal,
+    firstSignIn = false,
+    listed?: ChatGPTModel[],
+  ) {
+    const catalog = listed ?? (await this.catalog(session, signal));
     if (catalog.some((model) => model.slug === defaultModel)) return defaultModel;
     // A new sign-in starts on the first model ChatGPT lists; an existing login never switches silently.
     if (firstSignIn && catalog[0]) return catalog[0].slug;
@@ -326,7 +359,16 @@ export class BrowserChatGPT {
   /** The model and reasoning level a new turn should keep, read without a network call. */
   async turnSettings() {
     const session = await this.storedSession();
-    return session ? { model: session.model, effort: this.effort(session) } : {};
+    if (!session) return {};
+    // A choice saved only with the login, before choices were kept apart from it.
+    if (session.modelSelected && !(await this.preference()).model)
+      await this.remember((preference) => ({
+        model: session.model,
+        efforts: session.reasoning
+          ? { ...preference.efforts, [session.model]: session.reasoning }
+          : preference.efforts,
+      }));
+    return { model: session.model, effort: this.effort(session) };
   }
   async models() {
     const status = await this.status();
@@ -343,7 +385,8 @@ export class BrowserChatGPT {
   async chooseModel(slug: string) {
     const status = await this.status();
     const session = await this.access(status.account, AbortSignal.timeout(30000), false);
-    if (!(await this.catalog(session)).some((model) => model.slug === slug))
+    const model = (await this.catalog(session)).find((model) => model.slug === slug);
+    if (!model)
       throw new Error('This model is not available. Refresh the list and choose another.');
     return navigator.locks.request('kinetik-chatgpt', async () => {
       const current = await this.storedSession();
@@ -353,8 +396,9 @@ export class BrowserChatGPT {
         ...current,
         model: slug,
         modelSelected: true,
-        reasoning: undefined,
+        reasoning: this.rememberedEffort(model, await this.preference()),
       });
+      await this.remember((preference) => ({ ...preference, model: slug }));
       return { model: slug };
     });
   }
@@ -369,6 +413,11 @@ export class BrowserChatGPT {
       if (!current || current.account !== session.account || current.model !== session.model)
         throw new Error('The model changed. Choose the reasoning level again.');
       await this.store.put('session', { ...current, reasoning: effort });
+      await this.remember((preference) => ({
+        ...preference,
+        model: current.model,
+        efforts: { ...preference.efforts, [current.model]: effort },
+      }));
       return { reasoning: effort };
     });
   }
