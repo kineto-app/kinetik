@@ -60,8 +60,7 @@ export function ModelPicker(props: {
             })
           : undefined,
         rpc<CustomModelState>('customModel', { action: 'state' }),
-        // A worker from an earlier version has none to offer.
-        rpc<Served>('models', { action: 'state' }).catch(() => noServed),
+        rpc<Served>('models', { action: 'state' }),
       ]);
       if (current !== generation) return;
       setModels(result?.models ?? []);
@@ -115,11 +114,9 @@ export function ModelPicker(props: {
     // The connection decides the effective level (GPT-6.1 Sol defaults to medium); read it back.
     await load();
   }
-  /** Remembered as a choice; a worker from an earlier version only knows the custom model's. */
+  /** Remembered as a choice, so a signed-out ChatGPT asks to sign in rather than switch. */
   async function chooseChatGPT() {
-    await rpc('models', { action: 'choose', provider: 'chatgpt' }).catch(() =>
-      rpc('customModel', { action: 'choose', use: false }),
-    );
+    await rpc('models', { action: 'choose', provider: 'chatgpt' });
     setCustom((value) => ({ ...value, chosen: false }));
   }
   async function chooseCustom(use: boolean) {

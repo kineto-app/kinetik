@@ -2,7 +2,7 @@
  * Windows and the worker talk over postMessage and can come from different builds for a moment
  * after an update. A request from another protocol version is refused with a reload hint.
  */
-export const protocolVersion = 1;
+export const protocolVersion = 2;
 
 export type Op =
   | 'answer'

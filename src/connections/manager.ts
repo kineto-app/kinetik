@@ -49,6 +49,8 @@ export interface SetupState {
     /** Model requests pass through the distributor's relay. */
     relay?: boolean;
     model?: string;
+    /** Chosen on purpose, so new chats wait for it rather than use another model. */
+    chosen?: boolean;
   };
 }
 const id = 'charms';
@@ -217,6 +219,7 @@ export class Connections {
         browser: this.config.chatgpt?.mode === 'browser',
         relay: this.config.chatgpt?.mode === 'browser' && Boolean(this.config.chatgpt.modelRelay),
         model,
+        chosen: (await this.store.get<string>('model-choice')) === 'chatgpt',
       },
     };
   }
