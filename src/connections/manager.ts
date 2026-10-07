@@ -357,6 +357,7 @@ export class Connections {
     const synced = await this.plugins.sync(
       [{ installed: plugin, plugin: provider }],
       AbortSignal.timeout(45000),
+      true,
     );
     if (synced.warnings.length)
       throw new Error(
