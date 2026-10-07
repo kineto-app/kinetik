@@ -238,6 +238,16 @@ test('out of credits, the web offers Top up and continuing with ChatGPT, which c
   await (await tab).waitForURL('https://service.example/credits');
   await page.getByRole('button', { name: 'Continue with ChatGPT' }).click();
   await expect(page.getByRole('heading', { name: 'Connect ChatGPT' })).toBeVisible();
+  // Leaving without connecting changes nothing: Kinetik is still the model.
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: /^Choose model/ }).click();
+  await expect(
+    page
+      .getByRole('dialog', { name: 'Model and reasoning' })
+      .getByRole('button', { name: 'Kinetik' }),
+  ).toHaveAttribute('aria-pressed', 'true');
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: 'Continue with ChatGPT' }).click();
   await connectChatGPT(page, context);
   await page.getByRole('button', { name: 'Start chatting' }).click();
   await send(page, 'Hello again');
@@ -309,10 +319,9 @@ test('someone who never saw where Kinetik messages go is told once, before the f
 
 test('ChatGPT chosen and then signed out asks for it again, and the menu can still switch to Kinetik', async ({
   page,
-  context,
 }) => {
   await page.request.get(fixture + 'served/mode?value=on');
-  await connectBoth(page, context);
+  await connectBoth(page);
   const menu = page.getByRole('dialog', { name: 'Model and reasoning' });
   const choose = async (name: string) => {
     await page.getByRole('button', { name: /^Choose model/ }).click();

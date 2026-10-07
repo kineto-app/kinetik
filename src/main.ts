@@ -953,11 +953,14 @@ window.addEventListener('kinetik-use-chatgpt', (event) => {
   if (continuing) return;
   continuing = true;
   void (async () => {
-    // New chats use ChatGPT once it is connected; until then nothing else changes.
-    await rpc('customModel', { action: 'choose', use: false });
-    window.dispatchEvent(new Event('kinetik-model-changed'));
     await connectionSetup.refresh();
-    if (!connectionState?.chatgpt.connected) return connectionSetup.open('chatgpt');
+    // Not connected: its sign-in, which makes ChatGPT the choice once it succeeds.
+    if (!connectionState?.chatgpt.connected)
+      return void window.dispatchEvent(new Event('kinetik-connect-chatgpt'));
+    await rpc('models', { action: 'choose', provider: 'chatgpt' }).catch(() =>
+      rpc('customModel', { action: 'choose', use: false }),
+    );
+    window.dispatchEvent(new Event('kinetik-model-changed'));
     window.dispatchEvent(new CustomEvent('kinetik-retry', { detail: id }));
   })()
     .catch(showError)
