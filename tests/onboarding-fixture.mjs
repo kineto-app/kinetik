@@ -138,6 +138,7 @@ export async function onboardingFixture(req, res) {
             app: {
               privacyUrl: 'https://service.example/privacy',
               accountUrl: 'https://service.example/account',
+              creditsUrl: 'https://service.example/credits',
               supportEmail: 'help@service.example',
               serviceName: 'Example Service',
             },

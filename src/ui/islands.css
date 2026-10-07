@@ -916,8 +916,22 @@ dialog::backdrop,
     monospace;
   overflow-wrap: anywhere;
 }
-#timeline[data-busy] .notice-retry,
-.message[data-role='notice']:not(:last-of-type) .notice-retry {
+/* Ways on from a notice, on their own row so they wrap on a phone. */
+.notice-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0 var(--space-inline);
+}
+.notice-actions .icon {
+  width: 13px;
+  height: 13px;
+}
+.notice-actions:empty {
+  display: none;
+}
+#timeline[data-busy] :is(.notice-retry, .notice-actions),
+.message[data-role='notice']:not(:last-of-type) :is(.notice-retry, .notice-actions) {
   display: none;
 }
 

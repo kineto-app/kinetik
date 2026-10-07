@@ -34,6 +34,8 @@ export interface Message {
   usage?: Usage;
   /** Marks the notice that replaced earlier model input with a summary. */
   compaction?: { items: number; tokens: number };
+  /** Why a turn ended, when the notice offers a way on: `credits` ran out. */
+  reason?: 'credits';
   attachments?: Attachment[];
   /** Queued to run after the current work instead of steering it; cleared once it starts. */
   queue?: 'after';

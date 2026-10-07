@@ -86,12 +86,14 @@ export function setupConnections(changed: (state: SetupState) => void) {
           <a id="setup-charms-authorize" class="setup-authorize" target="_blank" rel="noopener noreferrer" hidden>Sign in to Kineto ${icon('external')}</a>
           <details id="setup-charms-return-option" class="setup-install-help" hidden><summary>Paste return link</summary><form id="setup-charms-callback"><label for="setup-charms-link">Return link from Kineto</label><p class="setup-hint">Copy the return link after signing in, then paste it here.</p><input id="setup-charms-link" type="text" autocomplete="off" spellcheck="false" placeholder="Paste the return link here"/><button class="primary setup-primary" type="submit">Finish connecting Charms ${icon('check')}</button></form></details>
           <button id="setup-back" class="setup-quiet">Back to ChatGPT</button>
+          <button id="setup-use-chatgpt" class="secondary setup-primary" hidden>Use your ChatGPT subscription</button>
         </div>
         <div id="setup-chatgpt" hidden>
           <div id="setup-helper-missing" class="setup-notice" hidden>ChatGPT sign-in is unavailable here.</div>
           <p id="setup-chatgpt-consent" class="setup-consent"><span></span> <a class="setup-privacy" target="_blank" rel="noopener noreferrer" hidden>Privacy</a></p>
           <button id="setup-login" class="primary setup-primary">Agree and continue ${icon('external')}</button>
           <button id="setup-resume-chatgpt" class="setup-quiet">Paste return link</button>
+          <button id="setup-back-sign-in" class="setup-quiet" hidden>Back to sign-in</button>
           <div id="setup-callback" hidden>
             <ol class="setup-instructions"><li><div><strong>Sign in to ChatGPT.</strong><a id="setup-authorize" target="_blank" rel="noopener noreferrer">Reopen sign-in ${icon('external')}</a></div></li>
             <li><div><strong>Copy the full address after sign-in.</strong><p>The final page may not load. Copy its full address anyway.</p><div class="setup-address">127.0.0.1:1455/auth/callback?code=…</div></div></li>
@@ -101,7 +103,7 @@ export function setupConnections(changed: (state: SetupState) => void) {
 
         </div>
         <div id="setup-consent" hidden><p id="setup-served-consent" class="setup-consent"><span></span> <a class="setup-privacy" target="_blank" rel="noopener noreferrer" hidden>Privacy</a></p><button id="setup-agree" class="primary setup-primary">Agree and continue ${icon('chevron')}</button><button id="setup-not-now" class="setup-quiet">Not now</button></div>
-        <div id="setup-ready" hidden><div class="setup-ready-list"><p id="setup-charms-ready">${icon('check')}<span>Charms</span><strong>Connected</strong></p><p>${icon('check')}<span>ChatGPT</span><strong>Connected</strong></p></div><button id="setup-start" class="primary setup-primary">Start chatting ${icon('chevron')}</button></div>
+        <div id="setup-ready" hidden><div class="setup-ready-list"><p id="setup-charms-ready">${icon('check')}<span>Charms</span><strong>Connected</strong></p><p id="setup-chatgpt-ready">${icon('check')}<span>ChatGPT</span><strong>Connected</strong></p></div><button id="setup-start" class="primary setup-primary">Start chatting ${icon('chevron')}</button></div>
         <p id="setup-progress" class="setup-hint" role="status"></p><button id="setup-cancel-signin" class="setup-quiet" hidden>Cancel sign-in</button>
         <p id="setup-error" class="setup-error" role="alert" hidden></p>
         <button id="setup-retry" class="secondary" hidden>Try again</button>
@@ -130,6 +132,13 @@ export function setupConnections(changed: (state: SetupState) => void) {
       'connected',
       'consent',
     ].includes(next);
+    // Signing in first, ChatGPT is the alternative to it rather than a step before it.
+    const first = signInFirst();
+    for (const li of dialog.querySelectorAll<HTMLElement>('[data-step]'))
+      li.hidden =
+        first &&
+        ((li.dataset.step === 'chatgpt' && next !== 'chatgpt') ||
+          (li.dataset.step === 'charms' && next === 'chatgpt'));
     let stepNumber = 0;
     for (const li of dialog.querySelectorAll<HTMLElement>('[data-step]')) {
       if (!li.hidden) li.querySelector('span')!.textContent = String(++stepNumber);
@@ -140,7 +149,7 @@ export function setupConnections(changed: (state: SetupState) => void) {
       install: 'Install Kinetik',
       handoff: 'Return to Kinetik',
       connected: 'Charms connected',
-      charms: 'Connect Charms',
+      charms: first ? 'Sign in to start' : 'Connect Charms',
       chatgpt: 'Connect ChatGPT',
       ready: "You're ready",
       consent: `Before you chat with ${state.models?.name ?? 'this model'}`,
@@ -149,7 +158,9 @@ export function setupConnections(changed: (state: SetupState) => void) {
       install: 'Add Kinetik to your Home Screen or Dock.',
       connected: 'Return to Kinetik to continue.',
       handoff: 'Copy this link and paste it in the Kinetik app.',
-      charms: 'Use your Charms files, tools, and skills.',
+      charms: first
+        ? `Chat with ${state.models!.name}, with your files, tools, and skills.`
+        : 'Use your Charms files, tools, and skills.',
       chatgpt: 'Chat using your ChatGPT subscription.',
       ready: '',
       consent: '',
@@ -162,7 +173,10 @@ export function setupConnections(changed: (state: SetupState) => void) {
     if (next === 'install') renderInstallation();
     if (next === 'handoff') $<HTMLTextAreaElement>('charms-return').value = callbackAddress;
     $('charms-ready').hidden = state.charms.status !== 'connected';
-    $('back').hidden = !state.chatgpt.available;
+    $('back').hidden = !state.chatgpt.available || first;
+    $('use-chatgpt').hidden = !first || !state.chatgpt.available || state.chatgpt.connected;
+    $('back-sign-in').hidden = !first || state.charms.status === 'connected';
+    $('chatgpt-ready').hidden = !state.chatgpt.connected;
     $('helper-missing').textContent = 'ChatGPT sign-in is unavailable here.';
     $('helper-missing').hidden = state.chatgpt.available;
     $('login').hidden = !state.chatgpt.available || state.chatgpt.connected;
@@ -205,8 +219,12 @@ export function setupConnections(changed: (state: SetupState) => void) {
         : state.charms.status === 'disabled'
           ? 'Enable Charms'
           : state.charms.status === 'reconnect'
-            ? 'Reconnect Charms'
-            : 'Connect Charms') + icon(charmsAuthorized ? 'chevron' : 'external');
+            ? first
+              ? 'Sign in again'
+              : 'Reconnect Charms'
+            : first
+              ? 'Sign in'
+              : 'Connect Charms') + icon(charmsAuthorized ? 'chevron' : 'external');
     $('charms-hint').textContent = state.charms.available
       ? charmsAuthorized
         ? 'Signed in to Kineto.'
@@ -285,7 +303,19 @@ export function setupConnections(changed: (state: SetupState) => void) {
         ? 'Confirm in your browser, then open Kinetik.'
         : '';
   }
+  /**
+   * Charms serves a model here, so its sign-in comes first and ChatGPT is optional. When the
+   * server does not offer one, or has not said so, setup asks for ChatGPT first as before.
+   */
+  function signInFirst() {
+    return Boolean(state.charms.available && state.models?.offered);
+  }
+  /** Either sign-in is enough to chat once Charms serves a model. */
+  function canChat() {
+    return state.charms.status === 'connected' || state.chatgpt.connected;
+  }
   function next() {
+    if (signInFirst()) return go(canChat() ? 'ready' : 'charms');
     go(
       !state.chatgpt.connected && state.chatgpt.available
         ? 'chatgpt'
@@ -296,7 +326,7 @@ export function setupConnections(changed: (state: SetupState) => void) {
             : 'chatgpt',
     );
   }
-  /** Opens on the next missing step, or on `step` when a turn waits for that sign-in. */
+  /** Opens on the next missing step, or on `step` when a chat waits for that sign-in. */
   function open(step?: 'charms' | 'chatgpt') {
     if (step) go(step);
     else next();
@@ -413,6 +443,8 @@ export function setupConnections(changed: (state: SetupState) => void) {
   };
   $('return-to-app').onclick = () => location.replace(new URL('./', location.href).href);
   $('back').onclick = () => go('chatgpt');
+  $('use-chatgpt').onclick = () => go('chatgpt');
+  $('back-sign-in').onclick = () => go('charms');
   $('install-button').onclick = () =>
     void run(() => installation.prompt(), 'Waiting for your browser…');
   $('copy-return').onclick = () =>
@@ -432,7 +464,7 @@ export function setupConnections(changed: (state: SetupState) => void) {
     void run(async () => {
       try {
         if (state.charms.status === 'connected') {
-          go(state.chatgpt.connected ? 'ready' : 'chatgpt');
+          go(state.chatgpt.connected || signInFirst() ? 'ready' : 'chatgpt');
           return;
         }
         if (state.charms.status === 'disabled') {
@@ -611,8 +643,10 @@ export function setupConnections(changed: (state: SetupState) => void) {
         laterChosen() ||
         (await rpc<CustomModelState>('customModel', { action: 'state' })).configured;
       // A build without Charms has nothing to connect there, so ChatGPT alone completes setup.
-      const ready =
-        (!state.charms.available || state.charms.status === 'connected') && state.chatgpt.connected;
+      const ready = signInFirst()
+        ? canChat()
+        : (!state.charms.available || state.charms.status === 'connected') &&
+          state.chatgpt.connected;
       if (
         (state.installation.required && !settled && !ready) ||
         callback ||
@@ -620,6 +654,13 @@ export function setupConnections(changed: (state: SetupState) => void) {
         (requested && !ready)
       )
         open();
+      // Signed in to ChatGPT alone, a link to Charms still opens its step.
+      else if (
+        requested === 'charms' &&
+        state.charms.available &&
+        state.charms.status !== 'connected'
+      )
+        open('charms');
       if (requested && requested !== 'charms')
         error(new Error('That connection is not available. No plugin was installed.'));
       if (callback)

@@ -40,6 +40,11 @@ export interface Capabilities {
   continuesAfterLeaving: boolean;
   /** The app can alert the user when work finishes while it is in the background. */
   notifications: boolean;
+  /**
+   * The app may link to buying credits. Apps from the iOS and Android stores may not point to
+   * purchases outside the store, and the app cannot tell a store install from another one.
+   */
+  purchaseLinks: boolean;
 }
 /**
  * The iOS app has native support for continuing work in the background (iOS 26 and later), but
@@ -57,5 +62,6 @@ export function capabilities(value: ClientPlatform | 'unknown' = platform): Capa
     // An iOS notification would announce work that cannot finish while the app is away.
     notifications:
       value === 'web' || value === 'android' || (value === 'ios' && iosContinuesAfterLeaving),
+    purchaseLinks: !['ios', 'android', 'unknown'].includes(value),
   };
 }

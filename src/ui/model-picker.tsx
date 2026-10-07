@@ -83,6 +83,10 @@ export function ModelPicker(props: {
   createEffect(() => {
     setSelected(props.model);
   });
+  // Another control changed the model, such as continuing with ChatGPT.
+  const changed = () => props.enabled && void load();
+  window.addEventListener('kinetik-model-changed', changed);
+  onCleanup(() => window.removeEventListener('kinetik-model-changed', changed));
   createEffect(() => {
     if (props.enabled) void load();
     else {
