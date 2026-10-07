@@ -186,3 +186,66 @@ test.each([204, 202])(
     }
   },
 );
+
+test('Charms loads skills a few at a time and keeps catalog order', async () => {
+  const code = await readFile(
+    new URL('../public/plugins/charms/plugin.js', import.meta.url),
+    'utf8',
+  );
+  const names = [
+    'charms_exec',
+    'charms_files_read',
+    'charms_files_write',
+    'charms_files_edit',
+    'charms_files_list',
+    'charms_skill_find',
+    'charms_skill_load',
+  ];
+  const definitions = Object.fromEntries(
+    names.map((name) => [name, { description: name, inputSchema: { type: 'object' } }]),
+  );
+  const catalog = Array.from({ length: 20 }, (_, index) => ({
+    name: 'skill-' + index,
+    description: 'Skill ' + index,
+    charm_version: 'v1',
+  }));
+  let running = 0;
+  let most = 0;
+  let fail = '';
+  const loaded: string[] = [];
+  const call = vi.fn(async (name: string, input: { name?: string }) => {
+    if (name === 'charms_skill_find')
+      return {
+        structuredContent: { catalog_version: '1', total_count: catalog.length, charms: catalog },
+      };
+    running++;
+    most = Math.max(most, running);
+    // Later skills answer sooner, so completion order differs from catalog order.
+    await new Promise((resolve) => setTimeout(resolve, 40 - Number(input.name!.slice(6))));
+    running--;
+    loaded.push(input.name!);
+    if (input.name === fail) throw new Error('load failed');
+    return {
+      structuredContent: { path: 'skills/' + input.name, skill_md: '# ' + input.name },
+    };
+  });
+  const plugin = await new Function('host', code)({
+    settings: { url: 'https://charms.test' },
+    mcp: () => ({ tools: async () => definitions, call }),
+  });
+  const snapshot = await plugin.skills.sync(undefined, new AbortController().signal);
+  expect(most).toBe(6);
+  expect(snapshot.skills.map((skill: { name: string }) => skill.name)).toEqual(
+    catalog.map((entry) => entry.name),
+  );
+  expect(snapshot.skills[3].content).toContain('# skill-3');
+
+  // A failed load stops the rest instead of loading every remaining skill.
+  fail = 'skill-0';
+  loaded.length = 0;
+  await expect(plugin.skills.sync(undefined, new AbortController().signal)).rejects.toThrow(
+    'load failed',
+  );
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  expect(loaded.length).toBeLessThan(catalog.length);
+});
