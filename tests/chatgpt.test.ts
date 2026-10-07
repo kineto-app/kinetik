@@ -568,7 +568,7 @@ test('reasoning levels come from the catalog, persist per model, and reach infer
   await expect(reopened.chooseReasoning('low')).rejects.toThrow('not available');
   await reopened.chooseModel('gpt-6.1-sol');
   await reopened.responses({ account: 'person', request: {} }, new AbortController().signal);
-  expect(sent.reasoning).toEqual({ effort: 'medium', summary: 'auto' });
+  expect(sent.reasoning).toEqual({ effort: 'xhigh', summary: 'auto' });
 });
 
 test('a model that rejects reasoning summaries is asked once more without them, then never again', async () => {
@@ -692,4 +692,87 @@ test('the first authorization names the app with the configured client name', as
   expect(first.searchParams.get('agent_name_hint')).toBe('Example App');
   await begin();
   expect(flow.searchParams.get('agent_name_hint')).toBe('Kinetik OSS');
+});
+
+/** A catalog where both models offer reasoning levels. */
+function reasoningCatalog() {
+  const request = fetcher.getMockImplementation()!;
+  const sent: any[] = [];
+  const levels = [
+    { effort: 'low', description: 'Fast' },
+    { effort: 'medium', description: 'Balanced' },
+    { effort: 'high', description: 'Deep' },
+  ];
+  fetcher.mockImplementation((input, init) => {
+    if (String(input).endsWith('/models'))
+      return Promise.resolve(
+        Response.json({
+          models: [
+            { slug: 'gpt-6.1-sol', visibility: 'list', supported_reasoning_levels: levels },
+            { slug: 'another-model', visibility: 'list', supported_reasoning_levels: levels },
+          ],
+        }),
+      );
+    if (String(input).endsWith('/responses')) {
+      sent.push(JSON.parse(String(init?.body)));
+      return Promise.resolve(new Response('data: test\n\n'));
+    }
+    return request(input, init);
+  });
+  return sent;
+}
+
+test('the chosen model and reasoning level survive signing in again on this device', async () => {
+  const sent = reasoningCatalog();
+  await begin();
+  await client.callback(callback());
+  await client.chooseModel('another-model');
+  await client.chooseReasoning('high');
+  // A rejected renewal ends the login; signing in again starts a new one.
+  await client.logout();
+  const reopened = new BrowserChatGPT(base + 'connections/chatgpt/keys', store, fetcher);
+  flow = new URL((await reopened.login()).url);
+  await reopened.callback(callback());
+  expect(await reopened.turnSettings()).toEqual({ model: 'another-model', effort: 'high' });
+  expect(await reopened.models()).toMatchObject({ selected: 'another-model', reasoning: 'high' });
+  await reopened.responses({ account: 'person', request: {} }, new AbortController().signal);
+  expect(sent.at(-1)).toMatchObject({ model: 'another-model', reasoning: { effort: 'high' } });
+});
+
+test('each model keeps its own reasoning level when the user switches between models', async () => {
+  reasoningCatalog();
+  await begin();
+  await client.callback(callback());
+  await client.chooseReasoning('high');
+  await client.chooseModel('another-model');
+  expect((await client.models()).reasoning).toBeUndefined();
+  await client.chooseReasoning('low');
+  await client.chooseModel('gpt-6.1-sol');
+  expect(await client.turnSettings()).toEqual({ model: 'gpt-6.1-sol', effort: 'high' });
+  await client.chooseModel('another-model');
+  expect(await client.turnSettings()).toEqual({ model: 'another-model', effort: 'low' });
+});
+
+test('a remembered model the account no longer offers falls back like a first sign-in', async () => {
+  await store.put('preference', { model: 'retired-model', efforts: { 'retired-model': 'high' } });
+  await begin();
+  await client.callback(callback());
+  expect(await client.turnSettings()).toEqual({ model: 'gpt-6.1-sol', effort: 'medium' });
+});
+
+test('a model chosen before this version is remembered on the next turn', async () => {
+  reasoningCatalog();
+  await begin();
+  await client.callback(callback());
+  await store.update<any>('session', (session) => ({
+    ...session,
+    model: 'another-model',
+    modelSelected: true,
+    reasoning: 'low',
+  }));
+  await client.turnSettings();
+  await client.logout();
+  flow = new URL((await client.login()).url);
+  await client.callback(callback());
+  expect(await client.turnSettings()).toEqual({ model: 'another-model', effort: 'low' });
 });
