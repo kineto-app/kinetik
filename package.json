@@ -1,6 +1,6 @@
 {
   "name": "kinetik-oss",
-  "version": "0.1.16",
+  "version": "0.1.17",
   "description": "A local-first browser agent prototype with replaceable tools and native skills",
   "license": "MIT",
   "type": "module",
