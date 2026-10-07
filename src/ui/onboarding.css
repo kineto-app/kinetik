@@ -310,7 +310,8 @@
   margin-top: 24px;
 }
 #setup-back,
-#setup-not-now {
+#setup-not-now,
+#setup-back-sign-in {
   margin-top: 12px;
 }
 .setup-notice {

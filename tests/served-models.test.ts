@@ -341,3 +341,22 @@ test('where messages go is agreed once per device, and no turn reaches the model
     text: 'Hello from Kinetik.',
   });
 });
+
+test('out of credits, the turn ends with a notice that offers ways on, and is not retried', async () => {
+  const { runtime, store, connections } = await setup('token-' + crypto.randomUUID());
+  await connections.state();
+  served.mode = 'credits';
+  const c = await runtime.create();
+  await runtime.submit(c.id, 'Hello');
+  await runtime.run(c.id);
+  const chat = (await loadChat(store, c.id))!;
+  expect(chat.status).toBe('stopped');
+  expect(chat.messages.at(-1)).toMatchObject({
+    role: 'notice',
+    reason: 'credits',
+    text: 'You’re out of credits for Kinetik.',
+  });
+  expect(
+    servedRequests.filter((r: { path: string }) => r.path === 'chat/completions'),
+  ).toHaveLength(1);
+});

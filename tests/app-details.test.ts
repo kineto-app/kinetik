@@ -22,6 +22,7 @@ const base = new URL('https://agent.example/app/');
 const app = {
   privacyUrl: 'https://service.example/privacy',
   accountUrl: 'https://service.example/account',
+  creditsUrl: 'https://service.example/credits',
   supportEmail: 'help@service.example',
   serviceName: 'Example Service',
   clientName: 'Example App',
@@ -45,6 +46,9 @@ test('the app section is optional and every field is checked', () => {
   expect(() => parseConfiguration({ app: { accountUrl: 'ftp://x.example/' } }, base)).toThrow(
     'accountUrl',
   );
+  expect(() =>
+    parseConfiguration({ app: { creditsUrl: 'https://service.example/credits?from=app' } }, base),
+  ).toThrow('creditsUrl');
   for (const supportEmail of [
     'help@service.example?cc=other@example.com',
     'help@service.example&body=x',
@@ -128,6 +132,7 @@ test('a platform the app cannot name gets the most restrictive capabilities and 
     routinesNeedOpenApp: true,
     continuesAfterLeaving: false,
     notifications: false,
+    purchaseLinks: false,
   });
   // An iPad's webview looks like a Mac, so a Mac user agent proves nothing.
   expect(guessNativePlatform('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit')).toBe(
@@ -174,6 +179,7 @@ test('platforms differ only through capabilities', () => {
     routinesNeedOpenApp: true,
     continuesAfterLeaving: false,
     notifications: true,
+    purchaseLinks: true,
   });
   // Continuing work and notifications on iOS wait for device validation, behind one flag.
   expect(capabilities('ios')).toEqual({
@@ -181,17 +187,21 @@ test('platforms differ only through capabilities', () => {
     routinesNeedOpenApp: true,
     continuesAfterLeaving: iosContinuesAfterLeaving,
     notifications: iosContinuesAfterLeaving,
+    purchaseLinks: false,
   });
   expect(iosContinuesAfterLeaving).toBe(false);
   expect(capabilities('android')).toMatchObject({
     linkPlugins: true,
     routinesNeedOpenApp: false,
     continuesAfterLeaving: true,
+    // Store apps may not link to purchases, and an install from elsewhere looks the same.
+    purchaseLinks: false,
   });
   for (const desktop of ['macos', 'windows', 'linux'] as const)
     expect(capabilities(desktop)).toMatchObject({
       routinesNeedOpenApp: false,
       notifications: false,
+      purchaseLinks: true,
     });
 });
 

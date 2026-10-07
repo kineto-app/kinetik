@@ -1,5 +1,5 @@
 import { failureKind } from './core/connection-error';
-import { MessageBubble } from './ui/message';
+import { MessageBubble, setCreditOptions } from './ui/message';
 import { makePreview, trayItem } from './ui/attachments';
 import { ModelPicker } from './ui/model-picker';
 import { setupDataTransfer } from './ui/data-transfer';
@@ -122,14 +122,16 @@ function consentTurn(c: Conversation) {
 function servedModel() {
   return Boolean(connectionState?.models?.offered && connectionState.charms.status === 'connected');
 }
-/** ChatGPT is the only way left to chat here, and it is not connected. */
-function needsChatGPT() {
-  return Boolean(
-    connectionState?.chatgpt.available &&
-    !connectionState.chatgpt.connected &&
-    !customModel().chosen &&
-    !servedModel(),
-  );
+/** Charms serves a model here, so setup starts with signing in to it and ChatGPT is optional. */
+function signInFirst() {
+  return Boolean(connectionState?.charms.available && connectionState.models?.offered);
+}
+/** Chatting needs a sign-in first: ChatGPT, or either one where Charms serves a model. */
+function needsSignIn() {
+  const value = connectionState;
+  if (!value || customModel().chosen || servedModel()) return false;
+  if (signInFirst()) return !value.chatgpt.connected;
+  return value.chatgpt.available && !value.chatgpt.connected;
 }
 renderSolid(
   () =>
@@ -455,12 +457,16 @@ function render() {
       const empty = document.createElement('div');
       empty.className = 'empty';
       empty.innerHTML = `<div class="welcome-mark" aria-hidden="true">${icon('spark')}</div><h2>What can we get done today?</h2><div class="starter"><div class="suggestions"></div></div><p class="preview-note">Preview uses sample replies. ChatGPT is not connected.</p>`;
-      if (connectionState?.chatgpt.available || servedModel()) {
+      if (connectionState?.chatgpt.available || signInFirst()) {
         const note = empty.querySelector('.preview-note')!;
         note.replaceChildren();
-        if (needsChatGPT())
+        if (needsSignIn())
           note.append(
-            button('Connect ChatGPT to start', () => openSetup(), 'primary connect-start'),
+            button(
+              signInFirst() ? 'Sign in to start' : 'Connect ChatGPT to start',
+              () => openSetup(),
+              'primary connect-start',
+            ),
           );
       }
       const examples: [string, IconName, string][] = [
@@ -693,9 +699,9 @@ byId('composer').onsubmit = (event) => {
     updateComposer();
     try {
       // A chosen custom model, or a model Charms serves, needs no ChatGPT sign-in.
-      if (connectionState?.chatgpt.available && !customModel().chosen) {
+      if ((connectionState?.chatgpt.available || signInFirst()) && !customModel().chosen) {
         await connectionSetup.refresh();
-        if (needsChatGPT()) {
+        if (needsSignIn()) {
           connectionSetup.open();
           return;
         }
@@ -940,6 +946,26 @@ setInterval(() => {
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden) updateElapsed();
 });
+// Out of credits: ask again with ChatGPT, connecting it first when needed.
+let continuing = false;
+window.addEventListener('kinetik-use-chatgpt', (event) => {
+  const id = (event as CustomEvent<string>).detail;
+  if (continuing) return;
+  continuing = true;
+  void (async () => {
+    await connectionSetup.refresh();
+    // Not connected: its sign-in, which makes ChatGPT the choice once it succeeds.
+    if (!connectionState?.chatgpt.connected)
+      return void window.dispatchEvent(new Event('kinetik-connect-chatgpt'));
+    await rpc('models', { action: 'choose', provider: 'chatgpt' }).catch(() =>
+      rpc('customModel', { action: 'choose', use: false }),
+    );
+    window.dispatchEvent(new Event('kinetik-model-changed'));
+    window.dispatchEvent(new CustomEvent('kinetik-retry', { detail: id }));
+  })()
+    .catch(showError)
+    .finally(() => (continuing = false));
+});
 window.addEventListener('kinetik-retry', (event) => {
   const id = (event as CustomEvent<string>).detail;
   if (id !== selected) return;
@@ -1065,6 +1091,10 @@ const connectionSetup = setupConnections((value) => {
     (value.chatgpt.connected && !connectionState?.chatgpt.connected) ||
     (value.charms.status === 'connected' && connectionState?.charms.status !== 'connected');
   connectionState = value;
+  setCreditOptions({
+    chatgpt: value.chatgpt.available,
+    purchaseLinks: value.capabilities.purchaseLinks,
+  });
   setSettingsSetup(value);
   setAppDetails(value.app);
   if (value.capabilities.routinesNeedOpenApp)
@@ -1087,13 +1117,21 @@ const connectionSetup = setupConnections((value) => {
   if (becameConnected) void resumeWork();
   updateConnectionStatus();
   byId('connection-status').innerHTML =
-    icon('plug') + `<span>${needsChatGPT() ? 'Connect' : 'Reconnect'}</span>`;
-  byId('connection-status').title = needsChatGPT() ? 'Connect ChatGPT' : 'Reconnect Charms';
+    icon('plug') + `<span>${needsSignIn() ? 'Connect' : 'Reconnect'}</span>`;
+  byId('connection-status').title = needsSignIn()
+    ? signInFirst()
+      ? 'Sign in'
+      : 'Connect ChatGPT'
+    : 'Reconnect Charms';
   if (value.chatgpt.available) {
     byId('model-label').textContent = 'ChatGPT';
     byId('model-status').textContent = value.chatgpt.connected
       ? 'ChatGPT subscription'
-      : 'Connect ChatGPT to chat';
+      : servedModel()
+        ? 'Not connected'
+        : signInFirst()
+          ? 'Sign in to chat'
+          : 'Connect ChatGPT to chat';
   }
   if (!current()?.messages.length) lastMessages = '';
   render();
@@ -1106,7 +1144,7 @@ byId('install-open').onclick = () => {
 function updateConnectionStatus() {
   const value = connectionState;
   if (!value) return;
-  const attention = needsChatGPT() || value.charms.status === 'reconnect';
+  const attention = needsSignIn() || value.charms.status === 'reconnect';
   byId('connection-status').hidden = !attention;
   byId('connections-dot').dataset.attention = String(attention);
   const connected = [
@@ -1132,21 +1170,23 @@ function openSetup(step?: 'charms' | 'chatgpt') {
 byId('connections-open').onclick = () => {
   const value = connectionState;
   // Guided setup only while something is missing; a connection turned off on purpose is not.
-  if (
-    (value?.chatgpt.available && !value.chatgpt.connected && !servedModel()) ||
-    (value?.charms.available && ['not-connected', 'reconnect'].includes(value.charms.status))
-  ) {
+  if (needsSignIn()) {
     closeDrawer(false);
     connectionSetup.open();
+    return;
+  }
+  if (value?.charms.available && ['not-connected', 'reconnect'].includes(value.charms.status)) {
+    closeDrawer(false);
+    connectionSetup.open('charms');
     return;
   }
   showSettings('connections');
   openDialog('settings');
 };
 // The header asks for ChatGPT only while chatting needs it; otherwise Charms needs signing in again.
-byId('connection-status').onclick = () => openSetup(needsChatGPT() ? undefined : 'charms');
+byId('connection-status').onclick = () => openSetup(needsSignIn() ? undefined : 'charms');
 setSettingsActions({
-  connect: () => openSetup(),
+  connect: (kind) => openSetup(kind),
   async enable(id, enabled) {
     await rpc('enable', { id, enabled });
     await refresh();

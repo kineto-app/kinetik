@@ -13,6 +13,8 @@ export interface AppDetails {
   privacyUrl?: string;
   /** Where users manage or delete their account. */
   accountUrl?: string;
+  /** Where users add credits for a model the connection serves; linked where purchases may be. */
+  creditsUrl?: string;
   /** Receives reports about replies. */
   supportEmail?: string;
   /** The connection's service, named in its consent line. */
@@ -85,7 +87,7 @@ function parseApp(value: unknown): AppDetails {
   const input = value as Record<string, unknown>;
   const app: AppDetails = {};
   // Opened outside the app, so only absolute HTTPS pages qualify.
-  const page = (key: 'privacyUrl' | 'accountUrl') => {
+  const page = (key: 'privacyUrl' | 'accountUrl' | 'creditsUrl') => {
     const raw = input[key];
     if (raw === undefined) return;
     let url: URL | undefined;
@@ -100,6 +102,7 @@ function parseApp(value: unknown): AppDetails {
   };
   page('privacyUrl');
   page('accountUrl');
+  page('creditsUrl');
   if (input.supportEmail !== undefined) {
     // A plain address only, so it cannot add recipients or a body to the email.
     if (

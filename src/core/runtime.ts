@@ -4,6 +4,7 @@ import {
   ContextOverflow,
   isConnectionError,
   ModelRejected,
+  OutOfCredits,
   SignInRequired,
 } from './connection-error';
 import { Compactor, defaultContextWindow, estimateTokens } from './compaction';
@@ -602,7 +603,14 @@ export class Runtime {
           // A kept answer already says it was cut off.
           ...(controller.signal.aborted && partial
             ? []
-            : [message('notice', controller.signal.aborted ? 'Stopped.' : errorText(error))]),
+            : [
+                {
+                  ...message('notice', controller.signal.aborted ? 'Stopped.' : errorText(error)),
+                  ...(error instanceof OutOfCredits && !controller.signal.aborted
+                    ? { reason: 'credits' as const }
+                    : {}),
+                },
+              ]),
         ],
       }));
       await this.store.delete(partialKey(id));

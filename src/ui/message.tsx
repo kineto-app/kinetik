@@ -11,6 +11,12 @@ import { plainNotice } from './notice';
 import { appDetails, openExternal, reportEmail } from './app-details';
 import { toast } from './toast';
 
+/** What an out-of-credits notice offers: ChatGPT when this app has it, a purchase link where allowed. */
+export const [creditOptions, setCreditOptions] = createSignal({
+  chatgpt: false,
+  purchaseLinks: false,
+});
+
 /** Asks first, then opens an email about this reply to the distributor's support address. */
 function ReportButton(props: { text: string }) {
   return (
@@ -94,6 +100,40 @@ export function MessageBubble(props: {
         <span class="icon-slot" innerHTML={icon('stop')} />
         <span>Stopped</span>
       </p>
+    );
+  }
+  if (item.role === 'notice' && item.reason === 'credits') {
+    props.article.toggleAttribute('data-failed', true);
+    // Store builds may not point to buying credits, so they neither link nor mention it.
+    const topUp = () => (creditOptions().purchaseLinks ? appDetails().creditsUrl : undefined);
+    return (
+      <>
+        <div class="notice-line">
+          <span class="icon-slot notice-mark" innerHTML={icon('info')} />
+          <span class="notice-title">{item.text}</span>
+        </div>
+        <div class="notice-actions">
+          <Show when={topUp()}>
+            {(url) => (
+              <button class="notice-retry" onClick={() => void openExternal(url())}>
+                Top up <span class="icon-slot" innerHTML={icon('external')} />
+              </button>
+            )}
+          </Show>
+          <Show when={creditOptions().chatgpt}>
+            <button
+              class="notice-retry"
+              onClick={() =>
+                window.dispatchEvent(
+                  new CustomEvent('kinetik-use-chatgpt', { detail: props.conversationId }),
+                )
+              }
+            >
+              Continue with ChatGPT
+            </button>
+          </Show>
+        </div>
+      </>
     );
   }
   if (item.role === 'notice') {

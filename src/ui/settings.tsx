@@ -29,8 +29,8 @@ interface Service {
   plugin?: Plugin;
 }
 export interface SettingsActions {
-  /** Opens the guided connection setup. */
-  connect(): void;
+  /** Opens the guided connection setup at the step for that connection. */
+  connect(kind: 'chatgpt' | 'charms'): void;
   enable(id: string, enabled: boolean): Promise<void>;
   update(id: string): Promise<void>;
   disconnect(kind: 'charms' | 'chatgpt'): Promise<void>;
@@ -330,7 +330,10 @@ function ServicePage(props: { service: Service }) {
       <Show when={connectLabel() || s().plugin || canToggle()}>
         <div class="settings-group">
           <Show when={connectLabel()}>
-            <button class="settings-row settings-action" onClick={() => actions?.connect()}>
+            <button
+              class="settings-row settings-action"
+              onClick={() => actions?.connect(s().kind === 'chatgpt' ? 'chatgpt' : 'charms')}
+            >
               {connectLabel()}
             </button>
           </Show>
