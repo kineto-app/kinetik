@@ -3,7 +3,7 @@ import { loadChat, updateChat } from './chat';
 import { expect, test } from 'vitest';
 import { Runtime } from '../src/core/runtime';
 import { Store } from '../src/browser/store';
-import { ModelRouter } from '../src/models/router';
+import { ModelRouter, provider } from '../src/models/router';
 import { schemaVersion } from '../src/core/migrations';
 import type {
   Conversation,
@@ -33,7 +33,7 @@ test('a message queued during a turn uses the model chosen when it starts, not t
       return say('Summary');
     },
   };
-  const router = new ModelRouter(store, chatgpt, custom);
+  const router = new ModelRouter(store, provider('chatgpt', chatgpt), provider('custom', custom));
   const routed = new Runtime(store, undefined, router);
   const c = await routed.create();
   await routed.submit(c.id, 'Start');

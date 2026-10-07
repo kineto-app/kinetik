@@ -4,7 +4,7 @@ import { afterAll, beforeAll, expect, test } from 'vitest';
 import { Runtime } from '../src/core/runtime';
 import { Store } from '../src/browser/store';
 import { MockModel } from '../src/models/mock';
-import { ModelRouter } from '../src/models/router';
+import { ModelRouter, provider } from '../src/models/router';
 import {
   customModelAction,
   customModelKey,
@@ -45,8 +45,11 @@ async function setup(apiKey: string) {
     (event) => event && events.push(event),
     new ModelRouter(
       store,
-      new MockModel(),
-      new CompatModel(async () => (await store.get<CustomModel>(customModelKey)) ?? undefined),
+      provider('chatgpt', new MockModel()),
+      provider(
+        'custom',
+        new CompatModel(async () => (await store.get<CustomModel>(customModelKey)) ?? undefined),
+      ),
     ),
   );
   return { store, runtime, events };

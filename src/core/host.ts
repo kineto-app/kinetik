@@ -15,7 +15,7 @@ import { CompatModel } from '../models/compat';
 import { MockModel } from '../models/mock';
 import { httpTransport, OpenAIModel } from '../models/openai';
 import { capabilities, clientPlatform } from '../platform/environment';
-import { ModelRouter } from '../models/router';
+import { ModelRouter, provider } from '../models/router';
 
 export interface HostReply {
   ok: boolean;
@@ -87,12 +87,16 @@ export class RuntimeHost {
       this.changed,
       new ModelRouter(
         store,
-        chatgptModel ?? new MockModel(),
-        new CompatModel(
-          async () => (await store.get<CustomModel | null>(customModelKey)) ?? undefined,
+        provider('chatgpt', chatgptModel ?? new MockModel(), async () =>
+          chatgpt ? chatgpt.turnSettings() : {},
         ),
-        async () => (chatgpt ? chatgpt.turnSettings() : {}),
-        async () => ({ model: (await store.get<CustomModel | null>(customModelKey))?.model }),
+        provider(
+          'custom',
+          new CompatModel(
+            async () => (await store.get<CustomModel | null>(customModelKey)) ?? undefined,
+          ),
+          async () => ({ model: (await store.get<CustomModel | null>(customModelKey))?.model }),
+        ),
       ),
     );
     runtime.notify = async (alert) => {
