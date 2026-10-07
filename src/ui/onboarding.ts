@@ -297,7 +297,7 @@ export function setupConnections(changed: (state: SetupState) => void) {
     );
   }
   /** Opens on the next missing step, or on `step` when a turn waits for that sign-in. */
-  function open(step?: 'charms') {
+  function open(step?: 'charms' | 'chatgpt') {
     if (step) go(step);
     else next();
     if (!dialog.open) dialog.showModal();

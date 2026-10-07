@@ -23,6 +23,8 @@ export function ModelPicker(props: {
   chatgpt: boolean;
   /** ChatGPT is connected through the host; it is offered as one choice with the host's model. */
   hostChatgpt: boolean;
+  /** ChatGPT can be signed in to here but is not; choosing it starts that sign-in. */
+  chatgptSignIn: boolean;
   model: string;
   onSelected: () => Promise<void>;
 }) {
@@ -282,15 +284,23 @@ export function ModelPicker(props: {
                     </button>
                   )}
                 </Index>
-                <Show when={!props.chatgpt && props.hostChatgpt && otherGroups()}>
+                <Show
+                  when={
+                    !props.chatgpt && (props.hostChatgpt || props.chatgptSignIn) && otherGroups()
+                  }
+                >
                   <button
                     type="button"
                     class="model-option"
                     aria-pressed={!choice()}
                     disabled={saving()}
-                    onClick={() => choice() && void chooseCustom(false)}
+                    onClick={() => {
+                      if (props.hostChatgpt) return choice() && void chooseCustom(false);
+                      setOpen(false);
+                      window.dispatchEvent(new Event('kinetik-connect-chatgpt'));
+                    }}
                   >
-                    ChatGPT
+                    {props.hostChatgpt ? 'ChatGPT' : 'Sign in to ChatGPT'}
                     <Show when={!choice()}>
                       <span class="icon-slot" innerHTML={icon('check')} />
                     </Show>

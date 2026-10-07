@@ -63,7 +63,15 @@ renderSolid(Shell, root);
 setupViewport();
 let state: State = { conversations: [], plugins: [], automations: [], background: [] };
 let connectionState: SetupState | undefined;
-const [modelState, setModelState] = createSignal({ chatgpt: false, hostChatgpt: false, model: '' });
+const [modelState, setModelState] = createSignal({
+  chatgpt: false,
+  hostChatgpt: false,
+  model: '',
+  /** Charms serves a model this user can chat with. */
+  served: false,
+  /** ChatGPT sign-in exists here but is not connected. */
+  chatgptSignIn: false,
+});
 /** The hidden OpenAI-compatible model from Settings → ChatGPT → Advanced. */
 const [customModel, setCustomModel] = createSignal<{ configured: boolean; chosen: boolean }>({
   configured: false,
@@ -131,7 +139,7 @@ renderSolid(
         return (
           modelState().chatgpt ||
           customModel().configured ||
-          (modelState().hostChatgpt && servedModel())
+          (modelState().served && (modelState().hostChatgpt || modelState().chatgptSignIn))
         );
       },
       get chatgpt() {
@@ -139,6 +147,9 @@ renderSolid(
       },
       get hostChatgpt() {
         return modelState().hostChatgpt;
+      },
+      get chatgptSignIn() {
+        return modelState().chatgptSignIn;
       },
       get model() {
         return modelState().model;
@@ -1063,7 +1074,16 @@ const connectionSetup = setupConnections((value) => {
     chatgpt: Boolean(value.chatgpt.connected && value.chatgpt.browser),
     hostChatgpt: Boolean(value.chatgpt.connected && !value.chatgpt.browser),
     model: value.chatgpt.model ?? '',
+    served: servedModel(),
+    chatgptSignIn: value.chatgpt.available && !value.chatgpt.connected,
   });
+  // ChatGPT connected after asking for it from the model menu becomes the choice.
+  if (preferChatGPT && value.chatgpt.connected) {
+    preferChatGPT = false;
+    void rpc('models', { action: 'choose', provider: 'chatgpt' })
+      .then(() => window.dispatchEvent(new Event('kinetik-model-changed')))
+      .catch(() => {});
+  }
   if (becameConnected) void resumeWork();
   updateConnectionStatus();
   byId('connection-status').innerHTML =
@@ -1099,7 +1119,13 @@ function updateConnectionStatus() {
     : connected.join(' · ') ||
       (value.charms.available || value.chatgpt.available ? 'Not connected' : 'Manage services');
 }
-function openSetup(step?: 'charms') {
+/** Set while ChatGPT sign-in runs for someone who asked to use it instead of Kinetik. */
+let preferChatGPT = false;
+window.addEventListener('kinetik-connect-chatgpt', () => {
+  preferChatGPT = true;
+  openSetup('chatgpt');
+});
+function openSetup(step?: 'charms' | 'chatgpt') {
   for (const dialog of document.querySelectorAll<HTMLDialogElement>('dialog:modal')) dialog.close();
   connectionSetup.open(step);
 }
@@ -1192,8 +1218,21 @@ byId('resume-work').onclick = () => {
       await connectionSetup.refresh();
       await resumeWork();
     });
+  // Agreed or signed in since in another chat: it only needs to go on.
+  else if (
+    c?.waitingFor === 'signin' &&
+    connectionTurn(c) &&
+    connectionState?.charms.status === 'connected'
+  )
+    void resumeWork();
   else if (c?.waitingFor === 'signin')
-    connectionSetup.open(connectionTurn(c) ? 'charms' : undefined);
+    connectionSetup.open(
+      connectionTurn(c)
+        ? 'charms'
+        : connectionState?.chatgpt.available && !connectionState.chatgpt.connected
+          ? 'chatgpt'
+          : undefined,
+    );
   else void resumeWork();
 };
 window.addEventListener('online', () => {
