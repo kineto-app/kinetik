@@ -132,7 +132,10 @@ async function connectChatGPT(page: Page, context: BrowserContext) {
   );
   const popup = page.waitForEvent('popup');
   await page.getByRole('button', { name: 'Agree and continue' }).click();
-  await (await popup).close();
+  // Closed only once sign-in has opened in it, as a person would.
+  const signInPage = await popup;
+  await expect(signInPage.getByRole('heading', { name: 'ChatGPT sign-in fixture' })).toBeVisible();
+  await signInPage.close();
   await page
     .getByLabel('Return link from your browser')
     .fill('http://127.0.0.1:1455/auth/callback?code=fixture&state=fixture');
