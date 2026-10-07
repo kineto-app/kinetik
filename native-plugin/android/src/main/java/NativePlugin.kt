@@ -5,6 +5,7 @@ import android.content.Intent
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
+import androidx.browser.customtabs.CustomTabsIntent
 import androidx.core.content.ContextCompat
 import app.tauri.annotation.Command
 import app.tauri.annotation.InvokeArg
@@ -103,6 +104,26 @@ class NativePlugin(private val activity: Activity): Plugin(activity) {
             check(preferences.edit().putString(name, Base64.encodeToString(bytes, Base64.NO_WRAP)).commit())
             invoke.resolve(JSObject())
         } catch (e: Exception) { invoke.reject("Could not save protected credentials.") }
+    }
+    /**
+     * Opens sign-in in a Custom Tab over the app, sharing the browser's sign-in state. Without a
+     * Custom Tabs browser it opens in the default browser. The provider returns to the loopback
+     * listener, whose redirect to kinetik://auth/complete brings this single-task activity back to
+     * the front and closes the tab.
+     */
+    @Command
+    fun authOpen(invoke: Invoke) {
+        val uri = try {
+            android.net.Uri.parse(requireNotNull(invoke.parseArgs(NativeArgs::class.java).url)).also {
+                require(it.scheme == "https" && !it.host.isNullOrEmpty() && it.userInfo == null)
+            }
+        } catch (e: Exception) { invoke.reject("Sign-in requires an HTTPS URL"); return }
+        activity.runOnUiThread {
+            try {
+                CustomTabsIntent.Builder().setShowTitle(true).build().launchUrl(activity, uri)
+                invoke.resolve(JSObject())
+            } catch (e: Exception) { invoke.reject("Could not open the sign-in browser.") }
+        }
     }
     @Command
     fun fileInfo(invoke: Invoke) {

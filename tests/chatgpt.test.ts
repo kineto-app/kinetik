@@ -693,3 +693,22 @@ test('the first authorization names the app with the configured client name', as
   await begin();
   expect(flow.searchParams.get('agent_name_hint')).toBe('Kinetik OSS');
 });
+
+test('sign-in loads the identity keys while the code is exchanged, not after', async () => {
+  const request = fetcher.getMockImplementation()!;
+  let keysRequested!: () => void;
+  const keys = new Promise<void>((resolve) => (keysRequested = resolve));
+  fetcher.mockImplementation(async (input, init) => {
+    if (String(input).endsWith('/keys')) keysRequested();
+    // The exchange answers only once the keys were asked for.
+    if (String(input).endsWith('/oauth/token'))
+      await Promise.race([
+        keys,
+        new Promise((_, reject) => setTimeout(() => reject(new Error('keys waited')), 1000)),
+      ]);
+    return request(input, init);
+  });
+  await begin();
+  await client.callback(callback());
+  expect((await client.status()).connected).toBe(true);
+});

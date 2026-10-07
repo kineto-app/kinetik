@@ -88,8 +88,31 @@ fn callback_url(request: &str, redirect: &str, expected_state: &str) -> Option<S
     Some(url.to_string())
 }
 
+/// The loopback listener's answer. On mobile a token-free redirect to the app closes the system
+/// sign-in sheet or tab. A desktop browser would ask before opening the app, so it gets a page
+/// instead, while the app brings its own window forward.
+fn callback_response(accepted: bool) -> &'static str {
+    if !accepted {
+        return "HTTP/1.1 400 Bad Request\r\nCache-Control: no-store\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+    }
+    if cfg!(desktop) {
+        concat!(
+            "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\n",
+            "Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'\r\n",
+            "Cache-Control: no-store\r\nReferrer-Policy: no-referrer\r\nConnection: close\r\n\r\n",
+            "<!doctype html><meta charset=utf-8><meta name=viewport content=\"width=device-width\">",
+            "<title>Kinetik</title><style>body{font:16px system-ui,sans-serif;margin:20vh auto;",
+            "max-width:28em;padding:0 1em;text-align:center}</style>",
+            "<h1>You’re signed in</h1><p>Return to Kinetik. You can close this tab.</p>"
+        )
+    } else {
+        "HTTP/1.1 303 See Other\r\nLocation: kinetik://auth/complete\r\nCache-Control: no-store\r\nReferrer-Policy: no-referrer\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+    }
+}
+
 #[tauri::command]
 pub async fn auth_wait(
+    #[allow(unused_variables)] app: tauri::AppHandle,
     id: String,
     expected_state: String,
     state: State<'_, AuthState>,
@@ -126,22 +149,28 @@ pub async fn auth_wait(
             if !matches!(read, Ok(Ok(()))) { continue; }
             let callback = std::str::from_utf8(&bytes).ok()
                 .and_then(|request| callback_url(request, &pending.redirect, &expected_state));
-            let response = if callback.is_some() {
-                "HTTP/1.1 303 See Other\r\nLocation: kinetik://auth/complete\r\nCache-Control: no-store\r\nReferrer-Policy: no-referrer\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
-            } else {
-                "HTTP/1.1 400 Bad Request\r\nCache-Control: no-store\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
-            };
-            let _ = stream.write_all(response.as_bytes()).await;
+            let _ = stream.write_all(callback_response(callback.is_some()).as_bytes()).await;
             let _ = stream.shutdown().await;
-            if let Some(callback) = callback { return Ok(callback); }
+            if let Some(callback) = callback {
+                #[cfg(desktop)]
+                {
+                    use tauri::Manager;
+                    if let Some(window) = app.get_webview_window("main") {
+                        let _ = window.unminimize();
+                        let _ = window.show();
+                        let _ = window.set_focus();
+                    }
+                }
+                return Ok(callback);
+            }
         }
     }) => result.map_err(|_| "Sign-in timed out. Try again.")?,
     }
 }
 
-// iOS presents authentication without moving the app into the background.
-// The provider still redirects to the validated HTTP loopback listener. Its
-// token-free 303 then dismisses the system authentication sheet.
+// iOS presents authentication in the system sign-in sheet and Android in a Custom Tab, both over
+// the app. The provider still redirects to the validated HTTP loopback listener. Its token-free
+// 303 then dismisses the sheet or tab.
 #[tauri::command]
 pub async fn auth_open(app: tauri::AppHandle, url: String) -> Result<(), String> {
     let parsed = Url::parse(&url).map_err(|_| "Invalid sign-in URL")?;
@@ -152,7 +181,7 @@ pub async fn auth_open(app: tauri::AppHandle, url: String) -> Result<(), String>
     {
         return Err("Sign-in requires an HTTPS URL".into());
     }
-    #[cfg(target_os = "ios")]
+    #[cfg(mobile)]
     {
         use tauri_plugin_native::NativeExt;
         tauri::async_runtime::spawn_blocking(move || {
@@ -173,7 +202,7 @@ pub async fn auth_open(app: tauri::AppHandle, url: String) -> Result<(), String>
         .await
         .map_err(|_| "Sign-in browser stopped".to_string())?
     }
-    #[cfg(not(target_os = "ios"))]
+    #[cfg(desktop)]
     {
         use tauri_plugin_opener::OpenerExt;
         app.opener()
@@ -226,6 +255,14 @@ mod tests {
             "GET /auth/callback?code=one-use&state={state} HTTP/1.1\r\nHost: 127.0.0.1:43111\r\n\r\n"
         );
         assert!(callback_url(&valid, base, state).is_some());
+        assert!(callback_response(false).starts_with("HTTP/1.1 400"));
+        let accepted = callback_response(true);
+        assert!(!accepted.contains("code=") && !accepted.contains(state));
+        if cfg!(desktop) {
+            assert!(accepted.starts_with("HTTP/1.1 200") && !accepted.contains("kinetik://"));
+        } else {
+            assert!(accepted.contains("Location: kinetik://auth/complete"));
+        }
         for request in [
             valid.replace(state, "wrong"),
             valid.replace("/auth/callback", "/wrong"),

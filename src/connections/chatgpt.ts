@@ -210,6 +210,9 @@ export class BrowserChatGPT {
         url.searchParams.getAll('code').length !== 1
       )
         throw new Error('The return link is incomplete. Start sign-in again.');
+      // The signing keys do not depend on the exchange, so they load alongside it.
+      const keys = this.json(this.jwksUrl, {}, 'identity keys');
+      keys.catch(() => {});
       const tokens = await this.json(
         tokenEndpoint,
         {
@@ -225,7 +228,7 @@ export class BrowserChatGPT {
         },
         'token exchange',
       );
-      const claims = await this.identity(tokens.id_token, clientId, pending.nonce);
+      const claims = await this.identity(tokens.id_token, clientId, pending.nonce, keys);
       if (registration.subject && registration.subject !== claims.sub)
         throw new Error('ChatGPT account does not match this registration.');
       if (
@@ -400,7 +403,12 @@ export class BrowserChatGPT {
       reasoning: previous?.reasoning,
     };
   }
-  private async identity(raw: unknown, clientId: string, nonce?: string) {
+  private async identity(
+    raw: unknown,
+    clientId: string,
+    nonce?: string,
+    keys?: Promise<Record<string, any>>,
+  ) {
     if (typeof raw !== 'string' || raw.length > 65536 || raw.split('.').length !== 3)
       throw new Error('Invalid ChatGPT identity.');
     const [head, payload, signature] = raw.split('.');
@@ -409,7 +417,7 @@ export class BrowserChatGPT {
     if (header.alg !== 'RS256' || typeof header.kid !== 'string')
       throw new Error('Unsupported ChatGPT identity signature.');
     // Public signing keys; OAuth code exchange and refresh go directly to OpenAI.
-    const jwks = await this.json(this.jwksUrl, {}, 'identity keys');
+    const jwks = await (keys ?? this.json(this.jwksUrl, {}, 'identity keys'));
     const jwk = jwks.keys?.find(
       (k: JsonWebKey & { kid?: string }) =>
         k.kid === header.kid && k.kty === 'RSA' && (!k.use || k.use === 'sig'),
