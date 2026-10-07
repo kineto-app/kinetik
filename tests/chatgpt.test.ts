@@ -354,6 +354,25 @@ test('native callback ports remain bound to the attempt and reauthorization reta
   expect(afterLogout.searchParams.has('id_token_hint')).toBe(false);
 });
 
+test('sign-in loads the identity keys while the code is exchanged, not after', async () => {
+  const request = fetcher.getMockImplementation()!;
+  let keysRequested!: () => void;
+  const keys = new Promise<void>((resolve) => (keysRequested = resolve));
+  fetcher.mockImplementation(async (input, init) => {
+    if (String(input).endsWith('/keys')) keysRequested();
+    // The exchange answers only once the keys were asked for.
+    if (String(input).endsWith('/oauth/token'))
+      await Promise.race([
+        keys,
+        new Promise((_, reject) => setTimeout(() => reject(new Error('keys waited')), 1000)),
+      ]);
+    return request(input, init);
+  });
+  await begin();
+  await client.callback(callback());
+  expect((await client.status()).connected).toBe(true);
+});
+
 test('existing logins migrate to GPT-6.1 Sol without reauthorization', async () => {
   await begin();
   await client.callback(callback());
