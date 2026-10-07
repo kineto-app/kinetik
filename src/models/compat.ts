@@ -65,16 +65,38 @@ export function toChatMessages(instructions: string, history: Item[], images = t
   return messages;
 }
 
+/** How one provider's failures read and what they mean for the turn. */
+export interface CompatOptions {
+  /** Names the model in messages, as in "The custom model is unreachable". */
+  name: string;
+  /** Shown when the model is not set up. */
+  setUp: string;
+  /** The error a failed HTTP response to a request made with `config` means for the turn. */
+  failure(response: Response, config: CustomModel): Promise<Error>;
+  /** An error the stream reported; `undefined` reads it as any provider's error. */
+  streamError?(code: unknown, message: string, config: CustomModel): Error | undefined;
+}
+const customOptions: CompatOptions = {
+  name: 'The custom model',
+  setUp: 'Set up the custom model in Settings → ChatGPT → Advanced.',
+  failure: (response) =>
+    httpFailure(response, {
+      signIn: keyProblem,
+      interrupted: 'The custom model connection was interrupted.',
+      failed: 'Custom model request failed',
+    }),
+};
+
 /** Any OpenAI-compatible server through its Chat Completions endpoint, with the user's own key. */
 export class CompatModel implements Model {
   constructor(
     private configuration: () => Promise<CustomModel | undefined>,
     private request: typeof fetch = fetch.bind(globalThis),
+    private options: CompatOptions = customOptions,
   ) {}
   async next(request: ModelRequest, signal: AbortSignal): Promise<ModelStep> {
     const config = await this.configuration();
-    if (!config)
-      throw new SignInRequired('Set up the custom model in Settings → ChatGPT → Advanced.');
+    if (!config) throw new SignInRequired(this.options.setUp);
     const { tools, names } = await encodeTools(request.definitions, (name, definition) => ({
       type: 'function',
       function: { name, description: definition.description, parameters: definition.inputSchema },
@@ -105,15 +127,10 @@ export class CompatModel implements Model {
       });
     } catch (error) {
       signal.throwIfAborted();
-      throw new ConnectionError('The custom model is unreachable: ' + String(error));
+      throw new ConnectionError(`${this.options.name} is unreachable: ${String(error)}`);
     }
-    if (!response.ok)
-      throw await httpFailure(response, {
-        signIn: keyProblem,
-        interrupted: 'The custom model connection was interrupted.',
-        failed: 'Custom model request failed',
-      });
-    const reply = await readChat(response, request);
+    if (!response.ok) throw await this.options.failure(response, config);
+    const reply = await readChat(response, request, this.options, config);
     const items: Item[] = [
       ...(reply.text
         ? [
@@ -139,7 +156,12 @@ export class CompatModel implements Model {
 }
 
 /** Reads a Chat Completions stream: text, reasoning, tool calls built from their fragments, usage. */
-async function readChat(response: Response, request: ModelRequest) {
+async function readChat(
+  response: Response,
+  request: ModelRequest,
+  options: CompatOptions,
+  config: CustomModel,
+) {
   const calls: { id: string; name: string; arguments: string }[] = [];
   let text = '',
     reasoning = '',
@@ -148,8 +170,13 @@ async function readChat(response: Response, request: ModelRequest) {
   const reply = () => ({ text, calls: fill(calls), usage });
   for await (const chunk of sseEvents(response)) {
     if (chunk === streamDone) return reply();
-    if (chunk.error)
-      throw providerError(chunk.error.code, chunk.error.message ?? 'Model response failed.');
+    if (chunk.error) {
+      const text = String(chunk.error.message ?? 'Model response failed.');
+      throw (
+        options.streamError?.(chunk.error.code, text, config) ??
+        providerError(chunk.error.code, text)
+      );
+    }
     if (chunk.usage && Number.isFinite(chunk.usage.prompt_tokens))
       usage = {
         input: chunk.usage.prompt_tokens,
@@ -175,7 +202,7 @@ async function readChat(response: Response, request: ModelRequest) {
         if (part.function?.arguments) call.arguments += part.function.arguments;
       }
       if (choice.finish_reason === 'length' && !calls.length && !text)
-        throw new ContextOverflow('The custom model ran out of room for its answer.');
+        throw new ContextOverflow(`${options.name} ran out of room for its answer.`);
       if (choice.finish_reason) finished = true;
     }
   }

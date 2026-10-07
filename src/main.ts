@@ -96,11 +96,34 @@ window.addEventListener('kinetik-custom-model', () => {
 function apiKeyTurn(c: Conversation) {
   return c.turn?.model?.provider === 'custom';
 }
+/** The turn runs on a model the Charms connection serves, which signs in with Charms. */
+function connectionTurn(c: Conversation) {
+  const provider = c.turn?.model?.provider;
+  return Boolean(provider && provider !== 'chatgpt' && provider !== 'custom');
+}
+/** Charms is signed in and its server offers a model, so chatting needs no other connection. */
+function servedModel() {
+  return Boolean(connectionState?.models?.offered && connectionState.charms.status === 'connected');
+}
+/** ChatGPT is the only way left to chat here, and it is not connected. */
+function needsChatGPT() {
+  return Boolean(
+    connectionState?.chatgpt.available &&
+    !connectionState.chatgpt.connected &&
+    !customModel().chosen &&
+    !servedModel(),
+  );
+}
 renderSolid(
   () =>
     ModelPicker({
       get enabled() {
-        return modelState().chatgpt || customModel().configured;
+        // A choice exists once there is more than one model to pick from.
+        return (
+          modelState().chatgpt ||
+          customModel().configured ||
+          (modelState().hostChatgpt && servedModel())
+        );
       },
       get chatgpt() {
         return modelState().chatgpt;
@@ -334,9 +357,11 @@ function render() {
       ? apiKeyTurn(c)
         ? 'Check your API key to continue'
         : 'Sign in to continue'
-      : navigator.onLine
-        ? 'Reconnecting…'
-        : 'Waiting for connection…';
+      : !navigator.onLine
+        ? 'Waiting for connection…'
+        : c?.waitingFor === 'busy'
+          ? 'The model is busy. Trying again shortly…'
+          : 'Reconnecting…';
   scheduleReconnect();
   byId('resume-work').textContent =
     c?.waitingFor === 'signin' ? (apiKeyTurn(c) ? 'Check API key' : 'Sign in') : 'Retry now';
@@ -399,11 +424,13 @@ function render() {
       const empty = document.createElement('div');
       empty.className = 'empty';
       empty.innerHTML = `<div class="welcome-mark" aria-hidden="true">${icon('spark')}</div><h2>What can we get done today?</h2><div class="starter"><div class="suggestions"></div></div><p class="preview-note">Preview uses sample replies. ChatGPT is not connected.</p>`;
-      if (connectionState?.chatgpt.available) {
+      if (connectionState?.chatgpt.available || servedModel()) {
         const note = empty.querySelector('.preview-note')!;
         note.replaceChildren();
-        if (!connectionState.chatgpt.connected && !customModel().chosen)
-          note.append(button('Connect ChatGPT to start', openSetup, 'primary connect-start'));
+        if (needsChatGPT())
+          note.append(
+            button('Connect ChatGPT to start', () => openSetup(), 'primary connect-start'),
+          );
       }
       const examples: [string, IconName, string][] = [
         ...demoTasks.map((task): [string, IconName, string] => [task.title, 'file', task.prompt]),
@@ -634,10 +661,10 @@ byId('composer').onsubmit = (event) => {
     renderAttachments();
     updateComposer();
     try {
-      // A chosen custom model needs no ChatGPT sign-in.
+      // A chosen custom model, or a model Charms serves, needs no ChatGPT sign-in.
       if (connectionState?.chatgpt.available && !customModel().chosen) {
         await connectionSetup.refresh();
-        if (!connectionState.chatgpt.connected) {
+        if (needsChatGPT()) {
           connectionSetup.open();
           return;
         }
@@ -1008,10 +1035,8 @@ const connectionSetup = setupConnections((value) => {
   if (becameConnected) void resumeWork();
   updateConnectionStatus();
   byId('connection-status').innerHTML =
-    icon('plug') +
-    `<span>${value.chatgpt.available && !value.chatgpt.connected ? 'Connect' : 'Reconnect'}</span>`;
-  byId('connection-status').title =
-    value.chatgpt.available && !value.chatgpt.connected ? 'Connect ChatGPT' : 'Reconnect Charms';
+    icon('plug') + `<span>${needsChatGPT() ? 'Connect' : 'Reconnect'}</span>`;
+  byId('connection-status').title = needsChatGPT() ? 'Connect ChatGPT' : 'Reconnect Charms';
   if (value.chatgpt.available) {
     byId('model-label').textContent = 'ChatGPT';
     byId('model-status').textContent = value.chatgpt.connected
@@ -1029,9 +1054,7 @@ byId('install-open').onclick = () => {
 function updateConnectionStatus() {
   const value = connectionState;
   if (!value) return;
-  const attention =
-    (value.chatgpt.available && !value.chatgpt.connected && !customModel().chosen) ||
-    value.charms.status === 'reconnect';
+  const attention = needsChatGPT() || value.charms.status === 'reconnect';
   byId('connection-status').hidden = !attention;
   byId('connections-dot').dataset.attention = String(attention);
   const connected = [
@@ -1044,15 +1067,15 @@ function updateConnectionStatus() {
     : connected.join(' · ') ||
       (value.charms.available || value.chatgpt.available ? 'Not connected' : 'Manage services');
 }
-function openSetup() {
+function openSetup(step?: 'charms') {
   for (const dialog of document.querySelectorAll<HTMLDialogElement>('dialog:modal')) dialog.close();
-  connectionSetup.open();
+  connectionSetup.open(step);
 }
 byId('connections-open').onclick = () => {
   const value = connectionState;
   // Guided setup only while something is missing; a connection turned off on purpose is not.
   if (
-    (value?.chatgpt.available && !value.chatgpt.connected) ||
+    (value?.chatgpt.available && !value.chatgpt.connected && !servedModel()) ||
     (value?.charms.available && ['not-connected', 'reconnect'].includes(value.charms.status))
   ) {
     closeDrawer(false);
@@ -1062,9 +1085,10 @@ byId('connections-open').onclick = () => {
   showSettings('connections');
   openDialog('settings');
 };
-byId('connection-status').onclick = openSetup;
+// The header asks for ChatGPT only while chatting needs it; otherwise Charms needs signing in again.
+byId('connection-status').onclick = () => openSetup(needsChatGPT() ? undefined : 'charms');
 setSettingsActions({
-  connect: openSetup,
+  connect: () => openSetup(),
   async enable(id, enabled) {
     await rpc('enable', { id, enabled });
     await refresh();
@@ -1104,7 +1128,7 @@ function scheduleReconnect() {
   clearTimeout(reconnectTimer);
   if (document.visibilityState !== 'visible' || !navigator.onLine) return;
   const waiting = state.conversations.filter(
-    (c) => c.status === 'waiting' && c.waitingFor === 'connection',
+    (c) => c.status === 'waiting' && c.waitingFor !== 'signin',
   );
   if (!waiting.length) return;
   const next = Math.min(...waiting.map((c) => c.retryAt ?? Date.now() + 2000));
@@ -1130,7 +1154,8 @@ byId('resume-work').onclick = () => {
     showSettings('custom');
     void refreshSettingsData().catch(showError);
     openDialog('settings');
-  } else if (c?.waitingFor === 'signin') connectionSetup.open();
+  } else if (c?.waitingFor === 'signin')
+    connectionSetup.open(connectionTurn(c) ? 'charms' : undefined);
   else void resumeWork();
 };
 window.addEventListener('online', () => {

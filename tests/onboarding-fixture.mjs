@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { extname, resolve, sep } from 'node:path';
+import { served } from './served-fixture.mjs';
 
 const base = 'http://127.0.0.1:4174';
 const prefix = '/onboarding/';
@@ -101,6 +102,7 @@ export async function onboardingFixture(req, res) {
   if (url.pathname === prefix + 'stats')
     return reply({ tokenExchanges, modelRequests, remoteRuns });
   if (url.pathname === prefix + 'reset') {
+    served.mode = 'absent';
     failActivation = false;
     tokenExchanges = 0;
     modelRequests = 0;

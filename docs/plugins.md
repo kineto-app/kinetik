@@ -77,6 +77,31 @@ Views run inside a nested iframe with an opaque sandbox origin, without access t
 
 Expose only features your server can run in this environment. Native desktop SDK capabilities and arbitrary host filesystem access are not provided. The frontend's app bridge implements the listed protocol subset; it is not a claim of conformance to every MCP Apps extension.
 
+## Model providers
+
+A plugin's manifest may declare models that its sign-in connection serves:
+
+```json
+{
+  "id": "charms",
+  "name": "Kinetik Charms",
+  "version": "0.1.3",
+  "apiVersion": 1,
+  "entry": "plugin.js",
+  "modelProvider": { "name": "Kinetik", "path": "/api/kinetik/v1" }
+}
+```
+
+The app talks to them with the same OpenAI-compatible Chat Completions client it uses for the custom model; the plugin's code takes no part. `path` is an absolute path on the origin of the connection's `url`, so the models are never on another host. Requests carry the connection's token as `Authorization: Bearer`, so a server on another origin than the app needs CORS that allows that header.
+
+- `GET <path>/models` answers `{"data":[{"id":"…","name":"…","effort":false}]}`. `effort` is not used: these models get no reasoning level. The device keeps the list and asks again at most every ten minutes, whatever the answer, and when the model menu opens while signed in; signing in asks again at once. An empty list switches the models off: they leave the menu and new chats use another model. An error, no network or an answer that is not a list keeps the last list, and never signs the user out. Before sign-in the app asks without a token, so a server that answers then can say ahead of sign-in whether its models are on.
+- `POST <path>/chat/completions` streams each turn with `model` set to the chosen id. No reasoning level is sent.
+- Errors are `{"error":{"code":"…","message":"…"}}`. `invalid_token` asks the user to sign in to the connection again; any other `401` or `403` ends the turn. `402` or `insufficient_credits` ends the turn with an out-of-credits notice. `403` with `provider_disabled` switches the models off. `429` waits as long as `Retry-After` says, then sends again. `context_length_exceeded` summarises earlier messages and retries once, as for any model. `502` is retried like a dropped connection.
+
+The menu lists these models next to ChatGPT's and the custom model, and remembers the choice on the device. With ChatGPT signed in and nothing chosen, new chats use ChatGPT; without it, they use the first of these models that is on.
+
+Only the managed Charms connection signs in with a token today, so only its declaration is used. It is read from the adapter that comes with the app, so a Charms installation made by an earlier version offers the models without an update.
+
 ## Managed Charms connection
 
 A deployment may configure a known Charms preset in `config.json`. Opening `?connect=charms` prepares the bundled plugin without executing it. OAuth consent, tool discovery, and the first successful native skill sync precede activation. Reopening the link preserves a disabled plugin and its pinned code. Explicit activation refreshes the host-bundled adapter before loading skills; it keeps the saved sign-in and does not update custom plugins. Unknown connection IDs never install code. See [the deployment configuration](deployment.md#connections-and-guided-setup).

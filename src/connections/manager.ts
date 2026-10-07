@@ -1,5 +1,7 @@
 import type { Store } from '../core/ports';
-import { allowedURL, Plugins } from '../plugins/loader';
+import type { ModelProviderDeclaration } from '../core/types';
+import { ConnectionModels } from '../models/connection-models';
+import { allowedURL, fetchText, Plugins, validateManifest } from '../plugins/loader';
 import {
   capabilities,
   clientPlatform,
@@ -7,7 +9,7 @@ import {
   type ClientPlatform,
 } from '../platform/environment';
 import type { AppDetails, Configuration, ConnectionPreset } from './config';
-import { credentialKey, usable, type Credential } from './credentials';
+import { credentialKey, invalidateToken, usable, type Credential } from './credentials';
 
 interface Connection {
   redirectUri?: string;
@@ -37,6 +39,8 @@ export interface SetupState {
   app: AppDetails;
   installation: { required: boolean };
   charms: ConnectionState;
+  /** Models the connection serves; `offered` once its server lists at least one. */
+  models?: { name: string; offered: boolean };
   chatgpt: {
     available: boolean;
     connected: boolean;
@@ -50,6 +54,7 @@ export interface SetupState {
 const id = 'charms';
 const recordKey = 'connection:' + id;
 const pendingKey = 'connection-pending:' + id;
+const declarationKey = 'model-provider:' + id;
 const encode = (bytes: Uint8Array) =>
   btoa(String.fromCharCode(...bytes))
     .replaceAll('+', '-')
@@ -113,7 +118,7 @@ export class Connections {
       );
     return { plugin, connection };
   }
-  async state(): Promise<SetupState> {
+  private async status(): Promise<{ status: ConnectionState['status']; token?: string }> {
     const plugin = await this.installed();
     const credential = await this.store.get<Credential>(credentialKey(id));
     const connection = await this.store.get<Connection>(recordKey);
@@ -128,6 +133,51 @@ export class Connections {
       plugin.settings.url === preset.url &&
       plugin.settings.connectionRevision === credential.revision,
     );
+    if (!valid) return { status: credential ? 'reconnect' : 'not-connected' };
+    return plugin?.enabledAt != null && credential?.ready
+      ? { status: 'connected', token: credential.token }
+      : { status: 'disabled' };
+  }
+  private provider?: Promise<ConnectionModels | undefined>;
+  /**
+   * The models the connection serves, when the adapter that comes with the app declares them.
+   * Read from the app's copy, so an adapter installed by an earlier version offers them too.
+   */
+  modelProvider(): Promise<ConnectionModels | undefined> {
+    return (this.provider ??= this.loadProvider().catch(() => {
+      this.provider = undefined;
+      return undefined;
+    }));
+  }
+  private async loadProvider() {
+    const preset = this.config.connections.charms;
+    if (!preset) return;
+    let declaration: ModelProviderDeclaration | undefined;
+    try {
+      declaration = validateManifest(
+        JSON.parse(await fetchText(this.source(), 32768)),
+      ).modelProvider;
+      await this.store.put(declarationKey, declaration ?? null);
+    } catch (error) {
+      // Offline, the declaration saved last time stands in; with none, it is asked for again.
+      const saved = await this.store.get<ModelProviderDeclaration | null>(declarationKey);
+      if (saved === undefined) throw error;
+      declaration = saved ?? undefined;
+    }
+    if (!declaration) return;
+    return new ConnectionModels(this.store, {
+      id,
+      declaration,
+      url: preset.url,
+      token: async () => (await this.status()).token,
+      rejected: (token) => invalidateToken(this.store, id, token),
+    });
+  }
+  async state(): Promise<SetupState> {
+    const preset = this.config.connections.charms;
+    const { status } = await this.status();
+    const provider = await this.modelProvider();
+    const models = provider && (await provider.current());
     let connected = false;
     let model: string | undefined;
     if (this.config.chatgpt?.mode === 'browser') {
@@ -152,16 +202,10 @@ export class Connections {
       capabilities: capabilities(),
       app: this.config.app ?? {},
       installation: { required: this.config.installation?.required === true },
-      charms: {
-        available: Boolean(preset),
-        status: valid
-          ? plugin?.enabledAt != null && credential?.ready
-            ? 'connected'
-            : 'disabled'
-          : credential
-            ? 'reconnect'
-            : 'not-connected',
-      },
+      charms: { available: Boolean(preset), status },
+      ...(provider && {
+        models: { name: models?.[0]?.name ?? provider.name, offered: Boolean(models?.length) },
+      }),
       chatgpt: {
         available: Boolean(this.config.chatgpt),
         connected,

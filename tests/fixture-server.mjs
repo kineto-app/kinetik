@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { renderConnectPage } from '../bin/connect-page.mjs';
 import { onboardingFixture } from './onboarding-fixture.mjs';
 import { compatFixture } from './compat-fixture.mjs';
+import { servedFixture } from './served-fixture.mjs';
 let revision = 1,
   fail = false;
 const manifest = {
@@ -13,15 +14,14 @@ const manifest = {
   entry: 'plugin.js',
 };
 const server = createServer(async (req, res) => {
-  // The Chat Completions fixture answers its own CORS preflights.
-  if (req.url?.startsWith('/compat/')) {
-    const body = async () => {
-      let text = '';
-      for await (const part of req) text += part;
-      return text;
-    };
-    if (await compatFixture(req, res, body)) return;
-  }
+  const body = async () => {
+    let text = '';
+    for await (const part of req) text += part;
+    return text;
+  };
+  // The Chat Completions fixtures answer their own CORS preflights.
+  if (req.url?.startsWith('/compat/') && (await compatFixture(req, res, body))) return;
+  if (await servedFixture(req, res, body)) return;
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader(

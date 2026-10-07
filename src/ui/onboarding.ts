@@ -169,7 +169,9 @@ export function setupConnections(changed: (state: SetupState) => void) {
     );
     consent(
       'charms',
-      `Skills run on ${owner()} servers with the files you share.`,
+      (state.models?.offered
+        ? `Your messages and files go to ${owner()} servers and its AI provider to get replies. `
+        : '') + `Skills run on ${owner()} servers with the files you share.`,
       !state.charms.available,
     );
     $('callback').hidden = !signingIn;
@@ -282,8 +284,10 @@ export function setupConnections(changed: (state: SetupState) => void) {
             : 'chatgpt',
     );
   }
-  function open() {
-    next();
+  /** Opens on the next missing step, or on `step` when a turn waits for that sign-in. */
+  function open(step?: 'charms') {
+    if (step) go(step);
+    else next();
     if (!dialog.open) dialog.showModal();
     $('title').focus();
   }
