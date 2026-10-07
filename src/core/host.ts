@@ -344,7 +344,10 @@ export class RuntimeHost {
         case 'models': {
           // The models a connection serves. ChatGPT and the custom model keep their own actions.
           const served = await connections.modelProvider();
-          if (data.action === 'choose') {
+          // Chosen on purpose, ChatGPT stays the choice even while it is signed out.
+          if (data.action === 'choose' && data.provider === 'chatgpt')
+            await store.put('model-choice', 'chatgpt');
+          else if (data.action === 'choose') {
             if (!served || data.provider !== served.id) throw new Error('Unknown model.');
             await served.choose(string(data.model));
             await store.put('model-choice', served.id);

@@ -9,7 +9,7 @@ import {
   toStep,
   withoutImages,
 } from './model-http';
-import type { Model, ModelRequest, ModelStep, Usage } from '../core/types';
+import type { Model, ModelRequest, ModelStep, TurnPin, Usage } from '../core/types';
 import type { CustomModel } from '../connections/custom-model';
 
 type Item = Record<string, unknown>;
@@ -90,12 +90,13 @@ const customOptions: CompatOptions = {
 /** Any OpenAI-compatible server through its Chat Completions endpoint, with the user's own key. */
 export class CompatModel implements Model {
   constructor(
-    private configuration: () => Promise<CustomModel | undefined>,
+    /** For the turn's pinned model, when one provider serves several. */
+    private configuration: (pin?: TurnPin) => Promise<CustomModel | undefined>,
     private request: typeof fetch = fetch.bind(globalThis),
     private options: CompatOptions = customOptions,
   ) {}
   async next(request: ModelRequest, signal: AbortSignal): Promise<ModelStep> {
-    const config = await this.configuration();
+    const config = await this.configuration(request.pin);
     if (!config) throw new SignInRequired(this.options.setUp);
     const { tools, names } = await encodeTools(request.definitions, (name, definition) => ({
       type: 'function',

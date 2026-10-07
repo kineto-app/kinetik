@@ -125,17 +125,18 @@ test('someone who never saw where Kinetik messages go is told once, before the f
   await expect(page.locator('#setup-served-consent')).toContainText(
     "Your messages and files go to the service's servers and its AI provider to get replies.",
   );
-  // Closing without agreeing sends nothing.
-  await page.keyboard.press('Escape');
+  // Declining sends nothing.
+  await page.getByRole('button', { name: 'Not now' }).click();
+  await expect(page.locator('#connection-setup')).not.toBeVisible();
   expect((await chats(page)).filter((r) => r.path === 'chat/completions')).toHaveLength(0);
   await page.getByRole('button', { name: 'Send', exact: true }).click();
   await page.getByRole('button', { name: 'Agree and continue' }).click();
   await expect(page.locator('[data-role=assistant]').last()).toContainText('Hello from Kinetik.');
   await send(page, 'Again');
-  await expect(page.locator('[data-role=assistant]').last()).toHaveCount(1);
+  await expect(page.locator('[data-role=assistant]')).toHaveCount(2);
   await expect(page.locator('#connection-setup')).not.toBeVisible();
   await page.reload();
   await send(page, 'After a restart');
+  await expect(page.locator('[data-role=assistant]')).toHaveCount(3);
   await expect(page.locator('#connection-setup')).not.toBeVisible();
-  await expect(page.locator('[data-role=assistant]').last()).toContainText('Hello from Kinetik.');
 });

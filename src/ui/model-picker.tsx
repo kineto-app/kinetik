@@ -95,7 +95,7 @@ export function ModelPicker(props: {
     setSaving(true);
     setError('');
     try {
-      await rpc('customModel', { action: 'choose', use: false });
+      await chooseChatGPT();
       if (model !== selected()) await rpc('chatgpt', { action: 'model', model });
       setSelected(model);
       setServed((value) => ({ ...value, choice: 'chatgpt' }));
@@ -109,11 +109,19 @@ export function ModelPicker(props: {
     // The connection decides the effective level (GPT-6.1 Sol defaults to medium); read it back.
     await load();
   }
+  /** Remembered as a choice; a worker from an earlier version only knows the custom model's. */
+  async function chooseChatGPT() {
+    await rpc('models', { action: 'choose', provider: 'chatgpt' }).catch(() =>
+      rpc('customModel', { action: 'choose', use: false }),
+    );
+    setCustom((value) => ({ ...value, chosen: false }));
+  }
   async function chooseCustom(use: boolean) {
     setSaving(true);
     setError('');
     try {
-      setCustom(await rpc<CustomModelState>('customModel', { action: 'choose', use }));
+      if (use) setCustom(await rpc<CustomModelState>('customModel', { action: 'choose', use }));
+      else await chooseChatGPT();
       setServed((value) => ({ ...value, choice: use ? 'custom' : 'chatgpt' }));
       setOpen(false);
       await props.onSelected();

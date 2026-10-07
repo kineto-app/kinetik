@@ -100,7 +100,7 @@ export function setupConnections(changed: (state: SetupState) => void) {
           </div>
 
         </div>
-        <div id="setup-consent" hidden><p id="setup-served-consent" class="setup-consent"><span></span> <a class="setup-privacy" target="_blank" rel="noopener noreferrer" hidden>Privacy</a></p><button id="setup-agree" class="primary setup-primary">Agree and continue ${icon('chevron')}</button></div>
+        <div id="setup-consent" hidden><p id="setup-served-consent" class="setup-consent"><span></span> <a class="setup-privacy" target="_blank" rel="noopener noreferrer" hidden>Privacy</a></p><button id="setup-agree" class="primary setup-primary">Agree and continue ${icon('chevron')}</button><button id="setup-not-now" class="setup-quiet">Not now</button></div>
         <div id="setup-ready" hidden><div class="setup-ready-list"><p id="setup-charms-ready">${icon('check')}<span>Charms</span><strong>Connected</strong></p><p>${icon('check')}<span>ChatGPT</span><strong>Connected</strong></p></div><button id="setup-start" class="primary setup-primary">Start chatting ${icon('chevron')}</button></div>
         <p id="setup-progress" class="setup-hint" role="status"></p><button id="setup-cancel-signin" class="setup-quiet" hidden>Cancel sign-in</button>
         <p id="setup-error" class="setup-error" role="alert" hidden></p>
@@ -388,10 +388,13 @@ export function setupConnections(changed: (state: SetupState) => void) {
   $('agree').onclick = () =>
     void run(async () => {
       await rpc('models', { action: 'consent' });
+      await refresh().catch(() => {});
       answerConsent?.(true);
       answerConsent = undefined;
       close();
     }, 'Saving…');
+  // Declining sends nothing; touch devices have no Escape key to close with.
+  $('not-now').onclick = () => dialog.close();
   dialog.addEventListener('close', () => {
     answerConsent?.(false);
     answerConsent = undefined;

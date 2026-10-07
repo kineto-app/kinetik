@@ -1,5 +1,6 @@
 import {
   ConnectionError,
+  ConsentRequired,
   ModelFailure,
   OutOfCredits,
   RateLimited,
@@ -58,14 +59,18 @@ export class ConnectionModels implements ModelProvider {
     private request: typeof fetch = (input, init) => fetch(input, init),
   ) {
     this.model = new CompatModel(
-      async () => {
+      async (pin) => {
         const token = await connection.token();
         if (!token) throw new SignInRequired(this.signIn());
-        const model = await this.chosen();
+        // Every way a turn starts (a message, a routine, Try again) passes here.
+        if (!(await this.consented()))
+          throw new ConsentRequired(`Agree to where messages to ${this.name} go to continue.`);
+        const model =
+          (await this.list()).find((served) => served.id === pin?.model) ?? (await this.chosen());
         return {
           baseUrl: this.base,
           apiKey: token,
-          model: model?.id ?? '',
+          model: model?.id ?? pin?.model ?? '',
           images: model?.images,
           contextWindow: model?.contextWindow,
         };

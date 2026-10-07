@@ -51,7 +51,7 @@ beforeEach(() => {
 });
 
 /** Charms set up as the app sets it up, signed in when `token` is given. */
-async function setup(token?: string) {
+async function setup(token?: string, agreed = true) {
   const base = new URL(origin + '/app/');
   const config = parseConfiguration(
     {
@@ -89,6 +89,7 @@ async function setup(token?: string) {
     ]);
     await store.put('connection:charms', { preset: config.connections.charms });
     await store.put<Credential>(credentialKey('charms'), { token, revision: 'r1', ready: true });
+    if (agreed) await store.put('connection-consent:charms', true);
   }
   const chatgpt: Model = { next: async () => ({ type: 'text', text: 'From ChatGPT' }) };
   const router = new ModelRouter(
@@ -126,7 +127,11 @@ test('a manifest declares models only as a path on its connection’s origin', a
 test('models are offered once the server lists them, and an empty list switches them off', async () => {
   const signedOut = await setup();
   // Before sign-in the app asks without a token, and not again for a while whatever it hears.
-  expect((await signedOut.connections.state()).models).toEqual({ name: 'Kinetik', offered: true });
+  expect((await signedOut.connections.state()).models).toEqual({
+    name: 'Kinetik',
+    offered: true,
+    consented: false,
+  });
   expect(servedRequests).toEqual([{ path: 'models', auth: undefined }]);
   await signedOut.connections.state();
   await (await signedOut.connections.modelProvider())!.refresh(true);
@@ -271,6 +276,9 @@ test('a chosen model is remembered, and ChatGPT once signed in is the default ot
   expect((await router.pin()).provider).toBe('chatgpt');
   signedIn = false;
   expect((await router.pin()).provider).toBe('charms');
+  // ChatGPT chosen on purpose stays chosen while signed out: it asks to sign in again.
+  await store.put('model-choice', 'chatgpt');
+  expect((await router.pin()).provider).toBe('chatgpt');
   // Switched off on the server: new chats go back to ChatGPT, which asks to sign in.
   served.mode = 'off';
   await models.refresh(true);
@@ -312,11 +320,24 @@ test('photos and the context size follow what the server lists, with defaults wh
   expect(user).toContain('cannot view images');
 });
 
-test('where messages go is agreed once per device', async () => {
-  const { connections } = await setup('token-' + crypto.randomUUID());
+test('where messages go is agreed once per device, and no turn reaches the model before', async () => {
+  const { connections, runtime, store } = await setup('token-' + crypto.randomUUID(), false);
   const models = (await connections.modelProvider())!;
-  expect(await models.consented()).toBe(false);
+  await connections.state();
+  expect((await connections.state()).models?.consented).toBe(false);
+  // A turn started any way, as a routine starts one, waits instead of sending.
+  const c = await runtime.create();
+  await runtime.submit(c.id, 'Hello');
+  await runtime.run(c.id);
+  expect(await loadChat(store, c.id)).toMatchObject({ status: 'waiting', waitingFor: 'signin' });
+  expect(servedRequests.filter((r: { path: string }) => r.path === 'chat/completions')).toEqual([]);
   await models.consent();
+  expect((await connections.state()).models?.consented).toBe(true);
   expect(await (await setup()).connections.modelProvider().then((m) => m!.consented())).toBe(false);
-  expect(await models.consented()).toBe(true);
+  await runtime.recover();
+  await runtime.run(c.id);
+  expect((await loadChat(store, c.id))!.messages.at(-1)).toMatchObject({
+    role: 'assistant',
+    text: 'Hello from Kinetik.',
+  });
 });

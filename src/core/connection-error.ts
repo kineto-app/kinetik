@@ -10,6 +10,8 @@ export class RateLimited extends ConnectionError {
     super(message);
   }
 }
+/** The user has not yet been told where messages to this model go; the turn waits for that. */
+export class ConsentRequired extends SignInRequired {}
 /** The account has no credits left for the provider's model. Retrying does not help until it has. */
 export class OutOfCredits extends Error {}
 /** The request no longer fits the model's context or output budget; compaction may help. */

@@ -309,7 +309,8 @@
 #setup-chatgpt {
   margin-top: 24px;
 }
-#setup-back {
+#setup-back,
+#setup-not-now {
   margin-top: 12px;
 }
 .setup-notice {

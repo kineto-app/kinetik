@@ -67,7 +67,7 @@ An optional `app` section tells users about the service behind the build. Every 
 
 Addresses must be absolute HTTPS without credentials, query strings or fragments. `supportEmail` must be a plain address, and names are at most 60 characters. An invalid section fails configuration loading like an invalid connection.
 
-The bundled Charms adapter declares [models](plugins.md#model-providers) at `/api/kinetik/v1` on the origin of the connection's `url`. A server that does not offer them answers there with an error or an empty list, and the app goes on without them.
+The bundled Charms adapter declares [models](plugins.md#model-providers) at `/api/kinetik/v1` on the origin of the connection's `url`. A server that does not offer them answers there with an error or an empty list, and the app goes on without them. When `url` is a same-origin relay, that origin is the app's, so the relay's host must route `/api/kinetik/v1` too; those requests carry the connection's token.
 
 Every MCP request to the configured connection carries `X-Client-Platform`: `web` (installed web apps included), `ios`, `android`, `macos`, `windows` or `linux`. A native app that cannot tell its operating system leaves the header out. Its CORS policy must allow that header. Sign-in and file upload requests do not carry it.
 

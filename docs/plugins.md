@@ -98,7 +98,9 @@ The app talks to them with the same OpenAI-compatible Chat Completions client it
 - `POST <path>/chat/completions` streams each turn with `model` set to the chosen id. No reasoning level is sent.
 - Errors are `{"error":{"code":"…","message":"…"}}`. `invalid_token` asks the user to sign in to the connection again; any other `401` or `403` ends the turn. `402` or `insufficient_credits` ends the turn with an out-of-credits notice. `403` with `provider_disabled` switches the models off. `429` waits as long as `Retry-After` says, then sends again. `context_length_exceeded` summarises earlier messages and retries once, as for any model. `502` is retried like a dropped connection.
 
-The menu lists these models next to ChatGPT's and the custom model, and remembers the choice on the device. With ChatGPT signed in and nothing chosen, new chats use ChatGPT; without it, they use the first of these models that is on.
+The menu lists these models next to ChatGPT's and the custom model, and remembers the choice on the device. With ChatGPT signed in and nothing chosen, new chats use ChatGPT; without it, they use the first of these models that is on. ChatGPT chosen in the menu stays chosen when it signs out: new chats ask to sign in again rather than move to these models.
+
+Nothing goes to these models from a device until its user has been told where messages to them go (the consent line in [the deployment configuration](deployment.md#app-details)). Until then, any turn for them, a routine's too, waits and asks.
 
 Only the managed Charms connection signs in with a token today, so only its declaration is used. It is read from the adapter that comes with the app, so a Charms installation made by an earlier version offers the models without an update.
 

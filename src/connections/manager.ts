@@ -40,7 +40,7 @@ export interface SetupState {
   installation: { required: boolean };
   charms: ConnectionState;
   /** Models the connection serves; `offered` once its server lists at least one. */
-  models?: { name: string; offered: boolean };
+  models?: { name: string; offered: boolean; consented: boolean };
   chatgpt: {
     available: boolean;
     connected: boolean;
@@ -204,7 +204,11 @@ export class Connections {
       installation: { required: this.config.installation?.required === true },
       charms: { available: Boolean(preset), status },
       ...(provider && {
-        models: { name: models?.[0]?.name ?? provider.name, offered: Boolean(models?.length) },
+        models: {
+          name: models?.[0]?.name ?? provider.name,
+          offered: Boolean(models?.length),
+          consented: await provider.consented(),
+        },
       }),
       chatgpt: {
         available: Boolean(this.config.chatgpt),

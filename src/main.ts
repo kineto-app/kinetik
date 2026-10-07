@@ -101,6 +101,15 @@ function connectionTurn(c: Conversation) {
   const provider = c.turn?.model?.provider;
   return Boolean(provider && provider !== 'chatgpt' && provider !== 'custom');
 }
+/** A served-model turn waiting until the user agrees to where its messages go. */
+function consentTurn(c: Conversation) {
+  return (
+    c.waitingFor === 'signin' &&
+    connectionTurn(c) &&
+    connectionState?.charms.status === 'connected' &&
+    connectionState.models?.consented === false
+  );
+}
 /** Charms is signed in and its server offers a model, so chatting needs no other connection. */
 function servedModel() {
   return Boolean(connectionState?.models?.offered && connectionState.charms.status === 'connected');
@@ -352,11 +361,14 @@ function render() {
     ? 'Send another message to guide Kinetik as it works.'
     : 'Enter for a new line. Use Send to send your message.';
   byId('connection-wait').hidden = c?.status !== 'waiting';
+  const agree = Boolean(c && consentTurn(c));
   byId('connection-wait-label').textContent =
     c?.waitingFor === 'signin'
       ? apiKeyTurn(c)
         ? 'Check your API key to continue'
-        : 'Sign in to continue'
+        : agree
+          ? 'Agree to where messages go to continue'
+          : 'Sign in to continue'
       : !navigator.onLine
         ? 'Waiting for connection…'
         : c?.waitingFor === 'busy'
@@ -364,7 +376,15 @@ function render() {
           : 'Reconnecting…';
   scheduleReconnect();
   byId('resume-work').textContent =
-    c?.waitingFor === 'signin' ? (apiKeyTurn(c) ? 'Check API key' : 'Sign in') : 'Retry now';
+    c?.waitingFor === 'signin'
+      ? apiKeyTurn(c)
+        ? 'Check API key'
+        : agree
+          ? 'Continue'
+          : 'Sign in'
+      : 'Retry now';
+  // A busy model is asked again when it said; retrying sooner would not be sent.
+  byId('resume-work').hidden = c?.waitingFor === 'busy';
   updateComposer();
   byId('status').dataset.state = c?.status ?? 'idle';
   byId('activity').hidden = !foreground;
@@ -1166,7 +1186,13 @@ byId('resume-work').onclick = () => {
     showSettings('custom');
     void refreshSettingsData().catch(showError);
     openDialog('settings');
-  } else if (c?.waitingFor === 'signin')
+  } else if (c && consentTurn(c))
+    void connectionSetup.askConsent().then(async (agreed) => {
+      if (!agreed) return;
+      await connectionSetup.refresh();
+      await resumeWork();
+    });
+  else if (c?.waitingFor === 'signin')
     connectionSetup.open(connectionTurn(c) ? 'charms' : undefined);
   else void resumeWork();
 };
