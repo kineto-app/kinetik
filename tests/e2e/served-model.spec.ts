@@ -337,14 +337,42 @@ test('ChatGPT chosen and then signed out asks for it again, and the menu can sti
     'true',
   );
   await page.keyboard.press('Escape');
-  await send(page, 'Hello');
-  await expect(page.locator('#connection-wait-label')).toHaveText('Sign in to continue');
-  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  // The header and the empty chat ask for ChatGPT before anything is sent.
+  await expect(page.locator('#connection-status')).toHaveAttribute('title', 'Connect ChatGPT');
+  await page.getByRole('button', { name: 'Connect ChatGPT to start' }).click();
   await expect(page.getByRole('heading', { name: 'Connect ChatGPT' })).toBeVisible();
   await page.keyboard.press('Escape');
+  await send(page, 'Hello');
+  await expect(page.getByRole('heading', { name: 'Connect ChatGPT' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  expect((await chats(page)).filter((r) => r.path === 'chat/completions')).toHaveLength(0);
   await choose('Kinetik');
-  // The waiting chat keeps ChatGPT; a new one uses Kinetik.
-  await page.locator('#top-new-chat').click();
-  await send(page, 'Hello from a new chat');
+  await expect(page.locator('#connection-status')).toBeHidden();
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
   await expect(page.locator('[data-role=assistant]').last()).toContainText('Hello from Kinetik.');
+});
+
+test('leaving ChatGPT sign-in started from the menu leaves the current choice', async ({
+  page,
+}) => {
+  await page.request.get(fixture + 'served/mode?value=on');
+  await connectBoth(page);
+  const menu = page.getByRole('dialog', { name: 'Model and reasoning' });
+  await page.getByRole('button', { name: /^Choose model/ }).click();
+  await menu.getByRole('button', { name: 'Kinetik' }).click();
+  await page.request.get(base + 'connections/chatgpt/logout');
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await page.getByRole('button', { name: /^Choose model/ }).click();
+  await menu.getByRole('button', { name: 'Sign in to ChatGPT' }).click();
+  await expect(page.getByRole('heading', { name: 'Connect ChatGPT' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  // ChatGPT is connected later some other way: Kinetik stays chosen.
+  await page.request.post(base + 'connections/chatgpt/callback', { data: {} });
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await page.getByRole('button', { name: /^Choose model/ }).click();
+  await expect(menu.getByRole('button', { name: 'Kinetik' })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await expect(menu.getByRole('button', { name: 'ChatGPT' })).toBeVisible();
 });

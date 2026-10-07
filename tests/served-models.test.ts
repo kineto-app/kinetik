@@ -279,6 +279,7 @@ test('a chosen model is remembered, and ChatGPT once signed in is the default ot
   // ChatGPT chosen on purpose stays chosen while signed out: it asks to sign in again.
   await store.put('model-choice', 'chatgpt');
   expect((await router.pin()).provider).toBe('chatgpt');
+  expect((await connections.state()).chatgpt.chosen).toBe(true);
   // Switched off on the server: new chats go back to ChatGPT, which asks to sign in.
   served.mode = 'off';
   await models.refresh(true);

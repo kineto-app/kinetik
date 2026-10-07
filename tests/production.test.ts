@@ -50,6 +50,8 @@ test('a window from another build is told to reload instead of being served', as
   const ask = (data: Record<string, unknown>) =>
     new Promise<{ ok: boolean; error?: string }>((resolve) => void host.handle(data, resolve));
   expect(await ask({ op: 'state' })).toEqual({ ok: false, error: reloadHint });
+  // A window from before model choices, consent and credit actions is asked to reload.
+  expect(await ask({ op: 'state', protocol: 1 })).toEqual({ ok: false, error: reloadHint });
   expect(await ask({ op: 'state', protocol: protocolVersion + 1 })).toEqual({
     ok: false,
     error: reloadHint,

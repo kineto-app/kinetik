@@ -126,10 +126,21 @@ function servedModel() {
 function signInFirst() {
   return Boolean(connectionState?.charms.available && connectionState.models?.offered);
 }
+/** ChatGPT was chosen on purpose and is signed out, so new chats wait for it. */
+function chatgptSignedOut() {
+  const chatgpt = connectionState?.chatgpt;
+  return Boolean(chatgpt?.available && chatgpt.chosen && !chatgpt.connected);
+}
+/** The setup step that asking to sign in opens: ChatGPT's when it is the one chosen. */
+function signInStep() {
+  return chatgptSignedOut() ? ('chatgpt' as const) : undefined;
+}
 /** Chatting needs a sign-in first: ChatGPT, or either one where Charms serves a model. */
 function needsSignIn() {
   const value = connectionState;
-  if (!value || customModel().chosen || servedModel()) return false;
+  if (!value || customModel().chosen) return false;
+  if (chatgptSignedOut()) return true;
+  if (servedModel()) return false;
   if (signInFirst()) return !value.chatgpt.connected;
   return value.chatgpt.available && !value.chatgpt.connected;
 }
@@ -463,8 +474,10 @@ function render() {
         if (needsSignIn())
           note.append(
             button(
-              signInFirst() ? 'Sign in to start' : 'Connect ChatGPT to start',
-              () => openSetup(),
+              signInFirst() && !chatgptSignedOut()
+                ? 'Sign in to start'
+                : 'Connect ChatGPT to start',
+              () => openSetup(signInStep()),
               'primary connect-start',
             ),
           );
@@ -702,7 +715,7 @@ byId('composer').onsubmit = (event) => {
       if ((connectionState?.chatgpt.available || signInFirst()) && !customModel().chosen) {
         await connectionSetup.refresh();
         if (needsSignIn()) {
-          connectionSetup.open();
+          connectionSetup.open(signInStep());
           return;
         }
       }
@@ -710,9 +723,8 @@ byId('composer').onsubmit = (event) => {
       const served = await rpc<{ choice: string; consented: boolean; providers: { id: string }[] }>(
         'models',
         { action: 'state' },
-      ).catch(() => undefined);
+      );
       if (
-        served &&
         !served.consented &&
         served.providers.some((provider) => provider.id === served.choice) &&
         !(await connectionSetup.askConsent())
@@ -957,9 +969,7 @@ window.addEventListener('kinetik-use-chatgpt', (event) => {
     // Not connected: its sign-in, which makes ChatGPT the choice once it succeeds.
     if (!connectionState?.chatgpt.connected)
       return void window.dispatchEvent(new Event('kinetik-connect-chatgpt'));
-    await rpc('models', { action: 'choose', provider: 'chatgpt' }).catch(() =>
-      rpc('customModel', { action: 'choose', use: false }),
-    );
+    await rpc('models', { action: 'choose', provider: 'chatgpt' });
     window.dispatchEvent(new Event('kinetik-model-changed'));
     window.dispatchEvent(new CustomEvent('kinetik-retry', { detail: id }));
   })()
@@ -1119,7 +1129,7 @@ const connectionSetup = setupConnections((value) => {
   byId('connection-status').innerHTML =
     icon('plug') + `<span>${needsSignIn() ? 'Connect' : 'Reconnect'}</span>`;
   byId('connection-status').title = needsSignIn()
-    ? signInFirst()
+    ? signInFirst() && !chatgptSignedOut()
       ? 'Sign in'
       : 'Connect ChatGPT'
     : 'Reconnect Charms';
@@ -1163,6 +1173,11 @@ window.addEventListener('kinetik-connect-chatgpt', () => {
   preferChatGPT = true;
   openSetup('chatgpt');
 });
+// Leaving that sign-in without connecting drops the wish, so a later connection elsewhere does not
+// replace a choice made in between.
+byId('connection-setup').addEventListener('close', () => {
+  if (!connectionState?.chatgpt.connected) preferChatGPT = false;
+});
 function openSetup(step?: 'charms' | 'chatgpt') {
   for (const dialog of document.querySelectorAll<HTMLDialogElement>('dialog:modal')) dialog.close();
   connectionSetup.open(step);
@@ -1172,7 +1187,7 @@ byId('connections-open').onclick = () => {
   // Guided setup only while something is missing; a connection turned off on purpose is not.
   if (needsSignIn()) {
     closeDrawer(false);
-    connectionSetup.open();
+    connectionSetup.open(signInStep());
     return;
   }
   if (value?.charms.available && ['not-connected', 'reconnect'].includes(value.charms.status)) {
@@ -1184,7 +1199,7 @@ byId('connections-open').onclick = () => {
   openDialog('settings');
 };
 // The header asks for ChatGPT only while chatting needs it; otherwise Charms needs signing in again.
-byId('connection-status').onclick = () => openSetup(needsSignIn() ? undefined : 'charms');
+byId('connection-status').onclick = () => openSetup(needsSignIn() ? signInStep() : 'charms');
 setSettingsActions({
   connect: (kind) => openSetup(kind),
   async enable(id, enabled) {
