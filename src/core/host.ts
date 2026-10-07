@@ -28,6 +28,7 @@ export interface HostReply {
 export class RuntimeHost {
   runtime!: Runtime;
   connections!: Connections;
+  router!: ModelRouter;
   private initialized?: Promise<void>;
   /** Platform alert for finished work; the runtime decides when to call it. */
   notify: Runtime['notify'] = async () => {};
@@ -66,15 +67,7 @@ export class RuntimeHost {
       : helper
         ? new OpenAIModel(
             async () => {
-              const response = await fetch(new URL('status', helper), {
-                cache: 'no-store',
-                signal: AbortSignal.timeout(5000),
-              });
-              if (response.status >= 500 || [408, 429].includes(response.status))
-                throw new ConnectionError('The model connection is unavailable.');
-              if (!response.ok)
-                throw new SignInRequired('Connect ChatGPT in Connections to continue.');
-              const status = await response.json();
+              const status = await helperStatus(helper);
               if (!status.connected)
                 throw new SignInRequired('Connect ChatGPT in Connections to continue.');
               return { account: status.account ?? 'default', model: status.model };
@@ -82,29 +75,42 @@ export class RuntimeHost {
             httpTransport(new URL('responses', helper).href),
           )
         : undefined;
-    const runtime = new Runtime(
+    // Created below; the router asks it for the models its connection serves.
+    let connections: Connections | undefined;
+    const router = new ModelRouter(
       store,
-      this.changed,
-      new ModelRouter(
-        store,
-        provider('chatgpt', chatgptModel ?? new MockModel(), async () =>
+      {
+        ...provider('chatgpt', chatgptModel ?? new MockModel(), async () =>
           chatgpt ? chatgpt.turnSettings() : {},
         ),
-        provider(
-          'custom',
-          new CompatModel(
-            async () => (await store.get<CustomModel | null>(customModelKey)) ?? undefined,
-          ),
-          async () => ({ model: (await store.get<CustomModel | null>(customModelKey))?.model }),
+        // Signed in; without ChatGPT here, only the sample model would answer. A helper that
+        // cannot be reached counts as signed in, so the turn waits for it as before.
+        usable: async () =>
+          chatgpt
+            ? (await chatgpt.status()).connected
+            : Boolean(
+                helper &&
+                (await helperStatus(helper).catch(() => ({ connected: true })))?.connected,
+              ),
+      },
+      provider(
+        'custom',
+        new CompatModel(
+          async () => (await store.get<CustomModel | null>(customModelKey)) ?? undefined,
         ),
+        async () => ({ model: (await store.get<CustomModel | null>(customModelKey))?.model }),
       ),
+      // Only while the server lists a model, so nothing else changes when it does not.
+      async () => {
+        const served = await connections?.modelProvider();
+        return served && (await served.list()).length ? [served] : [];
+      },
     );
+    const runtime = new Runtime(store, this.changed, router);
     runtime.notify = async (alert) => {
       if (await store.get<boolean>('notify')) await this.notify(alert);
     };
-    const connections = new Connections(store, runtime.plugins, config, scope, () =>
-      chatgpt!.status(),
-    );
+    connections = new Connections(store, runtime.plugins, config, scope, () => chatgpt!.status());
     if (!capabilities().linkPlugins) {
       // Plugins from a link do not run, including in saved chats and jobs.
       runtime.plugins.allowed = (plugin) => this.fromApp(plugin.source);
@@ -117,6 +123,7 @@ export class RuntimeHost {
     }
     await runtime.recover();
     this.runtime = runtime;
+    this.router = router;
     this.connections = connections;
     this.chatgpt = chatgpt;
   }
@@ -334,6 +341,34 @@ export class RuntimeHost {
         case 'customModel':
           result = await customModelAction(store, data);
           break;
+        case 'models': {
+          // The models a connection serves. ChatGPT and the custom model keep their own actions.
+          const served = await connections.modelProvider();
+          // Chosen on purpose, ChatGPT stays the choice even while it is signed out.
+          if (data.action === 'choose' && data.provider === 'chatgpt')
+            await store.put('model-choice', 'chatgpt');
+          else if (data.action === 'choose') {
+            if (!served || data.provider !== served.id) throw new Error('Unknown model.');
+            await served.choose(string(data.model));
+            await store.put('model-choice', served.id);
+          }
+          if (data.action === 'consent') await served?.consent();
+          // Only the menu's follow-up asks the server and waits; the rest reads the saved list.
+          const models = served
+            ? data.action === 'refresh'
+              ? await served.refresh(true)
+              : await served.current()
+            : [];
+          result = {
+            choice: (await this.router.choice()).id,
+            consented: (await served?.consented()) ?? false,
+            providers:
+              served && (await served.usable())
+                ? [{ id: served.id, models, selected: (await served.chosen())?.id }]
+                : [],
+          };
+          break;
+        }
         case 'memory':
           if (data.text !== undefined) {
             if (typeof data.text !== 'string' || data.text.length > 4000)
@@ -447,6 +482,20 @@ export class RuntimeHost {
     if (!capabilities().linkPlugins && !this.fromApp(source))
       throw new Error('On this device, Kinetik runs only plugins that come with the app.');
   }
+}
+
+/** The sign-in helper's ChatGPT status. */
+async function helperStatus(
+  helper: string,
+): Promise<{ connected?: boolean; account?: string; model: string }> {
+  const response = await fetch(new URL('status', helper), {
+    cache: 'no-store',
+    signal: AbortSignal.timeout(5000),
+  });
+  if (response.status >= 500 || [408, 429].includes(response.status))
+    throw new ConnectionError('The model connection is unavailable.');
+  if (!response.ok) return { connected: false, model: '' };
+  return response.json();
 }
 
 function string(value: unknown): string {

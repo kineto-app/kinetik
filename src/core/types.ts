@@ -131,7 +131,8 @@ export interface Conversation {
   pending: string[];
   attachments?: StagedAttachment[];
   status: RunStatus;
-  waitingFor?: 'connection' | 'signin';
+  /** `busy`: the provider asked to wait before the next request. */
+  waitingFor?: 'connection' | 'signin' | 'busy';
   retryAt?: number;
   retryAttempts?: number;
   /** The work in progress; endTurn clears it. */
@@ -224,6 +225,17 @@ export interface PluginManifest {
   version: string;
   apiVersion: 1;
   entry: string;
+  modelProvider?: ModelProviderDeclaration;
+}
+/**
+ * Models a plugin's sign-in connection serves: an OpenAI-compatible Chat Completions endpoint at
+ * `path` on the connection's origin, reached with the connection's token.
+ */
+export interface ModelProviderDeclaration {
+  /** Shown until the server lists its models. */
+  name: string;
+  /** An absolute path such as `/v1`; `/models` and `/chat/completions` follow it. */
+  path: string;
 }
 export interface InstalledPlugin {
   manifest: PluginManifest;

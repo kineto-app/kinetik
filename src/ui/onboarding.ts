@@ -27,7 +27,10 @@ const laterChosen = () => {
 export function setupConnections(changed: (state: SetupState) => void) {
   let state = initial;
   let busy = false;
-  let screen: 'install' | 'handoff' | 'connected' | 'charms' | 'chatgpt' | 'ready' = 'charms';
+  let screen: 'install' | 'handoff' | 'connected' | 'charms' | 'chatgpt' | 'ready' | 'consent' =
+    'charms';
+  /** Settles the open consent question: agreed, or closed without agreeing. */
+  let answerConsent: ((agreed: boolean) => void) | undefined;
   const installation = setupInstallation(() => {
     renderInstallButtons();
     if (screen === 'install' && dialog.open) go('install', false);
@@ -97,6 +100,7 @@ export function setupConnections(changed: (state: SetupState) => void) {
           </div>
 
         </div>
+        <div id="setup-consent" hidden><p id="setup-served-consent" class="setup-consent"><span></span> <a class="setup-privacy" target="_blank" rel="noopener noreferrer" hidden>Privacy</a></p><button id="setup-agree" class="primary setup-primary">Agree and continue ${icon('chevron')}</button><button id="setup-not-now" class="setup-quiet">Not now</button></div>
         <div id="setup-ready" hidden><div class="setup-ready-list"><p id="setup-charms-ready">${icon('check')}<span>Charms</span><strong>Connected</strong></p><p>${icon('check')}<span>ChatGPT</span><strong>Connected</strong></p></div><button id="setup-start" class="primary setup-primary">Start chatting ${icon('chevron')}</button></div>
         <p id="setup-progress" class="setup-hint" role="status"></p><button id="setup-cancel-signin" class="setup-quiet" hidden>Cancel sign-in</button>
         <p id="setup-error" class="setup-error" role="alert" hidden></p>
@@ -118,12 +122,13 @@ export function setupConnections(changed: (state: SetupState) => void) {
   function go(next: typeof screen, focus = true) {
     screen = next;
     clearError();
-    for (const name of ['install', 'handoff', 'connected', 'charms', 'chatgpt', 'ready'])
+    for (const name of ['install', 'handoff', 'connected', 'charms', 'chatgpt', 'ready', 'consent'])
       $(name).hidden = name !== next;
     dialog.querySelector<HTMLElement>('.setup-steps')!.hidden = [
       'install',
       'handoff',
       'connected',
+      'consent',
     ].includes(next);
     let stepNumber = 0;
     for (const li of dialog.querySelectorAll<HTMLElement>('[data-step]')) {
@@ -138,6 +143,7 @@ export function setupConnections(changed: (state: SetupState) => void) {
       charms: 'Connect Charms',
       chatgpt: 'Connect ChatGPT',
       ready: "You're ready",
+      consent: `Before you chat with ${state.models?.name ?? 'this model'}`,
     }[next];
     $('description').textContent = {
       install: 'Add Kinetik to your Home Screen or Dock.',
@@ -146,9 +152,10 @@ export function setupConnections(changed: (state: SetupState) => void) {
       charms: 'Use your Charms files, tools, and skills.',
       chatgpt: 'Chat using your ChatGPT subscription.',
       ready: '',
+      consent: '',
     }[next];
     $('description').hidden = !$('description').textContent;
-    $('later').hidden = next === 'handoff' || next === 'connected';
+    $('later').hidden = ['handoff', 'connected', 'consent'].includes(next);
     renderInstallButtons();
     $('install-example').hidden = next !== 'install';
     $('chat-example').hidden = ['install', 'handoff', 'connected'].includes(next);
@@ -169,8 +176,15 @@ export function setupConnections(changed: (state: SetupState) => void) {
     );
     consent(
       'charms',
-      `Skills run on ${owner()} servers with the files you share.`,
+      (state.models?.offered
+        ? `Your messages and files go to ${owner()} servers and its AI provider to get replies. `
+        : '') + `Skills run on ${owner()} servers with the files you share.`,
       !state.charms.available,
+    );
+    consent(
+      'served',
+      `Your messages and files go to ${owner()} servers and its AI provider to get replies.`,
+      false,
     );
     $('callback').hidden = !signingIn;
     $('resume-chatgpt').hidden =
@@ -206,7 +220,7 @@ export function setupConnections(changed: (state: SetupState) => void) {
   }
   /** Whose servers: the configured service's name, or a neutral fallback. */
   const owner = () => (state.app.serviceName ? `${state.app.serviceName}'s` : "the service's");
-  function consent(step: 'chatgpt' | 'charms', text: string, hidden: boolean) {
+  function consent(step: 'chatgpt' | 'charms' | 'served', text: string, hidden: boolean) {
     const line = $(`${step}-consent`);
     line.hidden = hidden;
     line.querySelector('span')!.textContent = text;
@@ -282,8 +296,10 @@ export function setupConnections(changed: (state: SetupState) => void) {
             : 'chatgpt',
     );
   }
-  function open() {
-    next();
+  /** Opens on the next missing step, or on `step` when a turn waits for that sign-in. */
+  function open(step?: 'charms' | 'chatgpt') {
+    if (step) go(step);
+    else next();
     if (!dialog.open) dialog.showModal();
     $('title').focus();
   }
@@ -369,6 +385,20 @@ export function setupConnections(changed: (state: SetupState) => void) {
     close();
   };
   $('start').onclick = close;
+  $('agree').onclick = () =>
+    void run(async () => {
+      await rpc('models', { action: 'consent' });
+      await refresh().catch(() => {});
+      answerConsent?.(true);
+      answerConsent = undefined;
+      close();
+    }, 'Saving…');
+  // Declining sends nothing; touch devices have no Escape key to close with.
+  $('not-now').onclick = () => dialog.close();
+  dialog.addEventListener('close', () => {
+    answerConsent?.(false);
+    answerConsent = undefined;
+  });
   dialog.addEventListener('cancel', (event) => {
     if (screen === 'handoff' || screen === 'connected') {
       event.preventDefault();
@@ -392,6 +422,8 @@ export function setupConnections(changed: (state: SetupState) => void) {
     }, 'Copying return link…');
   $('connect-charms').onclick = () => {
     if (busy) return;
+    // The step showed where messages to the served model go; continuing agrees to it.
+    if (state.models?.offered) void rpc('models', { action: 'consent' }).catch(() => {});
     const tab =
       !isNative && !['connected', 'disabled'].includes(state.charms.status)
         ? window.open('about:blank', '_blank')
@@ -534,6 +566,16 @@ export function setupConnections(changed: (state: SetupState) => void) {
     open,
     install,
     refresh,
+    /** Shows once where messages to the model Charms serves go; true once the user agrees. */
+    askConsent() {
+      answerConsent?.(false);
+      return new Promise<boolean>((resolve) => {
+        answerConsent = resolve;
+        go('consent');
+        if (!dialog.open) dialog.showModal();
+        $('title').focus();
+      });
+    },
     async disconnectCharms() {
       await rpc('connectionDisconnect');
       await refresh();

@@ -4,6 +4,7 @@ import {
   errorText,
   type Binding,
   type InstalledPlugin,
+  type ModelProviderDeclaration,
   type Plugin,
   type PluginManifest,
   type Skill,
@@ -121,6 +122,19 @@ export function validateManifest(value: unknown): PluginManifest {
     throw new Error(
       'Invalid plugin manifest. Expected id, name, version, apiVersion: 1, and a relative .js entry.',
     );
+  if (m.modelProvider !== undefined) {
+    const { name, path } = (m.modelProvider ?? {}) as Partial<ModelProviderDeclaration>;
+    if (
+      typeof name !== 'string' ||
+      !/^[^\p{Cc}]{1,60}$/u.test(name) ||
+      !name.trim() ||
+      typeof path !== 'string' ||
+      !/^(\/[\w.-]+)+$/.test(path) ||
+      path.split('/').some((part) => part === '.' || part === '..')
+    )
+      throw new Error('Invalid model provider. Expected a short name and an absolute path.');
+    m.modelProvider = { name: name.trim(), path };
+  }
   return m;
 }
 export async function digest(text: string): Promise<string> {

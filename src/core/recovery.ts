@@ -3,7 +3,7 @@ import type { Plugins } from '../plugins/loader';
 import { abortable } from './abortable';
 import type { AppCalls } from './apps';
 import type { BackgroundProcess, BackgroundProcesses } from './background';
-import { isConnectionError, SignInRequired } from './connection-error';
+import { isConnectionError, RateLimited, SignInRequired } from './connection-error';
 import { conversationKey as key, type ConversationStore } from './conversation-store';
 import { printable, withOutput } from './model-input';
 import { localReadOnly } from './read-only';
@@ -20,12 +20,20 @@ export function waitForConnection(chats: ConversationStore, id: string, error?: 
       : {
           ...c,
           status: 'waiting',
-          waitingFor: error instanceof SignInRequired ? 'signin' : 'connection',
+          waitingFor:
+            error instanceof SignInRequired
+              ? 'signin'
+              : error instanceof RateLimited
+                ? 'busy'
+                : 'connection',
           retryAttempts: error instanceof SignInRequired ? undefined : (c.retryAttempts ?? 0) + 1,
           retryAt:
             error instanceof SignInRequired
               ? undefined
-              : Date.now() + Math.min(30000, 2000 * 2 ** Math.min(c.retryAttempts ?? 0, 4)),
+              : Date.now() +
+                (error instanceof RateLimited && error.retryAfterMs
+                  ? error.retryAfterMs
+                  : Math.min(30000, 2000 * 2 ** Math.min(c.retryAttempts ?? 0, 4))),
         },
   );
 }
@@ -67,6 +75,9 @@ export async function recoverWork(deps: RecoveryDeps): Promise<void> {
   const local = await deps.localTools();
   for (const c of await deps.conversations()) {
     if (deps.active.has(c.id)) continue;
+    // The provider asked to wait: the request goes again once that time has passed.
+    if (c.status === 'waiting' && c.waitingFor === 'busy' && (c.retryAt ?? 0) > Date.now())
+      continue;
     const call = c.turn?.call;
     if (
       !['running', 'queued', 'waiting'].includes(c.status) &&
