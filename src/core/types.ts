@@ -83,7 +83,8 @@ export type RuntimeEvent =
   | { type: 'changed'; conversationId?: string };
 /** Segment `i` of generation `g` lives at `model-input:<conversation>:<g>:<i>`. */
 export type InputSegments = { generation: string; segments: number };
-export type TurnPin = { provider: 'chatgpt' | 'custom'; model?: string; effort?: string };
+/** The provider (`chatgpt`, `custom`, or another one's id), model and effort a turn keeps. */
+export type TurnPin = { provider: string; model?: string; effort?: string };
 export type RunStatus =
   | 'idle'
   | 'running'

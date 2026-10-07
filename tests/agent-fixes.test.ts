@@ -3,7 +3,7 @@ import { loadChat, updateChat } from './chat';
 import { expect, test, vi } from 'vitest';
 import { Runtime } from '../src/core/runtime';
 import { Store } from '../src/browser/store';
-import { ModelRouter } from '../src/models/router';
+import { ModelRouter, provider } from '../src/models/router';
 import { OpenAIModel } from '../src/models/openai';
 import { schemaVersion } from '../src/core/migrations';
 import type { Model, ModelRequest, ModelStep, ToolDefinition } from '../src/core/types';
@@ -136,7 +136,11 @@ test('bug 3: a turn keeps the ChatGPT model and reasoning level it started with'
         : say('Done');
     },
   };
-  const router = new ModelRouter(store, chatgpt, scripted([]).model, async () => settings);
+  const router = new ModelRouter(
+    store,
+    provider('chatgpt', chatgpt, async () => settings),
+    provider('custom', scripted([]).model),
+  );
   const runtime = new Runtime(store, undefined, router);
   const c = await runtime.create();
   await runtime.submit(c.id, 'Look');
