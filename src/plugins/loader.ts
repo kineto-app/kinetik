@@ -10,6 +10,7 @@ import {
   type SkillSnapshot,
 } from '../core/types';
 import { McpClient } from './mcp';
+import { abortable } from '../core/abortable';
 import { connectionToken, invalidateToken } from '../connections/credentials';
 
 const safeName = /^[a-z][a-z0-9_-]{0,63}$/i;
@@ -270,64 +271,105 @@ export class Plugins {
     }
     return { bindings, sources };
   }
+  /** How long a turn waits for a refresh before it goes on with the skills it already has. */
+  skillsWaitMs = 3_000;
+  private refreshing = new Map<string, Promise<SkillSnapshot>>();
+  /**
+   * One refresh per skill source at a time, shared by every turn that asks for it. It is not tied
+   * to any one turn, so a turn that ends or is stopped does not cancel it for the others.
+   */
+  private refresh(key: string, plugin: Plugin): Promise<SkillSnapshot> {
+    let running = this.refreshing.get(key);
+    if (running) return running;
+    const work = async () => {
+      const cached = await this.store.get<SkillSnapshot>(key);
+      const next = await plugin.skills!.sync(cached, AbortSignal.timeout(60000));
+      if (
+        !next ||
+        typeof next.revision !== 'string' ||
+        !Array.isArray(next.skills) ||
+        next.skills.length > 500
+      )
+        throw new Error('Invalid skill snapshot.');
+      const paths = new Set<string>();
+      for (const skill of next.skills) {
+        if (
+          !skill ||
+          typeof skill.name !== 'string' ||
+          typeof skill.description !== 'string' ||
+          typeof skill.path !== 'string' ||
+          typeof skill.content !== 'string' ||
+          skill.path.startsWith('/') ||
+          skill.path.split('/').includes('..') ||
+          paths.has(skill.path)
+        )
+          throw new Error('Invalid or duplicate skill path.');
+        paths.add(skill.path);
+      }
+      if (JSON.stringify(next).length > 2 * 1024 * 1024)
+        throw new Error('Skill snapshot exceeds 2 MiB.');
+      await this.store.put(key, next);
+      return next;
+    };
+    running = (globalThis.navigator?.locks ? navigator.locks.request(key, work) : work()).finally(
+      () => this.refreshing.delete(key),
+    );
+    this.refreshing.set(key, running);
+    // Nobody may be waiting for it any more by the time it fails.
+    running.catch(() => {});
+    return running;
+  }
+  /**
+   * The skills each source provides for a turn. With skills saved from an earlier refresh, a turn
+   * waits briefly for a newer list and otherwise goes on with the saved one while the refresh
+   * finishes for the next turn. `fresh` waits for the refresh and reports any failure, as
+   * connecting does.
+   */
   async sync(
     sources: { installed: InstalledPlugin; plugin: Plugin }[],
     signal: AbortSignal,
+    fresh = false,
   ): Promise<{ skills: Skill[]; warnings: string[] }> {
     const skills: Skill[] = [];
     const warnings: string[] = [];
     for (const { installed, plugin } of sources) {
       if (!plugin.skills) continue;
       const key = `skills:${installed.manifest.id}:${installed.digest}:${await digest(JSON.stringify(installed.settings))}`;
-      const sync = async () => {
-        let cached = await this.store.get<SkillSnapshot>(key);
-        try {
-          const next = await plugin.skills!.sync(
-            cached,
-            AbortSignal.any([signal, AbortSignal.timeout(cached ? 15000 : 60000)]),
-          );
-          if (
-            !next ||
-            typeof next.revision !== 'string' ||
-            !Array.isArray(next.skills) ||
-            next.skills.length > 500
-          )
-            throw new Error('Invalid skill snapshot.');
-          const paths = new Set<string>();
-          for (const skill of next.skills) {
-            if (
-              !skill ||
-              typeof skill.name !== 'string' ||
-              typeof skill.description !== 'string' ||
-              typeof skill.path !== 'string' ||
-              typeof skill.content !== 'string' ||
-              skill.path.startsWith('/') ||
-              skill.path.split('/').includes('..') ||
-              paths.has(skill.path)
-            )
-              throw new Error('Invalid or duplicate skill path.');
-            paths.add(skill.path);
-          }
-          if (JSON.stringify(next).length > 2 * 1024 * 1024)
-            throw new Error('Skill snapshot exceeds 2 MiB.');
-          await this.store.put(key, next);
-          cached = next;
-        } catch (error) {
-          signal.throwIfAborted();
+      let snapshot = await this.store.get<SkillSnapshot>(key);
+      const refresh = this.refresh(key, plugin);
+      const saved = snapshot;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        snapshot = await abortable(
+          fresh || !saved
+            ? refresh
+            : Promise.race([
+                refresh,
+                new Promise<SkillSnapshot>((resolve) => {
+                  timer = setTimeout(() => resolve(saved), this.skillsWaitMs);
+                }),
+              ]),
+          signal,
+        );
+      } catch (error) {
+        signal.throwIfAborted();
+        if (fresh)
+          warnings.push(`${installed.manifest.name}: skill sync failed. ${errorText(error)}`);
+        // Saved skills keep working, so only a turn that has none is told.
+        else if (!snapshot)
           warnings.push(
-            `${installed.manifest.name}: skill sync failed; ${cached ? 'using cached skills' : 'no cached skills'}. ${errorText(error)}`,
+            `${installed.manifest.name} skills aren’t available for this reply. They load again with your next message.`,
           );
-        }
-        if (cached)
-          skills.push(
-            ...cached.skills.map((s) => ({
-              ...s,
-              path: `skills/${installed.manifest.id}/${s.path}`,
-            })),
-          );
-      };
-      if (globalThis.navigator?.locks) await navigator.locks.request(key, { signal }, sync);
-      else await sync();
+      } finally {
+        clearTimeout(timer);
+      }
+      if (snapshot)
+        skills.push(
+          ...snapshot.skills.map((s) => ({
+            ...s,
+            path: `skills/${installed.manifest.id}/${s.path}`,
+          })),
+        );
     }
     return { skills, warnings };
   }

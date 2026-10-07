@@ -93,7 +93,8 @@ test('install from URL, replace tools, refresh skills, cache on failure, explici
   await expect(page.locator('[data-role="assistant"] .message-content').last()).toHaveText(
     'Revision 2',
   );
-  await expect(page.locator('[data-role="notice"]').last()).toContainText('using cached skills');
+  // Saved skills keep working when a refresh fails, so nothing is reported.
+  await expect(page.locator('[data-role="notice"]', { hasText: 'skill' })).toHaveCount(0);
   await request.post('http://127.0.0.1:4174/control', { data: { fail: false } });
   await rpc(page, 'update', { id: 'fixture' });
   await send(page, '/exec updated');
