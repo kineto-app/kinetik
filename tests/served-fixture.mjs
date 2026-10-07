@@ -52,7 +52,11 @@ export async function servedFixture(req, res, body) {
     if (served.mode === 'disabled') return error(403, 'provider_disabled');
     if (served.mode === 'signed-in-only' && !auth) return error(401, 'invalid_token');
     if (served.mode === 'models-unauthorized') return error(401, 'invalid_token');
-    return json(200, { data: [{ id: 'kinetik', name: 'Kinetik', effort: false }] });
+    const model = { id: 'kinetik', name: 'Kinetik', effort: false };
+    // `bare` answers like a server from before photos and context sizes were listed.
+    return json(200, {
+      data: [served.mode === 'bare' ? model : { ...model, images: true, context_window: 200000 }],
+    });
   }
   if (path !== 'chat/completions' || req.method !== 'POST') return false;
   const request = JSON.parse(await body());

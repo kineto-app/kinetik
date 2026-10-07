@@ -4,18 +4,26 @@ const base = 'http://127.0.0.1:4174/onboarding/';
 const fixture = 'http://127.0.0.1:4174/';
 
 /** Guided setup as it is today: ChatGPT through the sign-in helper, then Charms. */
-async function connectBoth(page: Page, context: BrowserContext) {
+async function connectBoth(
+  page: Page,
+  context: BrowserContext,
+  beforeCharms?: () => Promise<unknown>,
+) {
   await context.route('https://auth.openai.com/**', (route) =>
     route.fulfill({ body: '<h1>ChatGPT sign-in fixture</h1>', contentType: 'text/html' }),
   );
   await page.goto(base + '?connect=charms');
   const popup = page.waitForEvent('popup');
   await page.getByRole('button', { name: 'Agree and continue' }).click();
-  await (await popup).close();
+  // Closed only once sign-in has opened in it, as a person would.
+  const signInPage = await popup;
+  await expect(signInPage.getByRole('heading', { name: 'ChatGPT sign-in fixture' })).toBeVisible();
+  await signInPage.close();
   await page
     .getByLabel('Return link from your browser')
     .fill('http://127.0.0.1:1455/auth/callback?code=fixture&state=fixture');
   await page.getByRole('button', { name: 'Connect ChatGPT', exact: true }).click();
+  await beforeCharms?.();
   const charmsPopup = page.waitForEvent('popup');
   await page.getByRole('button', { name: 'Connect Charms', exact: true }).click();
   const consent = await charmsPopup;
@@ -96,4 +104,38 @@ test('with Charms alone, chats use Kinetik; switched off on the server, ChatGPT 
   );
   await send(page, 'One more');
   await expect(page.getByRole('heading', { name: 'Connect ChatGPT' })).toBeVisible();
+});
+
+test('someone who never saw where Kinetik messages go is told once, before the first one', async ({
+  page,
+  context,
+}) => {
+  // Charms was set up while the server did not offer the model, so its step said nothing about it.
+  await connectBoth(page, context, () => page.request.get(fixture + 'served/mode?value=on'));
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  const menu = page.getByRole('dialog', { name: 'Model and reasoning' });
+  await expect(async () => {
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+    await page.getByRole('button', { name: /^Choose model/ }).click();
+    await expect(menu.getByRole('button', { name: 'Kinetik' })).toBeVisible({ timeout: 1000 });
+  }).toPass();
+  await menu.getByRole('button', { name: 'Kinetik' }).click();
+  await send(page, 'Hello');
+  await expect(page.getByRole('heading', { name: 'Before you chat with Kinetik' })).toBeVisible();
+  await expect(page.locator('#setup-served-consent')).toContainText(
+    "Your messages and files go to the service's servers and its AI provider to get replies.",
+  );
+  // Closing without agreeing sends nothing.
+  await page.keyboard.press('Escape');
+  expect((await chats(page)).filter((r) => r.path === 'chat/completions')).toHaveLength(0);
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await page.getByRole('button', { name: 'Agree and continue' }).click();
+  await expect(page.locator('[data-role=assistant]').last()).toContainText('Hello from Kinetik.');
+  await send(page, 'Again');
+  await expect(page.locator('[data-role=assistant]').last()).toHaveCount(1);
+  await expect(page.locator('#connection-setup')).not.toBeVisible();
+  await page.reload();
+  await send(page, 'After a restart');
+  await expect(page.locator('#connection-setup')).not.toBeVisible();
+  await expect(page.locator('[data-role=assistant]').last()).toContainText('Hello from Kinetik.');
 });

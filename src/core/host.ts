@@ -349,6 +349,7 @@ export class RuntimeHost {
             await served.choose(string(data.model));
             await store.put('model-choice', served.id);
           }
+          if (data.action === 'consent') await served?.consent();
           // Only the menu's follow-up asks the server and waits; the rest reads the saved list.
           const models = served
             ? data.action === 'refresh'
@@ -357,6 +358,7 @@ export class RuntimeHost {
             : [];
           result = {
             choice: (await this.router.choice()).id,
+            consented: (await served?.consented()) ?? false,
             providers:
               served && (await served.usable())
                 ? [{ id: served.id, models, selected: (await served.chosen())?.id }]

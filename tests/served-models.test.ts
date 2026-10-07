@@ -277,3 +277,46 @@ test('a chosen model is remembered, and ChatGPT once signed in is the default ot
   await store.put('model-choice', 'charms');
   expect((await router.pin()).provider).toBe('chatgpt');
 });
+
+test('photos and the context size follow what the server lists, with defaults when it does not say', async () => {
+  const { connections } = await setup('token-' + crypto.randomUUID());
+  const models = (await connections.modelProvider())!;
+  const photo = {
+    role: 'user',
+    content: [
+      { type: 'input_text', text: 'What is this?' },
+      { type: 'input_image', image_url: 'data:image/png;base64,AAAA' },
+    ],
+  };
+  const send = async () => {
+    servedRequests.length = 0;
+    const step = await models.model.next(
+      { message: '', instructions: '', tools: [], history: [photo], pin: { provider: 'charms' } },
+      signal(),
+    );
+    const body = servedRequests.find((r: { path: string }) => r.path === 'chat/completions').body;
+    return { step, user: JSON.stringify(body.messages.at(-1)) };
+  };
+  await models.refresh(true);
+  expect(await models.list()).toEqual([
+    { id: 'kinetik', name: 'Kinetik', images: true, contextWindow: 200000 },
+  ]);
+  let { step, user } = await send();
+  expect(step.contextWindow).toBe(200000);
+  expect(user).toContain('image_url');
+  served.mode = 'bare';
+  await models.refresh(true);
+  ({ step, user } = await send());
+  expect(step.contextWindow).toBe(128000);
+  expect(user).not.toContain('image_url');
+  expect(user).toContain('cannot view images');
+});
+
+test('where messages go is agreed once per device', async () => {
+  const { connections } = await setup('token-' + crypto.randomUUID());
+  const models = (await connections.modelProvider())!;
+  expect(await models.consented()).toBe(false);
+  await models.consent();
+  expect(await (await setup()).connections.modelProvider().then((m) => m!.consented())).toBe(false);
+  expect(await models.consented()).toBe(true);
+});

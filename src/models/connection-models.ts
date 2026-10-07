@@ -15,6 +15,10 @@ import type { ModelProvider } from './router';
 export interface ServedModel {
   id: string;
   name: string;
+  /** Reads photos; without it they are replaced by a note. */
+  images?: boolean;
+  /** Input tokens it takes, for summarising in time; 128k when the server does not say. */
+  contextWindow?: number;
 }
 interface ModelList {
   models: ServedModel[];
@@ -57,7 +61,14 @@ export class ConnectionModels implements ModelProvider {
       async () => {
         const token = await connection.token();
         if (!token) throw new SignInRequired(this.signIn());
-        return { baseUrl: this.base, apiKey: token, model: (await this.chosen())?.id ?? '' };
+        const model = await this.chosen();
+        return {
+          baseUrl: this.base,
+          apiKey: token,
+          model: model?.id ?? '',
+          images: model?.images,
+          contextWindow: model?.contextWindow,
+        };
       },
       (input, init) => this.request(input, init),
       {
@@ -183,6 +194,16 @@ export class ConnectionModels implements ModelProvider {
     const id = await this.store.get<string>('model-choice:' + this.id);
     return models.find((model) => model.id === id) ?? models[0];
   }
+  private get consentKey() {
+    return 'connection-consent:' + this.id;
+  }
+  /** The user was told where messages to these models go, on this device. */
+  async consented(): Promise<boolean> {
+    return (await this.store.get<boolean>(this.consentKey)) === true;
+  }
+  async consent() {
+    await this.store.put(this.consentKey, true);
+  }
   async choose(id: string) {
     if (!(await this.list()).some((model) => model.id === id))
       throw new Error('This model is not available. Choose another.');
@@ -254,13 +275,13 @@ export function retryAfter(value: string | null): number | undefined {
   return Number.isFinite(ms) ? Math.min(600_000, Math.max(1000, ms)) : undefined;
 }
 
-/** `{ data: [{ id, name }] }`; `undefined` when the answer is not a list at all. */
+/** `{ data: [{ id, name, images, context_window }] }`; `undefined` when it is not a list at all. */
 export function parseList(value: unknown): ServedModel[] | undefined {
   const data = (value as { data?: unknown } | undefined)?.data;
   if (!Array.isArray(data)) return undefined;
   return data
     .filter(
-      (item): item is { id: string; name: string } =>
+      (item): item is { id: string; name: string; images?: unknown; context_window?: unknown } =>
         typeof item?.id === 'string' &&
         modelId.test(item.id) &&
         typeof item.name === 'string' &&
@@ -268,5 +289,17 @@ export function parseList(value: unknown): ServedModel[] | undefined {
         Boolean(item.name.trim()),
     )
     .slice(0, 20)
-    .map((item) => ({ id: item.id, name: item.name.trim() }));
+    .map((item) => {
+      const window = item.context_window;
+      return {
+        id: item.id,
+        name: item.name.trim(),
+        ...(item.images === true ? { images: true } : {}),
+        ...(Number.isInteger(window) &&
+        (window as number) >= 1000 &&
+        (window as number) <= 10_000_000
+          ? { contextWindow: window as number }
+          : {}),
+      };
+    });
 }

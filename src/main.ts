@@ -669,6 +669,18 @@ byId('composer').onsubmit = (event) => {
           return;
         }
       }
+      // The first chat with a model Charms serves says once where messages go.
+      const served = await rpc<{ choice: string; consented: boolean; providers: { id: string }[] }>(
+        'models',
+        { action: 'state' },
+      ).catch(() => undefined);
+      if (
+        served &&
+        !served.consented &&
+        served.providers.some((provider) => provider.id === served.choice) &&
+        !(await connectionSetup.askConsent())
+      )
+        return;
       if (!current()) selected = (await rpc<Conversation>('create')).id;
       followNextMessage = true;
       // Sending the same draft again after a failure reuses its id, so it is never posted twice.
